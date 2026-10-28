@@ -1,14 +1,133 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   MapPin, Navigation, Play, Pause, RotateCcw, CheckCircle2, XCircle, Clock,
-  Package, Search, Plus, Trash2, Zap, Download,
+  Package, Search, Plus, Trash2, Download,
   Layers, ChevronRight, Check, AlertCircle,
   Truck, Compass, Crosshair, ExternalLink, Radio, Signal,
   ChevronLeft, Target, UserCheck, Users, UserPlus,
   Shield, PenTool, Phone, Map, Send, RefreshCw, ArrowDownUp, Edit3,
   Copy, Link, LogOut, User, Building, QrCode, Smartphone,
-  CheckCircle, ArrowRight, Eye, Key, Share2, Layers as LayersIcon
+  CheckCircle, ArrowRight, Eye, Key, Share2, Layers as LayersIcon, ArrowUp, ArrowDown
 } from 'lucide-react';
+
+function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, id }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    const query = value.trim();
+    if (query.length < 2 || !isOpen) return undefined;
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setIsLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams({
+          q: query,
+          limit: '5',
+          lat: '6.5244',
+          lon: '3.3792'
+        });
+        const response = await fetch(`https://photon.komoot.io/api/?${params}`, {
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error(`Address lookup failed (${response.status}).`);
+        const data = await response.json();
+        setSuggestions(data.features || []);
+      } catch (lookupError) {
+        if (!controller.signal.aborted) {
+          console.error('Address suggestion lookup error:', lookupError);
+          setSuggestions([]);
+          setError('Address suggestions are unavailable right now.');
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [value, isOpen]);
+
+  const getSuggestionLabel = (feature) => {
+    const properties = feature.properties;
+    const parts = [
+      properties.name,
+      properties.housenumber,
+      properties.street,
+      properties.district,
+      properties.city,
+      properties.county,
+      properties.state,
+      properties.country
+    ].filter(Boolean);
+    return parts.filter((part, index) => parts.indexOf(part) === index).join(', ');
+  };
+
+  return (
+    <div className="relative min-w-0 flex-1">
+      <input
+        id={id}
+        type="text"
+        value={value}
+        onFocus={() => setIsOpen(true)}
+        onBlur={() => window.setTimeout(() => setIsOpen(false), 150)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setSuggestions([]);
+          setIsLoading(false);
+          setError('');
+          setIsOpen(true);
+        }}
+        placeholder={placeholder}
+        autoComplete="off"
+        aria-autocomplete="list"
+        aria-expanded={isOpen && suggestions.length > 0}
+        className={inputClassName}
+      />
+      {isOpen && (isLoading || error || suggestions.length > 0 || value.trim().length >= 2) && (
+        <div className="absolute z-30 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
+          {isLoading && <p className="px-3 py-2 text-[10px] text-slate-400">Searching addresses...</p>}
+          {error && <p className="px-3 py-2 text-[10px] text-rose-300">{error}</p>}
+          {suggestions.map((feature, index) => {
+            const label = getSuggestionLabel(feature);
+            return (
+              <button
+                key={`${feature.properties.osm_type}-${feature.properties.osm_id}-${index}`}
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  const [lng, lat] = feature.geometry.coordinates;
+                  onSelect(label, { lat, lng });
+                  setIsOpen(false);
+                }}
+                className="block w-full border-b border-slate-800 px-3 py-2 text-left text-[11px] text-slate-200 last:border-0 hover:bg-slate-800"
+              >
+                <span className="flex items-start gap-2">
+                  <MapPin className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
+                  <span>{label}</span>
+                </span>
+              </button>
+            );
+          })}
+          {!isLoading && !error && suggestions.length === 0 && value.trim().length >= 2 && (
+            <p className="px-3 py-2 text-[10px] text-slate-400">No matching addresses found.</p>
+          )}
+          {suggestions.length > 0 && (
+            <p className="px-3 py-1 text-[9px] text-slate-500">
+              Address data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="underline">OpenStreetMap contributors</a>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // --- LOCAL STORAGE KEYS ---
 const STORAGE_KEYS = {
@@ -18,74 +137,58 @@ const STORAGE_KEYS = {
   STOPS: 'lagos_circuit_stops'
 };
 
-// --- DEMO INITIAL DATA ---
-const DEMO_ORGANIZATION = "Lagos Express Logistics";
+const PASSWORD_HASH_ITERATIONS = 600000;
+const DEMO_USER_IDS = new Set(['user_admin_1', 'drv_1', 'drv_2', 'drv_3']);
+const DEMO_USER_EMAILS = new Set([
+  'admin@lagosexpress.com',
+  'tunde@lagosexpress.com',
+  'chidi@lagosexpress.com',
+  'amina@lagosexpress.com'
+]);
+const DEMO_STOP_IDS = new Set(['l1', 'l2', 'l3', 'l4', 'l5', 'l6']);
 
-const DEMO_USERS = [
-  {
-    id: 'user_admin_1',
-    email: 'admin@lagosexpress.com',
-    password: 'password123',
-    name: 'Chief Dispatcher Alabi',
-    role: 'ADMIN',
-    orgName: DEMO_ORGANIZATION,
-    phone: '+234 801 999 8888'
-  },
-  {
-    id: 'drv_1',
-    email: 'tunde@lagosexpress.com',
-    password: 'password123',
-    name: 'Tunde Bakare',
-    role: 'DRIVER',
-    orgName: DEMO_ORGANIZATION,
-    zone: 'Lekki / Victoria Island Corridor',
-    vehicle: 'Toyota HiAce - KJA-482XY',
-    phone: '+234 802 345 6789',
-    status: 'ACTIVE',
-    lat: 6.4474,
-    lng: 3.4723,
-    speed: 28
-  },
-  {
-    id: 'drv_2',
-    email: 'chidi@lagosexpress.com',
-    password: 'password123',
-    name: 'Chidi Okonkwo',
-    role: 'DRIVER',
-    orgName: DEMO_ORGANIZATION,
-    zone: 'Mainland Express (Yaba / Surulere)',
-    vehicle: 'Suzuki Mini Bus - LSR-912AB',
-    phone: '+234 803 987 6543',
-    status: 'ACTIVE',
-    lat: 6.5095,
-    lng: 3.3711,
-    speed: 0
-  },
-  {
-    id: 'drv_3',
-    email: 'amina@lagosexpress.com',
-    password: 'password123',
-    name: 'Amina Bello',
-    role: 'DRIVER',
-    orgName: DEMO_ORGANIZATION,
-    zone: 'Ikeja / Maryland Circuit',
-    vehicle: 'Hyundai Van - APP-304ZZ',
-    phone: '+234 811 222 3344',
-    status: 'ACTIVE',
-    lat: 6.6139,
-    lng: 3.3582,
-    speed: 42
+function stripPasswordFields(user) {
+  return Object.fromEntries(
+    Object.entries(user).filter(([key]) => !['password', 'passwordHash', 'passwordSalt'].includes(key))
+  );
+}
+
+function stripLegacyPassword(user) {
+  return Object.fromEntries(Object.entries(user).filter(([key]) => key !== 'password'));
+}
+
+function toHex(bytes) {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function createPasswordCredential(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PASSWORD_HASH_ITERATIONS },
+    key,
+    256
+  );
+  return { passwordSalt: toHex(salt), passwordHash: toHex(new Uint8Array(bits)) };
+}
+
+async function verifyPassword(password, user) {
+  if (!/^[\da-f]{32}$/i.test(user.passwordSalt || '') || !/^[\da-f]{64}$/i.test(user.passwordHash || '')) return false;
+  const salt = Uint8Array.from(user.passwordSalt.match(/.{2}/g) || [], byte => parseInt(byte, 16));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PASSWORD_HASH_ITERATIONS },
+    key,
+    256
+  );
+  const actualHash = new Uint8Array(bits);
+  const expectedHash = Uint8Array.from(user.passwordHash.match(/.{2}/g), byte => parseInt(byte, 16));
+  let mismatch = 0;
+  for (let index = 0; index < actualHash.length; index += 1) {
+    mismatch |= actualHash[index] ^ expectedHash[index];
   }
-];
-
-const DEMO_STOPS = [
-  { id: 'l1', name: 'Ikeja City Mall (ICM)', address: 'Obafemi Awolowo Way, Ikeja', priority: 'HIGH', timeWindow: '08:30 - 10:30', duration: 15, packages: 5, phone: '+234 801 111 2222', notes: 'Deliver to loading bay at back', lat: 6.6139, lng: 3.3582, status: 'PENDING', assignedDriverId: 'drv_3' },
-  { id: 'l2', name: 'Maryland Mall', address: 'Ikorodu Road, Maryland, Lagos', priority: 'NORMAL', timeWindow: '10:00 - 12:00', duration: 10, packages: 2, phone: '+234 802 222 3333', notes: 'Ground floor retail unit', lat: 6.5683, lng: 3.3688, status: 'PENDING', assignedDriverId: 'drv_3' },
-  { id: 'l3', name: 'Yaba Tech Tech-Hub', address: 'Herbert Macaulay Way, Yaba', priority: 'URGENT', timeWindow: '09:00 - 11:30', duration: 20, packages: 4, phone: '+234 803 333 4444', notes: 'Urgent hardware delivery to 2nd floor', lat: 6.5095, lng: 3.3711, status: 'IN_TRANSIT', assignedDriverId: 'drv_2' },
-  { id: 'l4', name: 'Ikoyi Golf Club & Residences', address: 'Alfred Rewane Rd, Ikoyi, Lagos', priority: 'NORMAL', timeWindow: '12:00 - 14:00', duration: 12, packages: 3, phone: '+234 804 444 5555', notes: 'Security check at main gate', lat: 6.4520, lng: 3.4280, status: 'PENDING', assignedDriverId: 'drv_1' },
-  { id: 'l5', name: 'Eko Hotels & Suites VI', address: 'Adetokunbo Ademola St, VI', priority: 'HIGH', timeWindow: '13:00 - 15:30', duration: 15, packages: 6, phone: '+234 805 555 6666', notes: 'Call receptionist on arrival', lat: 6.4261, lng: 3.4302, status: 'PENDING', assignedDriverId: 'drv_1' },
-  { id: 'l6', name: 'Lekki Phase 1 Plaza', address: 'Admiralty Way, Lekki Phase 1', priority: 'NORMAL', timeWindow: '14:30 - 17:00', duration: 10, packages: 2, phone: '+234 806 666 7777', notes: 'Drop off at customer desk', lat: 6.4474, lng: 3.4723, status: 'PENDING', assignedDriverId: 'drv_1' }
-];
+  return mismatch === 0;
+}
 
 // Haversine Distance Formula (Kilometers)
 function calcHaversineDistance(lat1, lon1, lat2, lon2) {
@@ -104,33 +207,43 @@ export default function App() {
   // --- AUTH & PERSISTENCE STATES ---
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-    return saved ? JSON.parse(saved) : null;
+    if (!saved) return null;
+    const user = JSON.parse(saved);
+    return DEMO_USER_IDS.has(user.id) || DEMO_USER_EMAILS.has(user.email?.toLowerCase())
+      ? null
+      : stripPasswordFields(user);
   });
 
   const [users, setUsers] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-    return saved ? JSON.parse(saved) : DEMO_USERS;
+    return saved
+      ? JSON.parse(saved).filter(user => !DEMO_USER_IDS.has(user.id) && !DEMO_USER_EMAILS.has(user.email?.toLowerCase()))
+      : [];
   });
 
   const [invites, setInvites] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.INVITES);
-    return saved ? JSON.parse(saved) : [
-      { id: 'inv_1', token: 'DRV-89A2', orgName: DEMO_ORGANIZATION, createdAt: 'Today', status: 'PENDING' }
-    ];
+    return saved ? JSON.parse(saved).filter(invite => invite.id !== 'inv_1') : [];
   });
 
   const [stops, setStops] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.STOPS);
-    return saved ? JSON.parse(saved) : DEMO_STOPS;
+    return saved ? JSON.parse(saved).filter(stop => !DEMO_STOP_IDS.has(stop.id)) : [];
   });
+  const [credentialsReady, setCredentialsReady] = useState(false);
 
   // Save changes to localStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-  }, [users]);
+    if (credentialsReady) {
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users.map(stripLegacyPassword)));
+    }
+  }, [users, credentialsReady]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(currentUser));
+    localStorage.setItem(
+      STORAGE_KEYS.CURRENT_USER,
+      JSON.stringify(currentUser ? stripPasswordFields(currentUser) : null)
+    );
   }, [currentUser]);
 
   useEffect(() => {
@@ -150,6 +263,38 @@ export default function App() {
   });
   const [authError, setAuthError] = useState('');
 
+  useEffect(() => {
+    if (credentialsReady) return undefined;
+
+    let cancelled = false;
+
+    const migrateCredentials = async () => {
+      try {
+        const migratedUsers = await Promise.all(users.map(async user => {
+          const safeUser = stripLegacyPassword(user);
+          if (user.passwordHash && user.passwordSalt) return safeUser;
+          if (typeof user.password !== 'string' || user.password.length === 0) return safeUser;
+          const credential = await createPasswordCredential(user.password);
+          return { ...safeUser, ...credential };
+        }));
+        if (!cancelled) {
+          setUsers(migratedUsers);
+          setCredentialsReady(true);
+        }
+      } catch (error) {
+        console.error('Could not securely migrate stored account credentials:', error);
+        if (!cancelled) {
+          setAuthError('Stored account credentials could not be secured in this browser. Please use a supported browser and reload.');
+        }
+      }
+    };
+
+    migrateCredentials();
+    return () => {
+      cancelled = true;
+    };
+  }, [users, credentialsReady]);
+
   // Check URL parameters for invitation links
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -163,7 +308,7 @@ export default function App() {
 
   // --- APP DASHBOARD STATES ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeDriverId, setActiveDriverId] = useState('drv_1');
+  const [activeDriverId, setActiveDriverId] = useState('');
   const [selectedStopId, setSelectedStopId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -181,14 +326,25 @@ export default function App() {
   const [newStopForm, setNewStopForm] = useState({
     name: '',
     address: '',
+    lat: null,
+    lng: null,
+    assignedDriverId: '',
     priority: 'NORMAL',
     timeWindow: '10:00 - 13:00',
     packages: 1
   });
+  const [driverNameQuery, setDriverNameQuery] = useState('');
+  const [isDriverSuggestionOpen, setIsDriverSuggestionOpen] = useState(false);
+  const [showStopDistances, setShowStopDistances] = useState(false);
   const [routeOrigins, setRouteOrigins] = useState(() => {
     const saved = localStorage.getItem('lagos_circuit_route_origins');
     return saved ? JSON.parse(saved) : {};
   });
+  const [routeOriginCoordinates, setRouteOriginCoordinates] = useState(() => {
+    const saved = localStorage.getItem('lagos_circuit_route_origin_coordinates');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const routeOriginLookupRef = useRef(0);
   const routeOriginAddress = currentUser ? routeOrigins[currentUser.id] || '' : '';
   const [customerName, setCustomerName] = useState('');
   const [customerPhoto, setCustomerPhoto] = useState('');
@@ -216,6 +372,15 @@ export default function App() {
   const driversList = useMemo(() => {
     return users.filter(u => u.role === 'DRIVER');
   }, [users]);
+  const driverSuggestions = useMemo(() => {
+    const query = driverNameQuery.trim().toLowerCase();
+    return driversList.filter(driver =>
+      !query ||
+      driver.name.toLowerCase().includes(query) ||
+      driver.email.toLowerCase().includes(query) ||
+      (driver.zone || '').toLowerCase().includes(query)
+    );
+  }, [driversList, driverNameQuery]);
 
   // Current Selected Driver Object
   const selectedDriver = useMemo(() => {
@@ -234,74 +399,97 @@ export default function App() {
   }, [stops, currentUser, activeDriverId, searchQuery]);
 
   // --- AUTHENTICATION LOGIC ---
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
-    const user = users.find(u => u.email.toLowerCase() === loginForm.email.toLowerCase() && u.password === loginForm.password);
-    if (user) {
-      setCurrentUser(user);
-      if (user.role === 'DRIVER') setActiveDriverId(user.id);
-    } else {
-      setAuthError('Invalid email or password. Please try again.');
+    if (!credentialsReady) {
+      setAuthError('Account security is still initializing. Please try again in a moment.');
+      return;
+    }
+
+    try {
+      const user = users.find(u => u.email.toLowerCase() === loginForm.email.toLowerCase());
+      if (user && await verifyPassword(loginForm.password, user)) {
+        setCurrentUser(user);
+        setLoginForm({ email: '', password: '' });
+        if (user.role === 'DRIVER') setActiveDriverId(user.id);
+      } else {
+        setAuthError('Invalid email or password. Please try again.');
+      }
+    } catch (error) {
+      console.error('Could not verify account credentials:', error);
+      setAuthError('Sign-in is unavailable because secure password verification failed.');
     }
   };
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     setAuthError('');
+    if (!credentialsReady) {
+      setAuthError('Account security is still initializing. Please try again in a moment.');
+      return;
+    }
 
     if (users.some(u => u.email.toLowerCase() === registerForm.email.toLowerCase())) {
       setAuthError('Account with this email already exists.');
       return;
     }
 
-    let finalOrgName = registerForm.orgName;
+    try {
+      let finalOrgName = registerForm.orgName;
 
-    // Validate driver invitation token if provided
-    if (authRole === 'DRIVER' && registerForm.inviteToken) {
-      const foundInvite = invites.find(i => i.token === registerForm.inviteToken);
-      if (foundInvite) {
-        finalOrgName = foundInvite.orgName;
-        // Mark invite as registered
-        setInvites(prev => prev.map(i => i.token === registerForm.inviteToken ? { ...i, status: 'REGISTERED' } : i));
-      } else {
-        setAuthError('Invalid or expired invitation token.');
-        return;
+      // Validate driver invitation token if provided
+      if (authRole === 'DRIVER' && registerForm.inviteToken) {
+        const foundInvite = invites.find(i => i.token === registerForm.inviteToken);
+        if (foundInvite) {
+          finalOrgName = foundInvite.orgName;
+          // Mark invite as registered
+          setInvites(prev => prev.map(i => i.token === registerForm.inviteToken ? { ...i, status: 'REGISTERED' } : i));
+        } else {
+          setAuthError('Invalid or expired invitation token.');
+          return;
+        }
       }
+
+      const credential = await createPasswordCredential(registerForm.password);
+      const newUser = {
+        id: `usr_${Date.now()}`,
+        email: registerForm.email,
+        ...credential,
+        name: registerForm.name,
+        role: authRole,
+        orgName: finalOrgName || 'Delivery Network',
+        zone: registerForm.zone || 'Lagos Central Zone',
+        vehicle: registerForm.vehicle || 'Logistics Bike / Van',
+        phone: registerForm.phone || '+234 800 000 0000',
+        status: 'ACTIVE',
+        lat: 6.5244,
+        lng: 3.3792,
+        speed: 0
+      };
+
+      setUsers(prev => [...prev, newUser]);
+      setCurrentUser(newUser);
+      setRegisterForm(prev => ({ ...prev, password: '' }));
+      if (newUser.role === 'DRIVER') setActiveDriverId(newUser.id);
+    } catch (error) {
+      console.error('Could not securely save account credentials:', error);
+      setAuthError('Registration is unavailable because secure password storage failed.');
     }
-
-    const newUser = {
-      id: `usr_${Date.now()}`,
-      email: registerForm.email,
-      password: registerForm.password,
-      name: registerForm.name,
-      role: authRole,
-      orgName: finalOrgName || 'Lagos Delivery Network',
-      zone: registerForm.zone || 'Lagos Central Zone',
-      vehicle: registerForm.vehicle || 'Logistics Bike / Van',
-      phone: registerForm.phone || '+234 800 000 0000',
-      status: 'ACTIVE',
-      lat: 6.5244,
-      lng: 3.3792,
-      speed: 0
-    };
-
-    setUsers(prev => [...prev, newUser]);
-    setCurrentUser(newUser);
-    if (newUser.role === 'DRIVER') setActiveDriverId(newUser.id);
-  };
-
-  const loadDemoFleet = () => {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(DEMO_USERS));
-    localStorage.setItem(STORAGE_KEYS.STOPS, JSON.stringify(DEMO_STOPS));
-    setUsers(DEMO_USERS);
-    setStops(DEMO_STOPS);
-    setCurrentUser(DEMO_USERS[0]); // Log in as Chief Dispatcher Admin
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+  };
+
+  const openAddStopModal = () => {
+    const assignedDriverId = currentUser.role === 'DRIVER' ? currentUser.id : activeDriverId;
+    const assignedDriver = driversList.find(driver => driver.id === assignedDriverId);
+    setNewStopForm(prev => ({ ...prev, assignedDriverId }));
+    setDriverNameQuery(assignedDriver?.name || '');
+    setIsDriverSuggestionOpen(false);
+    setShowAddStopModal(true);
   };
 
   // --- GENERATE DRIVER INVITE LINK ---
@@ -310,7 +498,7 @@ export default function App() {
     const newInvite = {
       id: `inv_${Date.now()}`,
       token,
-      orgName: currentUser?.orgName || DEMO_ORGANIZATION,
+      orgName: currentUser?.orgName || 'Delivery Network',
       createdAt: 'Just now',
       status: 'PENDING'
     };
@@ -325,46 +513,69 @@ export default function App() {
   };
 
   // --- "CLOSEST TO FARTHEST" ROUTE OPTIMIZATION ENGINE ---
+  const getRouteStartPoint = () => {
+    const savedCoordinates = currentUser ? routeOriginCoordinates[currentUser.id] : null;
+    if (savedCoordinates && Number.isFinite(savedCoordinates.lat) && Number.isFinite(savedCoordinates.lng)) {
+      return savedCoordinates;
+    }
+
+    const coordinates = routeOriginAddress.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+    if (coordinates) {
+      return { lat: Number(coordinates[1]), lng: Number(coordinates[2]) };
+    }
+
+    const targetDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
+    const driverObj = users.find(u => u.id === targetDriverId);
+    if (currentUser?.role === 'DRIVER' && isGpsActive) return gpsPos;
+    if (driverObj && Number.isFinite(driverObj.lat) && Number.isFinite(driverObj.lng)) {
+      return { lat: driverObj.lat, lng: driverObj.lng };
+    }
+    return { lat: startDepot.lat, lng: startDepot.lng };
+  };
+
   const optimizeClosestToFarthest = () => {
     const targetDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
     const driverStops = stops.filter(s => s.assignedDriverId === targetDriverId);
-    if (driverStops.length === 0) return;
+    if (driverStops.length < 2) return;
+    const startPoint = getRouteStartPoint();
 
-    // Start point: Driver's live GPS if available, or selected driver's location, or depot
-    const driverObj = users.find(u => u.id === targetDriverId);
-    const startPoint = (isGpsActive && gpsPos) 
-      ? gpsPos 
-      : (driverObj && driverObj.lat) 
-        ? { lat: driverObj.lat, lng: driverObj.lng } 
-        : { lat: startDepot.lat, lng: startDepot.lng };
+    const orderedStops = [...driverStops].sort((a, b) => {
+      const aHasCoordinates = Number.isFinite(a.lat) && Number.isFinite(a.lng);
+      const bHasCoordinates = Number.isFinite(b.lat) && Number.isFinite(b.lng);
+      if (aHasCoordinates !== bHasCoordinates) return aHasCoordinates ? -1 : 1;
+      if (!aHasCoordinates) return 0;
+      return calcHaversineDistance(startPoint.lat, startPoint.lng, a.lat, a.lng)
+        - calcHaversineDistance(startPoint.lat, startPoint.lng, b.lat, b.lng);
+    });
 
-    let unvisited = driverStops.filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
-    const addressOnlyStops = driverStops.filter(s => !Number.isFinite(s.lat) || !Number.isFinite(s.lng));
-    let sortedStops = [];
-    let currentPoint = startPoint;
-
-    // Nearest Neighbor algorithm (Closest to Farthest)
-    while (unvisited.length > 0) {
-      let nearestIdx = 0;
-      let minDistance = calcHaversineDistance(currentPoint.lat, currentPoint.lng, unvisited[0].lat, unvisited[0].lng);
-
-      for (let i = 1; i < unvisited.length; i++) {
-        const dist = calcHaversineDistance(currentPoint.lat, currentPoint.lng, unvisited[i].lat, unvisited[i].lng);
-        if (dist < minDistance) {
-          minDistance = dist;
-          nearestIdx = i;
-        }
-      }
-
-      const nextStop = unvisited.splice(nearestIdx, 1)[0];
-      sortedStops.push(nextStop);
-      currentPoint = nextStop;
-    }
-
-    // Update stops state with new optimized order
     setStops(prevStops => {
-      const otherDriverStops = prevStops.filter(s => s.assignedDriverId !== targetDriverId);
-      return [...otherDriverStops, ...sortedStops, ...addressOnlyStops];
+      const driverStopIndices = prevStops
+        .map((stop, index) => stop.assignedDriverId === targetDriverId ? index : -1)
+        .filter(index => index !== -1);
+      const nextStops = [...prevStops];
+      driverStopIndices.forEach((index, orderIndex) => {
+        nextStops[index] = orderedStops[orderIndex];
+      });
+      return nextStops;
+    });
+    setShowStopDistances(true);
+  };
+
+  const moveStop = (stopId, direction) => {
+    const targetDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
+    setStops(prevStops => {
+      const driverStopIndices = prevStops
+        .map((stop, index) => stop.assignedDriverId === targetDriverId ? index : -1)
+        .filter(index => index !== -1);
+      const currentIndex = driverStopIndices.findIndex(index => prevStops[index].id === stopId);
+      const nextIndex = currentIndex + direction;
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= driverStopIndices.length) return prevStops;
+
+      const nextStops = [...prevStops];
+      const currentStopIndex = driverStopIndices[currentIndex];
+      const nextStopIndex = driverStopIndices[nextIndex];
+      [nextStops[currentStopIndex], nextStops[nextStopIndex]] = [nextStops[nextStopIndex], nextStops[currentStopIndex]];
+      return nextStops;
     });
   };
 
@@ -406,6 +617,10 @@ export default function App() {
 
   // --- GOOGLE MAPS DIRECT NAVIGATION ---
   const getNavigationOrigin = () => {
+    const savedCoordinates = currentUser ? routeOriginCoordinates[currentUser.id] : null;
+    if (savedCoordinates && Number.isFinite(savedCoordinates.lat) && Number.isFinite(savedCoordinates.lng)) {
+      return `${savedCoordinates.lat},${savedCoordinates.lng}`;
+    }
     if (routeOriginAddress.trim()) return routeOriginAddress.trim();
 
     const targetDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
@@ -426,22 +641,69 @@ export default function App() {
     localStorage.setItem('lagos_circuit_route_origins', JSON.stringify(routeOrigins));
   }, [routeOrigins]);
 
+  useEffect(() => {
+    localStorage.setItem('lagos_circuit_route_origin_coordinates', JSON.stringify(routeOriginCoordinates));
+  }, [routeOriginCoordinates]);
+
   const updateRouteOriginAddress = (address) => {
     if (!currentUser) return;
+    routeOriginLookupRef.current += 1;
     setRouteOrigins(prev => ({ ...prev, [currentUser.id]: address }));
+    setRouteOriginCoordinates(prev => {
+      if (!prev[currentUser.id]) return prev;
+      const next = { ...prev };
+      delete next[currentUser.id];
+      return next;
+    });
   };
 
-  const setRouteOriginToGps = () => {
+  const setRouteOriginToCurrentLocation = () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => updateRouteOriginAddress(`${coords.latitude},${coords.longitude}`),
+      async ({ coords }) => {
+        if (!currentUser) return;
+        const lookupId = ++routeOriginLookupRef.current;
+        const userId = currentUser.id;
+        const location = { lat: coords.latitude, lng: coords.longitude };
+        const fallbackAddress = `${location.lat},${location.lng}`;
+        setRouteOrigins(prev => ({ ...prev, [userId]: fallbackAddress }));
+        setRouteOriginCoordinates(prev => ({ ...prev, [userId]: location }));
+
+        try {
+          const params = new URLSearchParams({ lat: String(location.lat), lon: String(location.lng) });
+          const response = await fetch(`https://photon.komoot.io/reverse?${params}`);
+          if (!response.ok) throw new Error(`Reverse geocoding failed (${response.status}).`);
+          const data = await response.json();
+          const properties = data.features?.[0]?.properties;
+          if (!properties) throw new Error('No address was found for the current coordinates.');
+
+          const address = [
+            properties.name,
+            properties.housenumber,
+            properties.street,
+            properties.district,
+            properties.city,
+            properties.county,
+            properties.state,
+            properties.country
+          ].filter((part, index, parts) => part && parts.indexOf(part) === index).join(', ');
+          if (!address) throw new Error('The address lookup returned no readable address.');
+          if (routeOriginLookupRef.current === lookupId) {
+            setRouteOrigins(prev => ({ ...prev, [userId]: address }));
+          }
+        } catch (error) {
+          if (routeOriginLookupRef.current !== lookupId) return;
+          console.error('Unable to find an address for the current location:', error);
+          alert('Your current location was found, but its street address could not be looked up. Coordinates are shown instead.');
+        }
+      },
       (error) => {
         console.error('Unable to get starting location:', error);
-        alert('Could not get your location. Allow location access or type a starting address.');
+        alert('Could not get your current location. Allow location access or enter coordinates.');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -475,10 +737,9 @@ export default function App() {
     if (activeDriverStops.length === 0) return;
 
     const origin = getNavigationOrigin();
-    const totalStops = Math.min(activeDriverStops.length, 5);
-    const routeStops = activeDriverStops.slice(0, totalStops);
+    const routeStops = activeDriverStops.slice(0, 10);
     const destinationStop = routeStops[routeStops.length - 1];
-    const waypoints = routeStops.length > 1 ? routeStops.slice(0, -1) : [];
+    const waypoints = routeStops.slice(0, -1);
 
     const mapsUrl = new URL('https://www.google.com/maps/dir/');
     mapsUrl.searchParams.set('api', '1');
@@ -661,21 +922,6 @@ export default function App() {
             <p className="text-xs text-slate-400 font-medium">Enterprise Driver Dispatch & Real-Time Logistics Platform</p>
           </div>
 
-          {/* QUICK DEMO LOGIN BANNER */}
-          <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between">
-            <div className="text-xs">
-              <span className="font-bold text-amber-400 block">Want a quick live test drive?</span>
-              <span className="text-[10px] text-slate-400">Loads Lagos drivers, presets & dispatch routes.</span>
-            </div>
-            <button
-              onClick={loadDemoFleet}
-              className="py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center space-x-1"
-            >
-              <Zap className="w-3.5 h-3.5 fill-current" />
-              <span>Load Demo Fleet</span>
-            </button>
-          </div>
-
           {/* LOGIN vs REGISTER TAB SWITCHER */}
           <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 text-xs font-bold">
             <button
@@ -698,6 +944,12 @@ export default function App() {
               <span>{authError}</span>
             </div>
           )}
+          {!credentialsReady && (
+            <p className="text-center text-[10px] text-slate-400">Securing saved account credentials...</p>
+          )}
+          <p className="text-center text-[10px] text-slate-500">
+            Passwords are stored as salted hashes in this browser. Production authentication should use a server.
+          </p>
 
           {/* TAB 1: LOGIN FORM */}
           {authTab === 'LOGIN' && (
@@ -728,7 +980,8 @@ export default function App() {
 
               <button
                 type="submit"
-                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                disabled={!credentialsReady}
+                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20"
               >
                 Log In to Circuit Platform
               </button>
@@ -845,7 +1098,8 @@ export default function App() {
 
               <button
                 type="submit"
-                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                disabled={!credentialsReady}
+                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20"
               >
                 Create {authRole === 'ADMIN' ? 'Dispatcher Admin' : 'Driver'} Account
               </button>
@@ -986,7 +1240,7 @@ export default function App() {
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => setShowAddStopModal(true)}
+                  onClick={openAddStopModal}
                   className="py-2.5 px-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-1 transition-all"
                 >
                   <Plus className="w-4 h-4 stroke-[3]" />
@@ -995,32 +1249,38 @@ export default function App() {
 
                 <button
                   onClick={optimizeClosestToFarthest}
-                  className="py-2.5 px-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-1 transition-all"
+                  disabled={stops.filter(stop =>
+                    stop.assignedDriverId === (currentUser.role === 'DRIVER' ? currentUser.id : activeDriverId)
+                  ).length < 2}
+                  className="py-2.5 px-2 bg-amber-500 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-1 transition-all"
                 >
                   <ArrowDownUp className="w-4 h-4 stroke-[3]" />
-                  <span>Closest to Farthest</span>
+                  <span>Sort Closest to Farthest</span>
                 </button>
               </div>
+              <p className="text-[9px] text-slate-500">
+                Sort two or more stops to show each stop’s approximate straight-line distance from your starting location.
+              </p>
 
               <div className="space-y-1.5">
-                <label className="block text-[10px] font-semibold text-slate-400">Starting location (optional)</label>
+                <label className="block text-[10px] font-semibold text-slate-400">Starting location</label>
                 <div className="flex items-center space-x-1.5">
                   <input
                     type="text"
                     value={routeOriginAddress}
-                    onChange={(e) => updateRouteOriginAddress(e.target.value)}
-                    placeholder="Driver profile location or enter an address"
+                    onChange={(event) => updateRouteOriginAddress(event.target.value)}
+                    placeholder="Driver location or enter coordinates"
                     className="min-w-0 flex-1 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                   />
                   <button
                     type="button"
-                    onClick={setRouteOriginToGps}
+                    onClick={setRouteOriginToCurrentLocation}
                     className="shrink-0 py-2 px-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-[10px] rounded-xl"
                   >
-                    Use GPS
+                    Use current location
                   </button>
                 </div>
-                <p className="text-[9px] text-slate-500">Leave blank to use the driver's saved location.</p>
+                <p className="text-[9px] text-slate-500">Leave blank to use the driver’s saved location.</p>
               </div>
 
               {/* BATCH GOOGLE MAPS DIRECT LINK */}
@@ -1029,7 +1289,9 @@ export default function App() {
                 className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs rounded-xl flex items-center justify-center space-x-2 transition-all"
               >
                 <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Launch {Math.min(5, activeDriverStops.length)}-Stop Route in Google Maps App</span>
+                <span>
+                  Launch {Math.min(activeDriverStops.length, 10)}-Stop Route in Google Maps App
+                </span>
               </button>
               <button
                 onClick={clearActiveRoute}
@@ -1055,11 +1317,11 @@ export default function App() {
               </div>
             </div>
 
-            {/* WAYPOINT LIST */}
+            {/* STOP LIST */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-slate-400 px-1 font-semibold">
-                <span>Waypoints ({activeDriverStops.length})</span>
-                <span className="text-[10px] text-amber-400">Closest ➔ Farthest</span>
+                <span>Stops ({activeDriverStops.length})</span>
+                <span className="text-[10px] text-amber-400">Use arrows to reorder</span>
               </div>
 
               {activeDriverStops.length === 0 ? (
@@ -1076,6 +1338,10 @@ export default function App() {
               ) : (
                 activeDriverStops.map((stop, idx) => {
                   const isSelected = selectedStopId === stop.id;
+                  const routeStartPoint = getRouteStartPoint();
+                  const stopDistance = Number.isFinite(stop.lat) && Number.isFinite(stop.lng)
+                    ? calcHaversineDistance(routeStartPoint.lat, routeStartPoint.lng, stop.lat, stop.lng)
+                    : null;
 
                   return (
                     <div
@@ -1105,6 +1371,13 @@ export default function App() {
                           </div>
 
                           <p className="text-[10px] text-slate-400 truncate mt-0.5">{stop.address}</p>
+                          {showStopDistances && (
+                            <p className="mt-1 text-[10px] font-semibold text-emerald-300">
+                              {stopDistance === null
+                                ? 'Select an address suggestion to calculate distance'
+                                : `~${stopDistance.toFixed(1)} km from start`}
+                            </p>
+                          )}
 
                           <div className="flex items-center space-x-2 mt-1 text-[9px] text-slate-400 font-mono">
                             <span className="flex items-center space-x-1">
@@ -1135,6 +1408,32 @@ export default function App() {
 
                       {/* STOP CARD BUTTONS */}
                       <div className="pt-2 border-t border-slate-800/80 flex items-center space-x-1.5">
+                        <button
+                          type="button"
+                          aria-label={`Move ${stop.name} closer in the route`}
+                          title="Move closer"
+                          disabled={idx === 0 || Boolean(searchQuery)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            moveStop(stop.id, -1);
+                          }}
+                          className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <ArrowUp className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Move ${stop.name} farther in the route`}
+                          title="Move farther"
+                          disabled={idx === activeDriverStops.length - 1 || Boolean(searchQuery)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            moveStop(stop.id, 1);
+                          }}
+                          className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <ArrowDown className="h-3 w-3" />
+                        </button>
                         <button
                           onClick={(e) => launchSingleStopGoogleNav(stop, e)}
                           className="flex-1 py-1 px-2 bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-emerald-400 font-bold text-[10px] rounded-lg flex items-center justify-center space-x-1 transition-all"
@@ -1317,14 +1616,81 @@ export default function App() {
 
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold">Delivery Address</label>
-                <textarea
+                <AddressAutocomplete
                   value={newStopForm.address}
-                  onChange={(e) => setNewStopForm(prev => ({ ...prev, address: e.target.value }))}
-                  rows={3}
+                  onChange={(address) => setNewStopForm(prev => ({ ...prev, address, lat: null, lng: null }))}
+                  onSelect={(address, location) =>
+                    setNewStopForm(prev => ({ ...prev, address, ...location }))
+                  }
                   placeholder="Type the full delivery address here before navigating..."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
+                  inputClassName="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
                 />
+                <p className="mt-1 text-[9px] text-slate-500">
+                  Select a suggestion to save its map location for closest-to-farthest sorting.
+                </p>
               </div>
+
+              {currentUser.role === 'ADMIN' && (
+                <div className="relative">
+                  <label htmlFor="stop-driver-search" className="mb-1 block font-semibold text-slate-400">
+                    Assign to driver
+                  </label>
+                  <input
+                    id="stop-driver-search"
+                    type="text"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={isDriverSuggestionOpen}
+                    aria-controls="stop-driver-suggestions"
+                    value={driverNameQuery}
+                    onFocus={() => setIsDriverSuggestionOpen(true)}
+                    onBlur={() => window.setTimeout(() => setIsDriverSuggestionOpen(false), 150)}
+                    onChange={event => {
+                      setDriverNameQuery(event.target.value);
+                      setNewStopForm(prev => ({ ...prev, assignedDriverId: '' }));
+                      setIsDriverSuggestionOpen(true);
+                    }}
+                    placeholder="Type a driver's name"
+                    autoComplete="off"
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-slate-200 focus:border-emerald-500 focus:outline-none"
+                  />
+                  {isDriverSuggestionOpen && (
+                    <div
+                      id="stop-driver-suggestions"
+                      role="listbox"
+                      className="absolute z-30 mt-1 max-h-40 w-full overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-xl"
+                    >
+                      {driverSuggestions.length > 0 ? driverSuggestions.map(driver => (
+                        <button
+                          key={driver.id}
+                          type="button"
+                          role="option"
+                          aria-selected={newStopForm.assignedDriverId === driver.id}
+                          onMouseDown={event => event.preventDefault()}
+                          onClick={() => {
+                            setNewStopForm(prev => ({ ...prev, assignedDriverId: driver.id }));
+                            setDriverNameQuery(driver.name);
+                            setIsDriverSuggestionOpen(false);
+                          }}
+                          className="block w-full border-b border-slate-800 px-3 py-2 text-left last:border-0 hover:bg-slate-800"
+                        >
+                          <span className="block text-slate-200">{driver.name}</span>
+                          <span className="block text-[10px] text-slate-500">{driver.zone || driver.email}</span>
+                        </button>
+                      )) : (
+                        <p className="px-3 py-2 text-[10px] text-slate-400">
+                          {driversList.length ? 'No matching drivers found.' : 'No drivers are registered yet.'}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-1 text-[9px] text-slate-500">
+                    {newStopForm.assignedDriverId
+                      ? 'This stop will be assigned to the selected driver.'
+                      : 'Choose a driver from the suggestions to assign this stop.'}
+                  </p>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -1362,18 +1728,26 @@ export default function App() {
                       id: `l_${Date.now()}`,
                       name: newStopForm.name.trim() || address,
                       address,
+                      lat: newStopForm.lat,
+                      lng: newStopForm.lng,
                       priority: newStopForm.priority,
                       timeWindow: newStopForm.timeWindow,
                       packages: newStopForm.packages,
                       status: 'PENDING',
-                      assignedDriverId: currentUser.role === 'DRIVER' ? currentUser.id : activeDriverId
+                      assignedDriverId: currentUser.role === 'DRIVER' ? currentUser.id : newStopForm.assignedDriverId
                     };
 
                     setStops(prev => [...prev, stopPayload]);
-                    setNewStopForm({ name: '', address: '', priority: 'NORMAL', timeWindow: '10:00 - 13:00', packages: 1 });
+                    setNewStopForm({
+                      name: '', address: '', lat: null, lng: null,
+                      assignedDriverId: '',
+                      priority: 'NORMAL', timeWindow: '10:00 - 13:00', packages: 1
+                    });
+                    setDriverNameQuery('');
                     setShowAddStopModal(false);
                   }}
-                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl"
+                  disabled={currentUser.role === 'ADMIN' && !driversList.some(driver => driver.id === newStopForm.assignedDriverId)}
+                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 text-slate-950 font-black text-xs rounded-xl"
                 >
                   Save Address & Route
                 </button>
