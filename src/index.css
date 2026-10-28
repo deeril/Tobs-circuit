@@ -4,8 +4,8 @@
   font-family: Inter, 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #171513;
-  background: #efeeeb;
+  color: #f5f5f5;
+  background: #050505;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -26,8 +26,122 @@ body,
 body {
   min-height: 100vh;
   margin: 0;
+  background: #050505;
 }
 
 button {
   cursor: pointer;
+}
+
+#root [class*="-slate-"],
+#root [class*="-emerald-"],
+#root [class*="-blue-"],
+#root [class*="-amber-"],
+#root [class*="-rose-"],
+#root [class*="-red-"],
+#root [class*="-green-"],
+#root [class*="-yellow-"],
+#root [class*="-orange-"],
+#root [class*="-cyan-"],
+#root [class*="-indigo-"],
+#root [class*="-purple-"],
+#root [class*="-pink-"],
+#root [class*="-teal-"],
+#root [class*="-lime-"] {
+  filter: grayscale(1);
+}
+
+.brand-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  overflow: hidden;
+  background: #050505;
+  color: #fff;
+  animation: splash-fade-in 500ms ease-out both;
+}
+
+.brand-splash-art {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(88vw, 820px);
+  gap: clamp(0.75rem, 3vh, 1.75rem);
+}
+
+.brand-splash-logo {
+  width: min(50%, 680px);
+  height: auto;
+  object-fit: contain;
+  animation: none;
+}
+
+@media (max-width: 600px) {
+  .brand-splash-logo {
+    width: min(72%, 520px);
+  }
+}
+
+.brand-route-animation {
+  width: 100%;
+  height: clamp(48px, 9vh, 84px);
+  overflow: hidden;
+}
+
+.brand-route-path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: route-draw 5s ease-in-out infinite;
+}
+
+.brand-route-arrow {
+  fill: #fff;
+}
+
+.brand-splash-caption {
+  margin: 0;
+  color: #a3a3a3;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  animation: caption-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes splash-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes route-draw {
+  0% { stroke-dashoffset: 1000; opacity: 0.25; }
+  65%, 100% { stroke-dashoffset: 0; opacity: 1; }
+}
+
+@keyframes caption-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-splash,
+  .brand-splash-caption {
+    animation: none;
+  }
+
+  .brand-route-path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+
+  .brand-route-arrow {
+    display: none;
+  }
 }

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import brandLogo from './assets/tobs-circuit-logo.png';
 import {
   MapPin, Navigation, Play, Pause, RotateCcw, CheckCircle2, XCircle, Clock,
   Package, Search, Plus, Trash2, Download,
   Layers, ChevronRight, Check, AlertCircle,
-  Truck, Compass, Crosshair, ExternalLink, Radio, Signal,
+  Truck, Crosshair, ExternalLink, Radio, Signal,
   ChevronLeft, Target, UserCheck, Users, UserPlus,
   Shield, PenTool, Phone, Map, Send, RefreshCw, ArrowDownUp, Edit3,
   Copy, Link, LogOut, User, Building, QrCode, Smartphone,
@@ -146,6 +147,7 @@ const DEMO_USER_EMAILS = new Set([
   'amina@lagosexpress.com'
 ]);
 const DEMO_STOP_IDS = new Set(['l1', 'l2', 'l3', 'l4', 'l5', 'l6']);
+const BRAND_LOGO_URL = brandLogo;
 
 function stripPasswordFields(user) {
   return Object.fromEntries(
@@ -206,12 +208,18 @@ function calcHaversineDistance(lat1, lon1, lat2, lon2) {
 export default function App() {
   // --- AUTH & PERSISTENCE STATES ---
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+    const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER)
+      || sessionStorage.getItem(STORAGE_KEYS.CURRENT_USER);
     if (!saved) return null;
     const user = JSON.parse(saved);
     return DEMO_USER_IDS.has(user.id) || DEMO_USER_EMAILS.has(user.email?.toLowerCase())
       ? null
       : stripPasswordFields(user);
+  });
+  const [rememberLogin, setRememberLogin] = useState(() => {
+    if (localStorage.getItem(STORAGE_KEYS.CURRENT_USER)) return true;
+    if (sessionStorage.getItem(STORAGE_KEYS.CURRENT_USER)) return false;
+    return true;
   });
 
   const [users, setUsers] = useState(() => {
@@ -231,6 +239,12 @@ export default function App() {
     return saved ? JSON.parse(saved).filter(stop => !DEMO_STOP_IDS.has(stop.id)) : [];
   });
   const [credentialsReady, setCredentialsReady] = useState(false);
+  const [showBrandSplash, setShowBrandSplash] = useState(true);
+
+  useEffect(() => {
+    const splashTimeout = window.setTimeout(() => setShowBrandSplash(false), 5000);
+    return () => window.clearTimeout(splashTimeout);
+  }, []);
 
   // Save changes to localStorage
   useEffect(() => {
@@ -240,11 +254,21 @@ export default function App() {
   }, [users, credentialsReady]);
 
   useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEYS.CURRENT_USER,
-      JSON.stringify(currentUser ? stripPasswordFields(currentUser) : null)
-    );
-  }, [currentUser]);
+    if (!currentUser) {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+      return;
+    }
+
+    const serializedUser = JSON.stringify(stripPasswordFields(currentUser));
+    if (rememberLogin) {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, serializedUser);
+      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    } else {
+      sessionStorage.setItem(STORAGE_KEYS.CURRENT_USER, serializedUser);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    }
+  }, [currentUser, rememberLogin]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.INVITES, JSON.stringify(invites));
@@ -308,6 +332,7 @@ export default function App() {
 
   // --- APP DASHBOARD STATES ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mapExpanded, setMapExpanded] = useState(false);
   const [activeDriverId, setActiveDriverId] = useState('');
   const [selectedStopId, setSelectedStopId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -397,6 +422,16 @@ export default function App() {
       s.address.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [stops, currentUser, activeDriverId, searchQuery]);
+  const mapStop = stops.find(stop => stop.id === selectedStopId)
+    || activeDriverStops.find(stop => stop.id === selectedStopId)
+    || activeDriverStops.find(stop => stop.status !== 'DELIVERED')
+    || activeDriverStops[0]
+    || null;
+  const mapSearchQuery = mapStop && Number.isFinite(mapStop.lat) && Number.isFinite(mapStop.lng)
+    ? `${mapStop.lat},${mapStop.lng}`
+    : mapStop?.address || 'Lagos, Nigeria';
+  const googleMapsEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapSearchQuery)}&z=14&output=embed`;
+  const googleMapsSearchUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapSearchQuery)}`;
 
   // --- AUTHENTICATION LOGIC ---
   const handleLogin = async (e) => {
@@ -481,6 +516,35 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    sessionStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+  };
+
+  const removeDriverAccount = (driver) => {
+    const assignedStops = stops.filter(stop => stop.assignedDriverId === driver.id);
+    const confirmed = window.confirm(
+      `Remove ${driver.name}'s driver account? ${assignedStops.length} assigned stop${assignedStops.length === 1 ? ' will' : 's will'} be kept but unassigned.`
+    );
+    if (!confirmed) return;
+
+    const remainingDrivers = driversList.filter(item => item.id !== driver.id);
+    setUsers(prev => prev.filter(user => user.id !== driver.id));
+    setStops(prev => prev.map(stop =>
+      stop.assignedDriverId === driver.id ? { ...stop, assignedDriverId: '' } : stop
+    ));
+    setActiveDriverId(prev => prev === driver.id ? remainingDrivers[0]?.id || '' : prev);
+    if (assignedStops.some(stop => stop.id === selectedStopId)) setSelectedStopId(null);
+  };
+
+  const deleteStop = (stop) => {
+    if (!window.confirm(`Delete "${stop.name}" from the route? This cannot be undone.`)) return;
+    setStops(prev => prev.filter(item => item.id !== stop.id));
+    if (selectedStopId === stop.id) setSelectedStopId(null);
+    if (podStop?.id === stop.id) setPodStop(null);
+  };
+
+  const focusStopOnMap = (stop) => {
+    setSelectedStopId(stop.id);
+    setMapExpanded(true);
   };
 
   const openAddStopModal = () => {
@@ -559,6 +623,7 @@ export default function App() {
       return nextStops;
     });
     setShowStopDistances(true);
+    focusStopOnMap(orderedStops[0]);
   };
 
   const moveStop = (stopId, direction) => {
@@ -786,7 +851,7 @@ export default function App() {
     const point = getCanvasPoint(e);
     if (!point) return;
     ctx.lineTo(point.x, point.y);
-    ctx.strokeStyle = '#10b981';
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 3;
     ctx.stroke();
     setSignatureCaptured(true);
@@ -908,6 +973,32 @@ export default function App() {
   // =========================================================================
   // RENDER SCREEN 1: AUTHENTICATION & LOGIN / REGISTRATION
   // =========================================================================
+  if (showBrandSplash) {
+    return (
+      <main className="brand-splash">
+        <div className="brand-splash-art" aria-hidden="true">
+          <img className="brand-splash-logo" src={BRAND_LOGO_URL} alt="Tobs Route Circuit" />
+          <svg className="brand-route-animation" viewBox="0 0 1000 100">
+            <path
+              id="brand-route-path"
+              className="brand-route-path"
+              pathLength="1000"
+              d="M12 52 C112 52 112 15 220 15 S330 85 450 85 S570 15 690 15 S820 85 988 52"
+            />
+            <g className="brand-route-arrow">
+              <path d="M-18 -12 L18 0 L-18 12 L-10 0 Z" />
+              <animateMotion dur="5s" repeatCount="indefinite" rotate="auto">
+                <mpath href="#brand-route-path" />
+              </animateMotion>
+            </g>
+          </svg>
+        </div>
+        <p className="brand-splash-caption">Planning your route</p>
+        <span className="sr-only">Loading Tobs Route Circuit</span>
+      </main>
+    );
+  }
+
   if (!currentUser) {
     return (
       <div className="min-h-screen w-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans select-none">
@@ -915,8 +1006,8 @@ export default function App() {
           
           {/* LOGO & TITLE */}
           <div className="text-center space-y-2">
-            <div className="inline-flex items-center justify-center p-3 bg-emerald-500 rounded-2xl text-slate-950 font-black shadow-lg shadow-emerald-500/20 mb-1">
-              <Compass className="w-8 h-8" />
+            <div className="mx-auto mb-1 flex h-24 w-48 items-center justify-center">
+              <img src={BRAND_LOGO_URL} alt="Tobs Route Circuit" className="max-h-full max-w-full object-contain grayscale" />
             </div>
             <h1 className="text-2xl font-black tracking-tight text-white">Lagos Circuit Route Planner</h1>
             <p className="text-xs text-slate-400 font-medium">Enterprise Driver Dispatch & Real-Time Logistics Platform</p>
@@ -977,6 +1068,16 @@ export default function App() {
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-200 focus:outline-none focus:border-emerald-500"
                 />
               </div>
+
+              <label className="flex items-center gap-2 text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={rememberLogin}
+                  onChange={event => setRememberLogin(event.target.checked)}
+                  className="h-4 w-4 accent-emerald-500"
+                />
+                <span>Remember me on this device</span>
+              </label>
 
               <button
                 type="submit"
@@ -1127,9 +1228,11 @@ export default function App() {
           <div className="flex items-center justify-between">
             {!sidebarCollapsed && (
               <div className="flex items-center space-x-2 min-w-0">
-                <div className="p-2 bg-emerald-500 rounded-xl text-slate-950 font-black shadow-lg">
-                  <Compass className="w-5 h-5" />
-                </div>
+                <img
+                  src={BRAND_LOGO_URL}
+                  alt="Tobs Route Circuit"
+                  className="h-8 w-16 shrink-0 object-contain"
+                />
                 <div className="truncate">
                   <h1 className="font-black text-sm tracking-tight text-emerald-400 truncate">
                     {currentUser.orgName || 'Lagos Circuit'}
@@ -1140,6 +1243,13 @@ export default function App() {
                   </p>
                 </div>
               </div>
+            )}
+            {sidebarCollapsed && (
+              <img
+                src={BRAND_LOGO_URL}
+                alt="Tobs Route Circuit"
+                className="h-6 w-8 shrink-0 object-contain"
+              />
             )}
 
             <button
@@ -1179,6 +1289,7 @@ export default function App() {
 
             {/* ADMIN FLEET SELECTION WORKFLOW */}
             {currentUser.role === 'ADMIN' ? (
+              <>
               <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
                 <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                   <span>Step 1: Select Driver Fleet</span>
@@ -1191,29 +1302,82 @@ export default function App() {
                     const stopCount = stops.filter(s => s.assignedDriverId === d.id).length;
 
                     return (
-                      <button
-                        key={d.id}
-                        onClick={() => setActiveDriverId(d.id)}
-                        className={`w-full p-2 rounded-lg text-left transition-all flex items-center justify-between border ${
-                          isSelected
-                            ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-bold'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="truncate pr-2">
-                          <div className="text-xs truncate">{d.name}</div>
-                          <div className="text-[9px] text-slate-500 truncate">{d.zone}</div>
-                        </div>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
-                          isSelected ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                        }`}>
-                          {stopCount} stops
-                        </span>
-                      </button>
+                      <div key={d.id} className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setActiveDriverId(d.id);
+                            setSelectedStopId(null);
+                          }}
+                          className={`min-w-0 flex-1 p-2 rounded-lg text-left transition-all flex items-center justify-between border ${
+                            isSelected
+                              ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-bold'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="truncate pr-2">
+                            <div className="text-xs truncate">{d.name}</div>
+                            <div className="text-[9px] text-slate-500 truncate">{d.zone}</div>
+                          </div>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                            isSelected ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {stopCount} stops
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${d.name}'s driver account`}
+                          title="Remove driver account"
+                          onClick={() => removeDriverAccount(d)}
+                          className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-2 text-rose-300 hover:bg-rose-500/20"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
               </div>
+              {stops.some(stop => !stop.assignedDriverId) && (
+                <div className="rounded-xl border border-amber-500/30 bg-slate-950 p-2.5">
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                    Unassigned Stops
+                  </p>
+                  <div className="space-y-1.5">
+                    {stops.filter(stop => !stop.assignedDriverId).map(stop => (
+                      <div key={stop.id} className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 p-2">
+                        <button
+                          type="button"
+                          onClick={() => focusStopOnMap(stop)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <span className="block truncate text-[10px] font-bold text-slate-200">{stop.name}</span>
+                          <span className="block truncate text-[9px] text-slate-500">{stop.address}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!activeDriverId}
+                          onClick={() => setStops(prev => prev.map(item =>
+                            item.id === stop.id ? { ...item, assignedDriverId: activeDriverId } : item
+                          ))}
+                          className="rounded-md bg-emerald-500/15 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Assign
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Delete ${stop.name}`}
+                          onClick={() => deleteStop(stop)}
+                          className="rounded-md p-1 text-rose-300 hover:bg-rose-500/15"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              </>
             ) : (
               /* DRIVER ROLE DASHBOARD GPS BANNER */
               <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl space-y-2">
@@ -1243,7 +1407,7 @@ export default function App() {
                   onClick={openAddStopModal}
                   className="py-2.5 px-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-1 transition-all"
                 >
-                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <Plus className="w-4 h-4 stroke-3" />
                   <span>Add Stop Manually</span>
                 </button>
 
@@ -1346,7 +1510,7 @@ export default function App() {
                   return (
                     <div
                       key={stop.id}
-                      onClick={() => setSelectedStopId(stop.id)}
+                      onClick={() => focusStopOnMap(stop)}
                       className={`p-3 border rounded-xl transition-all cursor-pointer relative space-y-2 ${
                         isSelected
                           ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-500/10'
@@ -1454,16 +1618,31 @@ export default function App() {
                             setDriverNotes('');
                             setPodStop(stop);
                           }}
-                            className="py-1 px-2 bg-blue-600/20 border border-blue-500/40 hover:bg-blue-600/30 text-blue-400 font-bold text-[10px] rounded-lg flex items-center space-x-1"
+                          aria-label={`Mark ${stop.name} delivered`}
+                          className="py-1 px-2 bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-emerald-300 font-bold text-[10px] rounded-lg flex items-center space-x-1"
                           >
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>POD</span>
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Mark Delivered</span>
                           </button>
                         ) : (
                           <span className="py-1 px-2 bg-emerald-500/10 text-emerald-400 font-extrabold text-[9px] rounded flex items-center space-x-1">
                             <Check className="w-3 h-3" />
                             <span>Delivered</span>
                           </span>
+                        )}
+                        {currentUser.role === 'ADMIN' && (
+                          <button
+                            type="button"
+                            aria-label={`Delete ${stop.name}`}
+                            title="Delete stop"
+                            onClick={event => {
+                              event.stopPropagation();
+                              deleteStop(stop);
+                            }}
+                            className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-1.5 text-rose-300 hover:bg-rose-500/20"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         )}
                       </div>
 
@@ -1478,10 +1657,24 @@ export default function App() {
 
       </div>
 
-      {/* --- WIDE MAP CANVAS DISPLAY (~75% WIDTH) --- */}
-      <div className="relative flex min-h-[45dvh] flex-1 flex-col overflow-hidden bg-slate-950 md:min-h-0">
+      {/* --- COMPACT GOOGLE MAP DISPLAY --- */}
+      <div className={`relative flex w-full flex-col overflow-hidden bg-slate-950 ${
+        mapExpanded
+          ? 'fixed inset-0 z-50 h-dvh'
+          : 'h-[42dvh] min-h-[280px] shrink-0 md:h-[min(52dvh,440px)] md:min-h-[320px]'
+      }`}>
 
         {/* MAP TOP METRICS HEADER */}
+        {mapExpanded && (
+          <button
+            type="button"
+            onClick={() => setMapExpanded(false)}
+            className="absolute left-3 top-14 z-30 flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-900/95 px-3 py-2 text-xs font-bold text-white shadow-xl hover:bg-slate-800"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            <span>Back to route</span>
+          </button>
+        )}
         <div className="z-10 flex min-h-12 flex-wrap items-center justify-between gap-y-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:gap-x-5 sm:text-xs">
             <div className="flex items-center space-x-1.5">
@@ -1504,6 +1697,15 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-2">
+            <a
+              href={googleMapsSearchUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-300 hover:bg-emerald-500/20 sm:text-xs"
+            >
+              <ExternalLink className="h-3 w-3" />
+              <span>Open in Google Maps</span>
+            </a>
             <div className="flex items-center space-x-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] font-mono font-bold text-emerald-400 sm:px-2.5 sm:text-xs">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>Lagos Live Network</span>
@@ -1511,18 +1713,21 @@ export default function App() {
           </div>
         </div>
 
-        {/* INTERACTIVE LEAFLET / OSM MAP CANVAS */}
+        {/* Map follows the selected driver's next stop, or the selected stop. */}
         <div className="flex-1 relative w-full h-full">
           <iframe
-            title="Lagos Nigeria Interactive Map Canvas"
-            className="w-full h-full border-none filter brightness-90 contrast-125"
-            src={`https://www.openstreetmap.org/export/embed.html?bbox=3.25%2C6.40%2C3.65%2C6.65&layer=mapnik`}
+            title={mapStop ? `Map for ${mapStop.name}` : 'Lagos, Nigeria map'}
+            className="h-full w-full border-none"
+            src={googleMapsEmbedUrl}
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            allowFullScreen
           />
 
           {/* OVERLAY MAP DRIVER RADAR BEACON */}
-          <div className="absolute right-2 top-2 z-20 max-h-[40%] w-[min(18rem,calc(100%-1rem))] space-y-2 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/95 p-2.5 shadow-2xl backdrop-blur-md sm:right-4 sm:top-4 sm:p-3">
+          <div className="absolute right-2 top-2 z-20 max-h-[35%] w-[min(18rem,calc(100%-1rem))] space-y-2 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/95 p-2.5 shadow-2xl backdrop-blur-md sm:right-4 sm:top-4 sm:p-3">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Live Radar Radar</span>
+              <span>Driver Profiles</span>
               <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
             </div>
 
@@ -1776,14 +1981,14 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL 3: PROOF OF DELIVERY (POD) --- */}
+      {/* --- MODAL 3: DELIVERY CONFIRMATION --- */}
       {podStop && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900 p-5 text-xs shadow-2xl sm:p-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-1.5">
                 <PenTool className="w-4 h-4 text-emerald-400" />
-                <span>Proof of Delivery (POD)</span>
+                <span>Confirm Delivery</span>
               </h3>
               <button onClick={() => setPodStop(null)} className="text-slate-400 hover:text-white">
                 <XCircle className="w-5 h-5" />
@@ -1796,22 +2001,30 @@ export default function App() {
             </div>
 
             <div>
-              <label className="text-slate-400 font-semibold block mb-1">Customer Name</label>
+              <label htmlFor="delivery-customer-name" className="text-slate-400 font-semibold block mb-1">
+                Customer Name <span className="text-rose-300">(required)</span>
+              </label>
               <input
+                id="delivery-customer-name"
                 type="text"
+                required
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="e.g. Jane Smith"
+                placeholder="Name of the person receiving the delivery"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
               />
             </div>
 
             <div>
-              <label className="text-slate-400 font-semibold block mb-1">Customer Digital Signature</label>
+              <label className="text-slate-400 font-semibold block mb-1">
+                Customer Signature <span className="text-rose-300">(required)</span>
+              </label>
+              <p className="mb-1 text-[10px] text-slate-500">Ask the customer to sign in the box below.</p>
               <canvas
                 ref={canvasRef}
                 width={360}
                 height={120}
+                aria-label="Customer signature pad"
                 onMouseDown={startDrawing}
                 onMouseMove={draw}
                 onMouseUp={stopDrawing}
@@ -1820,6 +2033,19 @@ export default function App() {
                 onTouchEnd={stopDrawing}
                 className="w-full h-28 bg-slate-950 border border-slate-800 rounded-xl cursor-crosshair touch-none"
               />
+              <button
+                type="button"
+                onClick={() => {
+                  const canvas = canvasRef.current;
+                  const context = canvas?.getContext('2d');
+                  if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
+                  setSignatureCaptured(false);
+                  setPodError('');
+                }}
+                className="mt-1 text-[10px] font-semibold text-slate-400 hover:text-white"
+              >
+                Clear signature
+              </button>
             </div>
 
             <div className="space-y-2">
@@ -1865,7 +2091,7 @@ export default function App() {
               onClick={confirmPODDelivery}
               className="w-full py-3 bg-emerald-500 text-slate-950 font-bold rounded-xl hover:bg-emerald-400 transition-all shadow-lg"
             >
-              Confirm & Send to {DELIVERY_EMAIL}
+              Confirm Delivery & Prepare Email
             </button>
           </div>
         </div>
