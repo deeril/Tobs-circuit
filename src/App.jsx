@@ -8,6 +8,20 @@ import {
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
+const BIKE_ICON_URL = 'https://res.cloudinary.com/djfkcfltf/image/upload/v1793287582/image-removebg-preview_1_l3xhbk.png';
+const MAP_ZOOM = 10;
+
+function getMapPixelOffset(location, center, zoom) {
+  const worldSize = 256 * (2 ** zoom);
+  const x = ((location.lng - center.lng) / 360) * worldSize;
+  const toMercatorY = latitude => {
+    const clampedLatitude = Math.max(-85.05112878, Math.min(85.05112878, latitude));
+    const radians = clampedLatitude * (Math.PI / 180);
+    return Math.log(Math.tan(Math.PI / 4 + radians / 2));
+  };
+  const y = ((toMercatorY(center.lat) - toMercatorY(location.lat)) / (2 * Math.PI)) * worldSize;
+  return { x, y };
+}
 
 function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, id }) {
   const [suggestions, setSuggestions] = useState([]);
@@ -499,6 +513,27 @@ export default function App() {
     return () => window.clearInterval(timerId);
   }, []);
 
+  useEffect(() => {
+    if (!isPreviewSession || currentUser?.role !== 'ADMIN') return undefined;
+    const previewRider = PREVIEW_DRIVERS[0];
+    const updatePreviewLocation = () => {
+      const phase = Date.now() / 15_900;
+      const location = {
+        lat: previewRider.lat + Math.sin(phase) * 0.0015,
+        lng: previewRider.lng + Math.cos(phase) * 0.0015,
+        speed: 38,
+        isTracking: true,
+        locationUpdatedAt: new Date().toISOString()
+      };
+      setUsers(previous => previous.map(user =>
+        user.id === previewRider.id ? { ...user, ...location } : user
+      ));
+    };
+    updatePreviewLocation();
+    const timerId = window.setInterval(updatePreviewLocation, 1_200);
+    return () => window.clearInterval(timerId);
+  }, [isPreviewSession, currentUser?.role]);
+
   // Modals
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showAddStopModal, setShowAddStopModal] = useState(false);
@@ -594,13 +629,27 @@ export default function App() {
     mapDriver.locationUpdatedAt &&
     clockNow - new Date(mapDriver.locationUpdatedAt).getTime() < 90_000
   );
-  const mapSearchQuery = mapDriverIsLive && Number.isFinite(mapDriver.lat) && Number.isFinite(mapDriver.lng)
-    ? `${mapDriver.lat},${mapDriver.lng}`
-    : mapStop && Number.isFinite(mapStop.lat) && Number.isFinite(mapStop.lng)
-    ? `${mapStop.lat},${mapStop.lng}`
-    : mapStop?.address || 'Lagos, Nigeria';
-  const googleMapsEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapSearchQuery)}&z=14&output=embed`;
+  const mapStopHasCoordinates = Number.isFinite(mapStop?.lat) && Number.isFinite(mapStop?.lng);
+  const mapDriverHasCoordinates = Number.isFinite(mapDriver?.lat) && Number.isFinite(mapDriver?.lng);
+  const mapRouteDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
+  const mapRouteStops = stops.filter(stop => stop.assignedDriverId === mapRouteDriverId);
+  const mapCenterStops = selectedStopId && mapStopHasCoordinates
+    ? [mapStop]
+    : mapRouteStops.filter(stop => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
+  const mapCenter = mapCenterStops.length > 0
+    ? {
+      lat: mapCenterStops.reduce((total, stop) => total + stop.lat, 0) / mapCenterStops.length,
+      lng: mapCenterStops.reduce((total, stop) => total + stop.lng, 0) / mapCenterStops.length
+    }
+    : mapDriverIsLive && mapDriverHasCoordinates
+      ? { lat: mapDriver.lat, lng: mapDriver.lng }
+      : { lat: startDepot.lat, lng: startDepot.lng };
+  const mapSearchQuery = selectedStopId && mapStop && !mapStopHasCoordinates
+    ? mapStop.address
+    : `${mapCenter.lat},${mapCenter.lng}`;
+  const googleMapsEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapSearchQuery)}&z=${MAP_ZOOM}&output=embed`;
   const googleMapsSearchUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapSearchQuery)}`;
+  const liveMapDrivers = currentUser?.role === 'ADMIN' ? driversList : currentUser?.role === 'DRIVER' ? [currentUser] : [];
 
   const saveOrganizationLogo = (orgName, email, logoData) => {
     const orgKey = orgName.trim().toLowerCase();
@@ -2501,6 +2550,45 @@ export default function App() {
             referrerPolicy="no-referrer-when-downgrade"
             allowFullScreen
           />
+
+          {liveMapDrivers.map(driver => {
+            const locationIsFresh = driver.isTracking
+              && driver.locationUpdatedAt
+              && clockNow - new Date(driver.locationUpdatedAt).getTime() < 90_000;
+            if (!locationIsFresh || !Number.isFinite(driver.lat) || !Number.isFinite(driver.lng)) return null;
+
+            const offset = getMapPixelOffset(
+              { lat: driver.lat, lng: driver.lng },
+              mapCenter,
+              MAP_ZOOM
+            );
+            return (
+              <button
+                key={driver.id}
+                type="button"
+                aria-label={`${isPreviewSession ? 'Simulated preview location' : 'Live location'} for ${driver.name}, ${driver.speed ?? 0} kilometers per hour`}
+                title={`${driver.name} · ${isPreviewSession ? 'Preview movement' : `${driver.speed ?? 0} km/h`}`}
+                onClick={() => {
+                  if (currentUser.role === 'ADMIN') setActiveDriverId(driver.id);
+                }}
+                className="bike-rider-marker absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+                style={{
+                  left: `calc(50% + ${offset.x}px)`,
+                  top: `calc(50% + ${offset.y}px)`
+                }}
+              >
+                <span className={`bike-rider-speed ${isPreviewSession ? 'bike-rider-preview' : ''}`}>
+                  {isPreviewSession ? 'Preview movement' : `${driver.speed ?? 0} km/h`}
+                </span>
+                <img
+                  src={BIKE_ICON_URL}
+                  alt=""
+                  className={`bike-rider-icon ${Number(driver.speed) > 0 ? 'bike-rider-icon-moving' : ''}`}
+                />
+                <span className="bike-rider-name">{driver.name}</span>
+              </button>
+            );
+          })}
 
           {/* OVERLAY MAP DRIVER RADAR BEACON */}
           <div className="admin-driver-locations absolute right-2 top-2 z-20 max-h-[35%] w-[min(18rem,calc(100%-1rem))] space-y-2 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/95 p-2.5 shadow-2xl backdrop-blur-md sm:right-4 sm:top-4 sm:p-3">

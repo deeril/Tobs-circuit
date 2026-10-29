@@ -672,6 +672,66 @@ button {
   background: #e9e9e9 !important;
 }
 
+#root .admin-dashboard .bike-rider-marker {
+  min-width: 58px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: left 1.2s cubic-bezier(0.2, 0.75, 0.25, 1), top 1.2s cubic-bezier(0.2, 0.75, 0.25, 1);
+  filter: drop-shadow(0 2px 5px rgb(22 10 36 / 40%));
+}
+
+#root .admin-dashboard .bike-rider-icon {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+}
+
+#root .admin-dashboard .bike-rider-icon-moving {
+  animation: rider-bike-bob 420ms ease-in-out infinite alternate;
+}
+
+#root .admin-dashboard .bike-rider-name,
+#root .admin-dashboard .bike-rider-speed {
+  max-width: 120px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #fff;
+  padding: 2px 7px;
+  color: #382252 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+#root .admin-dashboard .bike-rider-speed {
+  background: #6f35b5;
+  color: #fff !important;
+}
+
+#root .admin-dashboard .bike-rider-speed.bike-rider-preview {
+  background: #fff4d6;
+  color: #704900 !important;
+}
+
+@keyframes rider-bike-bob {
+  from { transform: translateY(0); }
+  to { transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #root .admin-dashboard .bike-rider-marker {
+    transition: none;
+  }
+
+  #root .admin-dashboard .bike-rider-icon-moving {
+    animation: none;
+  }
+}
+
 #root .admin-dashboard .admin-driver-locations {
   max-height: 42%;
   padding: 14px !important;
