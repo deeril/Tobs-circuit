@@ -633,6 +633,14 @@ button {
   background: #fff !important;
 }
 
+#root .admin-dashboard .profile-menu-logo {
+  color: #342447 !important;
+}
+
+#root .admin-dashboard .profile-menu-logo img {
+  object-position: center;
+}
+
 #root .admin-dashboard .profile-menu-item {
   display: flex;
   width: 100%;

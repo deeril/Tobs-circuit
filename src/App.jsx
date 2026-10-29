@@ -365,8 +365,6 @@ export default function App() {
   const [showPasswordHelp, setShowPasswordHelp] = useState(false);
   const [passwordHelpEmail, setPasswordHelpEmail] = useState('');
   const [passwordHelpMessage, setPasswordHelpMessage] = useState('');
-  const [registerOrgLogo, setRegisterOrgLogo] = useState('');
-  const [logoError, setLogoError] = useState('');
   const [orgLogoStore, setOrgLogoStore] = useState(() => {
     const saved = localStorage.getItem(ORG_LOGOS_STORAGE_KEY);
     return saved ? JSON.parse(saved) : { byOrg: {}, byEmail: {} };
@@ -662,17 +660,6 @@ export default function App() {
     }));
   };
 
-  const handleRegisterLogoChange = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setLogoError('');
-    try {
-      setRegisterOrgLogo(await resizeLogoImage(file));
-    } catch (error) {
-      setLogoError(error.message);
-    }
-  };
-
   const startPreviewSession = (role) => {
     const previewUsers = [PREVIEW_ADMIN, ...PREVIEW_DRIVERS];
     setIsPreviewSession(true);
@@ -757,11 +744,7 @@ export default function App() {
         method: 'POST',
         body: JSON.stringify(registration)
       });
-      if (user.role === 'ADMIN' && registerOrgLogo) {
-        saveOrganizationLogo(user.orgName, user.email, registerOrgLogo);
-      }
       setCurrentUser(user);
-      setRegisterOrgLogo('');
       setRegisterForm(prev => ({ ...prev, password: '' }));
       setAuthError('');
       if (user.role === 'DRIVER') setActiveDriverId(user.id);
@@ -822,6 +805,22 @@ export default function App() {
           </div>
           {currentUser.role === 'ADMIN' && (
             <>
+              <label className="profile-menu-logo block cursor-pointer border-b border-violet-100 px-3 py-3 text-[10px] font-bold text-violet-950">
+                <span className="block">Fleet logo</span>
+                <span className="mt-1 block text-[9px] font-medium text-slate-500">Saved in this browser</span>
+                <img
+                  src={currentOrgLogo}
+                  alt="Current fleet logo"
+                  className="mt-2 h-10 w-16 rounded-lg border border-violet-100 bg-white object-contain p-1"
+                />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleOrganizationLogoChange}
+                  className="mt-2 block w-full text-[9px] text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-violet-700 file:px-2 file:py-1.5 file:font-bold file:text-white"
+                />
+                {logoUploadError && <span role="alert" className="mt-1 block text-[9px] text-rose-700">{logoUploadError}</span>}
+              </label>
               <button
                 type="button"
                 role="menuitem"
@@ -1578,6 +1577,31 @@ export default function App() {
             </p>
           )}
 
+          {IS_GITHUB_PAGES_DEMO && !invitationToken && (
+            <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50 p-3">
+              <p className="text-center text-[10px] font-bold text-violet-950">Choose how to continue</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => startPreviewSession('ADMIN')}
+                  className="rounded-xl bg-violet-700 px-3 py-2.5 text-[10px] font-extrabold text-white hover:bg-violet-800"
+                >
+                  Log in as Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startPreviewSession('DRIVER')}
+                  className="rounded-xl border border-violet-300 bg-white px-3 py-2.5 text-[10px] font-extrabold text-violet-900 hover:bg-violet-100"
+                >
+                  Log in as Driver
+                </button>
+              </div>
+              <p className="text-center text-[9px] leading-relaxed text-violet-900">
+                Demo dashboards use sample data. Use the account form below to sign in with fleet credentials.
+              </p>
+            </div>
+          )}
+
           {/* TAB 1: LOGIN FORM */}
           {!invitationToken && authTab === 'LOGIN' && (
             <form onSubmit={showPasswordHelp ? showPasswordRecoveryHelp : handleLogin} className="space-y-4 text-xs">
@@ -1686,31 +1710,6 @@ export default function App() {
             </form>
           )}
 
-          {IS_GITHUB_PAGES_DEMO && !invitationToken && (
-            <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50 p-3">
-              <p className="text-[10px] font-bold text-violet-950">Choose a demo role</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => startPreviewSession('ADMIN')}
-                  className="rounded-xl bg-violet-700 px-3 py-2.5 text-[10px] font-extrabold text-white hover:bg-violet-800"
-                >
-                  Log in as Admin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => startPreviewSession('DRIVER')}
-                  className="rounded-xl border border-violet-300 bg-white px-3 py-2.5 text-[10px] font-extrabold text-violet-900 hover:bg-violet-100"
-                >
-                  Log in as Driver
-                </button>
-              </div>
-              <p className="text-[9px] leading-relaxed text-violet-900">
-                Demo access uses sample data stored only in this browser.
-              </p>
-            </div>
-          )}
-
           {/* TAB 2: REGISTER FORM */}
           {!IS_GITHUB_PAGES_DEMO && authTab === 'REGISTER' && (
             <form onSubmit={handleRegister} className="space-y-3 text-xs">
@@ -1793,19 +1792,6 @@ export default function App() {
                     onChange={(e) => setRegisterForm({ ...registerForm, orgName: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
                   />
-                  <label className="block text-slate-400 font-semibold">
-                    Fleet logo (optional; saved in this browser)
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleRegisterLogoChange}
-                      className="mt-1 block w-full text-[10px] text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-100 file:px-3 file:py-2 file:font-bold file:text-violet-800"
-                    />
-                  </label>
-                  {registerOrgLogo && (
-                    <img src={registerOrgLogo} alt="Fleet logo preview" className="h-16 max-w-36 object-contain" />
-                  )}
-                  {logoError && <p role="alert" className="text-[10px] text-rose-700">{logoError}</p>}
                 </div>
               ) : (
                 /* DRIVER REGISTRATION: INVITE DETAILS & VEHICLE */
@@ -1918,23 +1904,6 @@ export default function App() {
                 Static preview: changes stay in this browser. Email, password reset and cross-device live tracking are disabled.
               </p>
             )}
-            {currentUser.role === 'ADMIN' && (
-              <>
-                <div className="rounded-xl border border-violet-200 bg-violet-50 p-2.5">
-                  <label className="block text-[10px] font-bold text-violet-950">
-                    Fleet logo (saved in this browser)
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleOrganizationLogoChange}
-                      className="mt-1 block w-full text-[9px] text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-violet-700 file:px-2 file:py-1.5 file:font-bold file:text-white"
-                    />
-                  </label>
-                  {logoUploadError && <p role="alert" className="mt-1 text-[9px] text-rose-700">{logoUploadError}</p>}
-                </div>
-              </>
-            )}
-
             {/* ADMIN FLEET SELECTION WORKFLOW */}
             {currentUser.role === 'ADMIN' ? (
               <>
