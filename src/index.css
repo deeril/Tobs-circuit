@@ -582,6 +582,8 @@ button {
 }
 
 #root .admin-dashboard .admin-map-toolbar {
+  position: relative;
+  z-index: 50 !important;
   min-height: 76px;
   padding: 14px 26px;
   border: 0 !important;
