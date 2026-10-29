@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import brandLogo from './assets/tobs-circuit-logo-purple.png';
+import deliveryBike from './assets/delivery-bike.png';
 import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
@@ -8,7 +9,7 @@ import {
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
-const BIKE_ICON_URL = 'https://res.cloudinary.com/djfkcfltf/image/upload/v1793287582/image-removebg-preview_1_l3xhbk.png';
+const BIKE_ICON_URL = deliveryBike;
 const MAP_ZOOM = 10;
 
 function getMapPixelOffset(location, center, zoom) {
