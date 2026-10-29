@@ -1,15 +1,13 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import brandLogo from './assets/tobs-circuit-logo.png';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import brandLogo from './assets/tobs-circuit-logo-purple.png';
 import {
-  MapPin, Navigation, Play, Pause, RotateCcw, CheckCircle2, XCircle, Clock,
-  Package, Search, Plus, Trash2, Download,
-  Layers, ChevronRight, Check, AlertCircle,
-  Truck, Crosshair, ExternalLink, Radio, Signal,
-  ChevronLeft, Target, UserCheck, Users, UserPlus,
-  Shield, PenTool, Phone, Map, Send, RefreshCw, ArrowDownUp, Edit3,
-  Copy, Link, LogOut, User, Building, QrCode, Smartphone,
-  CheckCircle, ArrowRight, Eye, Key, Share2, Layers as LayersIcon, ArrowUp, ArrowDown
+  MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
+  ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
+  ChevronLeft, Target, UserCheck, Users, UserPlus, Shield, PenTool,
+  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown
 } from 'lucide-react';
+
+const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
 
 function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, id }) {
   const [suggestions, setSuggestions] = useState([]);
@@ -131,65 +129,157 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
 }
 
 // --- LOCAL STORAGE KEYS ---
-const STORAGE_KEYS = {
-  USERS: 'lagos_circuit_users',
-  CURRENT_USER: 'lagos_circuit_current_user',
-  INVITES: 'lagos_circuit_invites',
-  STOPS: 'lagos_circuit_stops'
-};
-
-const PASSWORD_HASH_ITERATIONS = 600000;
-const DEMO_USER_IDS = new Set(['user_admin_1', 'drv_1', 'drv_2', 'drv_3']);
-const DEMO_USER_EMAILS = new Set([
-  'admin@lagosexpress.com',
-  'tunde@lagosexpress.com',
-  'chidi@lagosexpress.com',
-  'amina@lagosexpress.com'
-]);
+const STORAGE_KEYS = { STOPS: 'lagos_circuit_stops' };
 const DEMO_STOP_IDS = new Set(['l1', 'l2', 'l3', 'l4', 'l5', 'l6']);
 const BRAND_LOGO_URL = brandLogo;
-
-function stripPasswordFields(user) {
-  return Object.fromEntries(
-    Object.entries(user).filter(([key]) => !['password', 'passwordHash', 'passwordSalt'].includes(key))
-  );
-}
-
-function stripLegacyPassword(user) {
-  return Object.fromEntries(Object.entries(user).filter(([key]) => key !== 'password'));
-}
-
-function toHex(bytes) {
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function createPasswordCredential(password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PASSWORD_HASH_ITERATIONS },
-    key,
-    256
-  );
-  return { passwordSalt: toHex(salt), passwordHash: toHex(new Uint8Array(bits)) };
-}
-
-async function verifyPassword(password, user) {
-  if (!/^[\da-f]{32}$/i.test(user.passwordSalt || '') || !/^[\da-f]{64}$/i.test(user.passwordHash || '')) return false;
-  const salt = Uint8Array.from(user.passwordSalt.match(/.{2}/g) || [], byte => parseInt(byte, 16));
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PASSWORD_HASH_ITERATIONS },
-    key,
-    256
-  );
-  const actualHash = new Uint8Array(bits);
-  const expectedHash = Uint8Array.from(user.passwordHash.match(/.{2}/g), byte => parseInt(byte, 16));
-  let mismatch = 0;
-  for (let index = 0; index < actualHash.length; index += 1) {
-    mismatch |= actualHash[index] ^ expectedHash[index];
+const ORG_LOGOS_STORAGE_KEY = 'tobs_circuit_org_logos';
+const IS_GITHUB_PAGES_DEMO = window.location.hostname === 'deeril.github.io';
+const PREVIEW_ADMIN = {
+  id: 'preview-admin',
+  name: 'Demo Dispatcher',
+  email: 'dispatcher@example.test',
+  role: 'ADMIN',
+  orgName: 'Tobs Circuit Preview',
+  status: 'ACTIVE'
+};
+const PREVIEW_DRIVERS = [
+  {
+    id: 'preview-driver-1',
+    name: 'Rider One',
+    email: 'rider1@example.test',
+    role: 'DRIVER',
+    orgName: PREVIEW_ADMIN.orgName,
+    ownerAdminId: PREVIEW_ADMIN.id,
+    zone: 'Ikeja',
+    vehicle: 'Delivery bike',
+    status: 'ACTIVE',
+    lat: 6.6139,
+    lng: 3.3582,
+    speed: 0,
+    isTracking: false,
+    routeStatus: 'IN_PROGRESS'
+  },
+  {
+    id: 'preview-driver-2',
+    name: 'Rider Two',
+    email: 'rider2@example.test',
+    role: 'DRIVER',
+    orgName: PREVIEW_ADMIN.orgName,
+    ownerAdminId: PREVIEW_ADMIN.id,
+    zone: 'Yaba',
+    vehicle: 'Delivery bike',
+    status: 'ACTIVE',
+    lat: 6.5095,
+    lng: 3.3711,
+    speed: 0,
+    isTracking: false,
+    routeStatus: 'PENDING'
   }
-  return mismatch === 0;
+];
+
+function createPreviewStops() {
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const lastWeek = new Date(now);
+  lastWeek.setDate(lastWeek.getDate() - 4);
+  return [
+    {
+      id: 'preview-delivered-today',
+      name: 'Ikeja Preview Delivery',
+      address: 'Ikeja, Lagos',
+      lat: 6.6139,
+      lng: 3.3582,
+      status: 'DELIVERED',
+      deliveredAt: now.toISOString(),
+      assignedDriverId: PREVIEW_DRIVERS[0].id,
+      priority: 'NORMAL',
+      packages: 1
+    },
+    {
+      id: 'preview-delivered-yesterday',
+      name: 'Yaba Preview Delivery',
+      address: 'Yaba, Lagos',
+      lat: 6.5095,
+      lng: 3.3711,
+      status: 'DELIVERED',
+      deliveredAt: yesterday.toISOString(),
+      assignedDriverId: PREVIEW_DRIVERS[1].id,
+      priority: 'NORMAL',
+      packages: 1
+    },
+    {
+      id: 'preview-delivered-last-week',
+      name: 'Maryland Preview Delivery',
+      address: 'Maryland, Lagos',
+      lat: 6.5683,
+      lng: 3.3688,
+      status: 'DELIVERED',
+      deliveredAt: lastWeek.toISOString(),
+      assignedDriverId: PREVIEW_DRIVERS[0].id,
+      priority: 'NORMAL',
+      packages: 1
+    },
+    {
+      id: 'preview-pending',
+      name: 'Pending Preview Delivery',
+      address: 'Victoria Island, Lagos',
+      lat: 6.4261,
+      lng: 3.4302,
+      status: 'PENDING',
+      assignedDriverId: PREVIEW_DRIVERS[0].id,
+      priority: 'HIGH',
+      packages: 1
+    }
+  ];
+}
+
+function resizeLogoImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Choose an image file for the logo.'));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('The selected logo could not be read.'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('The selected logo could not be opened.'));
+      image.onload = () => {
+        const maxDimension = 512;
+        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context) {
+          reject(new Error('Image processing is unavailable in this browser.'));
+          return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.78));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    credentials: 'same-origin',
+    headers: {
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || `Request failed (${response.status}).`);
+  }
+  return payload;
 }
 
 // Haversine Distance Formula (Kilometers)
@@ -205,130 +295,171 @@ function calcHaversineDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+function getInviteApplicationUrl(invite) {
+  if (invite.applicationUrl) return invite.applicationUrl;
+  const url = new URL(window.location.pathname, window.location.origin);
+  url.searchParams.set('invite', invite.token);
+  return url.toString();
+}
+
 export default function App() {
   // --- AUTH & PERSISTENCE STATES ---
-  const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER)
-      || sessionStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-    if (!saved) return null;
-    const user = JSON.parse(saved);
-    return DEMO_USER_IDS.has(user.id) || DEMO_USER_EMAILS.has(user.email?.toLowerCase())
-      ? null
-      : stripPasswordFields(user);
-  });
-  const [rememberLogin, setRememberLogin] = useState(() => {
-    if (localStorage.getItem(STORAGE_KEYS.CURRENT_USER)) return true;
-    if (sessionStorage.getItem(STORAGE_KEYS.CURRENT_USER)) return false;
-    return true;
-  });
-
-  const [users, setUsers] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-    return saved
-      ? JSON.parse(saved).filter(user => !DEMO_USER_IDS.has(user.id) && !DEMO_USER_EMAILS.has(user.email?.toLowerCase()))
-      : [];
-  });
-
-  const [invites, setInvites] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.INVITES);
-    return saved ? JSON.parse(saved).filter(invite => invite.id !== 'inv_1') : [];
-  });
+  const invitationParams = new URLSearchParams(window.location.search);
+  const invitationToken = invitationParams.get('invite') || '';
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isPreviewSession, setIsPreviewSession] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [invites, setInvites] = useState([]);
 
   const [stops, setStops] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.STOPS);
     return saved ? JSON.parse(saved).filter(stop => !DEMO_STOP_IDS.has(stop.id)) : [];
   });
+  const [routeDataReady, setRouteDataReady] = useState(false);
   const [credentialsReady, setCredentialsReady] = useState(false);
   const [showBrandSplash, setShowBrandSplash] = useState(true);
+  const [logoUploadError, setLogoUploadError] = useState('');
 
   useEffect(() => {
     const splashTimeout = window.setTimeout(() => setShowBrandSplash(false), 5000);
     return () => window.clearTimeout(splashTimeout);
   }, []);
 
-  // Save changes to localStorage
-  useEffect(() => {
-    if (credentialsReady) {
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users.map(stripLegacyPassword)));
-    }
-  }, [users, credentialsReady]);
-
-  useEffect(() => {
-    if (!currentUser) {
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-      return;
-    }
-
-    const serializedUser = JSON.stringify(stripPasswordFields(currentUser));
-    if (rememberLogin) {
-      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, serializedUser);
-      sessionStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    } else {
-      sessionStorage.setItem(STORAGE_KEYS.CURRENT_USER, serializedUser);
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    }
-  }, [currentUser, rememberLogin]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.INVITES, JSON.stringify(invites));
-  }, [invites]);
-
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.STOPS, JSON.stringify(stops));
   }, [stops]);
 
+  useEffect(() => {
+    const syncStoredStops = (event) => {
+      if (event.key !== STORAGE_KEYS.STOPS || !event.newValue) return;
+      try {
+        setStops(JSON.parse(event.newValue).filter(stop => !DEMO_STOP_IDS.has(stop.id)));
+      } catch (error) {
+        console.error('Could not synchronize route stops from another tab:', error);
+      }
+    };
+    window.addEventListener('storage', syncStoredStops);
+    return () => window.removeEventListener('storage', syncStoredStops);
+  }, []);
+
   // Auth Form State
-  const [authTab, setAuthTab] = useState('LOGIN'); // 'LOGIN' or 'REGISTER'
-  const [authRole, setAuthRole] = useState('ADMIN'); // 'ADMIN' or 'DRIVER'
+  const [authTab, setAuthTab] = useState(invitationToken ? 'REGISTER' : 'LOGIN'); // 'LOGIN' or 'REGISTER'
+  const [authRole, setAuthRole] = useState(invitationToken ? 'DRIVER' : 'ADMIN'); // 'ADMIN' or 'DRIVER'
+  const [rememberLogin, setRememberLogin] = useState(true);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
-  const [registerForm, setRegisterForm] = useState({
-    name: '', email: '', password: '', orgName: '', inviteToken: '', zone: '', vehicle: '', phone: ''
+  const [showPasswordHelp, setShowPasswordHelp] = useState(false);
+  const [passwordHelpEmail, setPasswordHelpEmail] = useState('');
+  const [passwordHelpMessage, setPasswordHelpMessage] = useState('');
+  const [registerOrgLogo, setRegisterOrgLogo] = useState('');
+  const [logoError, setLogoError] = useState('');
+  const [orgLogoStore, setOrgLogoStore] = useState(() => {
+    const saved = localStorage.getItem(ORG_LOGOS_STORAGE_KEY);
+    return saved ? JSON.parse(saved) : { byOrg: {}, byEmail: {} };
   });
+  useEffect(() => {
+    localStorage.setItem(ORG_LOGOS_STORAGE_KEY, JSON.stringify(orgLogoStore));
+  }, [orgLogoStore]);
+  const [activeAdminView, setActiveAdminView] = useState('ROUTES');
+  const [registerForm, setRegisterForm] = useState(() => ({
+    name: '',
+    email: '',
+    password: '',
+    orgName: '',
+    inviteToken: invitationToken,
+    zone: '',
+    vehicle: '',
+    phone: ''
+  }));
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
-    if (credentialsReady) return undefined;
-
     let cancelled = false;
-
-    const migrateCredentials = async () => {
+    const restoreSession = async () => {
       try {
-        const migratedUsers = await Promise.all(users.map(async user => {
-          const safeUser = stripLegacyPassword(user);
-          if (user.passwordHash && user.passwordSalt) return safeUser;
-          if (typeof user.password !== 'string' || user.password.length === 0) return safeUser;
-          const credential = await createPasswordCredential(user.password);
-          return { ...safeUser, ...credential };
-        }));
+        const { user } = await apiRequest('/api/auth/session');
         if (!cancelled) {
-          setUsers(migratedUsers);
-          setCredentialsReady(true);
+          setCurrentUser(user);
         }
       } catch (error) {
-        console.error('Could not securely migrate stored account credentials:', error);
-        if (!cancelled) {
-          setAuthError('Stored account credentials could not be secured in this browser. Please use a supported browser and reload.');
+        if (!IS_GITHUB_PAGES_DEMO && error.message !== 'No active session.') {
+          console.error('Could not restore the signed-in session:', error);
+          if (!cancelled) setAuthError(`Account service unavailable: ${error.message}`);
         }
+      } finally {
+        if (!cancelled) setCredentialsReady(true);
       }
     };
 
-    migrateCredentials();
+    restoreSession();
     return () => {
       cancelled = true;
     };
-  }, [users, credentialsReady]);
-
-  // Check URL parameters for invitation links
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const inviteParam = params.get('invite');
-    if (inviteParam) {
-      setAuthTab('REGISTER');
-      setAuthRole('DRIVER');
-      setRegisterForm(prev => ({ ...prev, inviteToken: inviteParam }));
-    }
   }, []);
+
+  useEffect(() => {
+    if (!currentUser?.id || isPreviewSession) return undefined;
+    let cancelled = false;
+    const refreshAccountData = async () => {
+      try {
+        const [accountData, routeData] = await Promise.all([
+          apiRequest('/api/users'),
+          apiRequest('/api/stops')
+        ]);
+        if (!cancelled) {
+          setUsers(accountData.users);
+          setStops(previous => JSON.stringify(previous) === JSON.stringify(routeData.stops)
+            ? previous
+            : routeData.stops);
+          setRouteDataReady(true);
+        }
+        if (currentUser.role === 'ADMIN') {
+          const { invitations } = await apiRequest('/api/invitations');
+          if (!cancelled) setInvites(invitations);
+        }
+      } catch (error) {
+        console.error('Could not refresh account data:', error);
+        if (!cancelled) setAuthError(`Account data could not be loaded: ${error.message}`);
+      }
+    };
+    refreshAccountData();
+    const refreshInterval = window.setInterval(refreshAccountData, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshInterval);
+    };
+  }, [currentUser?.id, currentUser?.role, isPreviewSession]);
+
+  useEffect(() => {
+    if (!currentUser?.id || !routeDataReady || isPreviewSession) return undefined;
+    const timerId = window.setTimeout(() => {
+      apiRequest('/api/stops', {
+        method: 'PUT',
+        body: JSON.stringify({ stops })
+      }).catch(error => {
+        console.error('Could not synchronize route stops with the fleet:', error);
+        setAuthError(`Route changes could not be saved: ${error.message}`);
+      });
+    }, 250);
+    return () => window.clearTimeout(timerId);
+  }, [stops, routeDataReady, currentUser?.id, isPreviewSession]);
+
+  useEffect(() => {
+    if (!invitationToken) return undefined;
+    let cancelled = false;
+    apiRequest(`/api/invitations/${encodeURIComponent(invitationToken)}`)
+      .then(({ email, orgName }) => {
+        if (cancelled) return;
+        setRegisterForm(prev => ({ ...prev, inviteToken: invitationToken, email, orgName }));
+        setAuthError('');
+        document.title = `Apply to drive with ${orgName} | Tobs Route Circuit`;
+      })
+      .catch(error => {
+        if (!cancelled) setAuthError(error.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [invitationToken]);
 
   // --- APP DASHBOARD STATES ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -341,13 +472,24 @@ export default function App() {
   const [isGpsActive, setIsGpsActive] = useState(false);
   const [gpsPos, setGpsPos] = useState({ lat: 6.5244, lng: 3.3792 });
   const [gpsSpeed, setGpsSpeed] = useState(0);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  const lastLocationSyncRef = useRef(0);
   const watchIdRef = useRef(null);
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => setClockNow(Date.now()), 15_000);
+    return () => window.clearInterval(timerId);
+  }, []);
 
   // Modals
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showAddStopModal, setShowAddStopModal] = useState(false);
   const [podStop, setPodStop] = useState(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [generatedInviteId, setGeneratedInviteId] = useState('');
+  const [inviteError, setInviteError] = useState('');
+  const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [newStopForm, setNewStopForm] = useState({
     name: '',
     address: '',
@@ -378,25 +520,17 @@ export default function App() {
   const [signatureCaptured, setSignatureCaptured] = useState(false);
   const DELIVERY_EMAIL = 'tobiayodele95@gmail.com';
 
-  // Map DOM & Google Maps API Refs
-  const mapContainerRef = useRef(null);
-  const googleMapRef = useRef(null);
-  const mapMarkersRef = useRef([]);
-  const polylineRef = useRef(null);
-
   // Signature Pad Canvas
   const canvasRef = useRef(null);
   const [isSigning, setIsSigning] = useState(false);
   const [driverNotes, setDriverNotes] = useState('');
   const photoInputRef = useRef(null);
 
-  // Depot Default
-  const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
-
   // Current Active Driver List
   const driversList = useMemo(() => {
     return users.filter(u => u.role === 'DRIVER');
   }, [users]);
+  const generatedInvite = invites.find(invite => invite.id === generatedInviteId) || null;
   const driverSuggestions = useMemo(() => {
     const query = driverNameQuery.trim().toLowerCase();
     return driversList.filter(driver =>
@@ -411,6 +545,15 @@ export default function App() {
   const selectedDriver = useMemo(() => {
     return driversList.find(d => d.id === activeDriverId) || driversList[0] || null;
   }, [driversList, activeDriverId]);
+  const currentOrgLogo = currentUser
+    ? orgLogoStore.byOrg[(currentUser.orgName || '').trim().toLowerCase()] || BRAND_LOGO_URL
+    : BRAND_LOGO_URL;
+  const driverRouteStops = stops.filter(stop => stop.assignedDriverId === currentUser?.id);
+  const driverRecord = users.find(user => user.id === currentUser?.id);
+  const driverRouteStatus = driverRouteStops.length > 0 && (driverRecord?.routeStatus || currentUser?.routeStatus) === 'IDLE'
+    ? 'PENDING'
+    : driverRecord?.routeStatus || currentUser?.routeStatus || (driverRouteStops.length > 0 ? 'PENDING' : 'IDLE');
+  const driverRouteStopCount = Math.max(driverRouteStops.length, driverRecord?.routeStopCount || 0);
 
   // Filtered Stops for Active Driver
   const activeDriverStops = useMemo(() => {
@@ -427,33 +570,88 @@ export default function App() {
     || activeDriverStops.find(stop => stop.status !== 'DELIVERED')
     || activeDriverStops[0]
     || null;
-  const mapSearchQuery = mapStop && Number.isFinite(mapStop.lat) && Number.isFinite(mapStop.lng)
+  const mapDriver = currentUser?.role === 'ADMIN' ? selectedDriver : currentUser;
+  const mapDriverIsLive = Boolean(
+    mapDriver?.isTracking &&
+    mapDriver.locationUpdatedAt &&
+    clockNow - new Date(mapDriver.locationUpdatedAt).getTime() < 90_000
+  );
+  const mapSearchQuery = mapDriverIsLive && Number.isFinite(mapDriver.lat) && Number.isFinite(mapDriver.lng)
+    ? `${mapDriver.lat},${mapDriver.lng}`
+    : mapStop && Number.isFinite(mapStop.lat) && Number.isFinite(mapStop.lng)
     ? `${mapStop.lat},${mapStop.lng}`
     : mapStop?.address || 'Lagos, Nigeria';
   const googleMapsEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapSearchQuery)}&z=14&output=embed`;
   const googleMapsSearchUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapSearchQuery)}`;
 
+  const saveOrganizationLogo = (orgName, email, logoData) => {
+    const orgKey = orgName.trim().toLowerCase();
+    const emailKey = email.trim().toLowerCase();
+    if (!orgKey || !emailKey) return;
+    setOrgLogoStore(previous => ({
+      byOrg: { ...previous.byOrg, [orgKey]: logoData },
+      byEmail: { ...previous.byEmail, [emailKey]: logoData }
+    }));
+  };
+
+  const startPreviewSession = (role) => {
+    const previewUsers = [PREVIEW_ADMIN, ...PREVIEW_DRIVERS];
+    setIsPreviewSession(true);
+    setAuthError('');
+    setUsers(previewUsers);
+    setStops(createPreviewStops());
+    setRouteDataReady(true);
+    setActiveDriverId(PREVIEW_DRIVERS[0].id);
+    setCurrentUser(role === 'ADMIN' ? PREVIEW_ADMIN : PREVIEW_DRIVERS[0]);
+  };
+
+  const handleRegisterLogoChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setLogoError('');
+    try {
+      setRegisterOrgLogo(await resizeLogoImage(file));
+    } catch (error) {
+      setLogoError(error.message);
+    }
+  };
+
+  const handleOrganizationLogoChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || currentUser?.role !== 'ADMIN') return;
+    setLogoUploadError('');
+    try {
+      const logo = await resizeLogoImage(file);
+      saveOrganizationLogo(currentUser.orgName, currentUser.email, logo);
+    } catch (error) {
+      setLogoUploadError(error.message);
+    }
+  };
+
   // --- AUTHENTICATION LOGIC ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
+    if (IS_GITHUB_PAGES_DEMO) {
+      setAuthError('Account sign-in is unavailable in this static preview. Use one of the sample dashboard buttons below.');
+      return;
+    }
     if (!credentialsReady) {
       setAuthError('Account security is still initializing. Please try again in a moment.');
       return;
     }
 
     try {
-      const user = users.find(u => u.email.toLowerCase() === loginForm.email.toLowerCase());
-      if (user && await verifyPassword(loginForm.password, user)) {
-        setCurrentUser(user);
-        setLoginForm({ email: '', password: '' });
-        if (user.role === 'DRIVER') setActiveDriverId(user.id);
-      } else {
-        setAuthError('Invalid email or password. Please try again.');
-      }
+      const { user } = await apiRequest('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ ...loginForm, remember: rememberLogin })
+      });
+      setCurrentUser(user);
+      setAuthError('');
+      setLoginForm({ email: '', password: '' });
+      if (user.role === 'DRIVER') setActiveDriverId(user.id);
     } catch (error) {
-      console.error('Could not verify account credentials:', error);
-      setAuthError('Sign-in is unavailable because secure password verification failed.');
+      setAuthError(error.message);
     }
   };
 
@@ -461,83 +659,125 @@ export default function App() {
     e.preventDefault();
     setAuthError('');
     if (!credentialsReady) {
-      setAuthError('Account security is still initializing. Please try again in a moment.');
-      return;
-    }
-
-    if (users.some(u => u.email.toLowerCase() === registerForm.email.toLowerCase())) {
-      setAuthError('Account with this email already exists.');
+      setAuthError('Connecting to the account service. Please try again in a moment.');
       return;
     }
 
     try {
-      let finalOrgName = registerForm.orgName;
-
-      // Validate driver invitation token if provided
-      if (authRole === 'DRIVER' && registerForm.inviteToken) {
-        const foundInvite = invites.find(i => i.token === registerForm.inviteToken);
-        if (foundInvite) {
-          finalOrgName = foundInvite.orgName;
-          // Mark invite as registered
-          setInvites(prev => prev.map(i => i.token === registerForm.inviteToken ? { ...i, status: 'REGISTERED' } : i));
-        } else {
-          setAuthError('Invalid or expired invitation token.');
-          return;
+      const endpoint = authRole === 'ADMIN'
+        ? '/api/auth/register-admin'
+        : '/api/auth/register-driver';
+      const registration = authRole === 'ADMIN'
+        ? {
+          name: registerForm.name,
+          email: registerForm.email,
+          password: registerForm.password,
+          orgName: registerForm.orgName
         }
+        : {
+          name: registerForm.name,
+          email: registerForm.email,
+          password: registerForm.password,
+          inviteToken: registerForm.inviteToken,
+          zone: registerForm.zone,
+          vehicle: registerForm.vehicle,
+          phone: registerForm.phone
+        };
+      const { user } = await apiRequest(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(registration)
+      });
+      if (user.role === 'ADMIN' && registerOrgLogo) {
+        saveOrganizationLogo(user.orgName, user.email, registerOrgLogo);
       }
-
-      const credential = await createPasswordCredential(registerForm.password);
-      const newUser = {
-        id: `usr_${Date.now()}`,
-        email: registerForm.email,
-        ...credential,
-        name: registerForm.name,
-        role: authRole,
-        orgName: finalOrgName || 'Delivery Network',
-        zone: registerForm.zone || 'Lagos Central Zone',
-        vehicle: registerForm.vehicle || 'Logistics Bike / Van',
-        phone: registerForm.phone || '+234 800 000 0000',
-        status: 'ACTIVE',
-        lat: 6.5244,
-        lng: 3.3792,
-        speed: 0
-      };
-
-      setUsers(prev => [...prev, newUser]);
-      setCurrentUser(newUser);
+      setCurrentUser(user);
+      setRegisterOrgLogo('');
       setRegisterForm(prev => ({ ...prev, password: '' }));
-      if (newUser.role === 'DRIVER') setActiveDriverId(newUser.id);
+      setAuthError('');
+      if (user.role === 'DRIVER') setActiveDriverId(user.id);
     } catch (error) {
-      console.error('Could not securely save account credentials:', error);
-      setAuthError('Registration is unavailable because secure password storage failed.');
+      setAuthError(error.message);
     }
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    sessionStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+  const showPasswordRecoveryHelp = (event) => {
+    event.preventDefault();
+    setPasswordHelpMessage(
+      'Password reset email is not available on this GitHub Pages demo. Contact your fleet administrator to recover access.'
+    );
   };
 
-  const removeDriverAccount = (driver) => {
+  const handleLogout = async () => {
+    if (!isPreviewSession) {
+      try {
+        await apiRequest('/api/auth/logout', { method: 'POST' });
+      } catch (error) {
+        console.error('Could not end the server session:', error);
+      }
+    }
+    setCurrentUser(null);
+    setUsers([]);
+    setInvites([]);
+    setRouteDataReady(false);
+    setIsPreviewSession(false);
+    setAuthTab('LOGIN');
+    setAuthRole('ADMIN');
+  };
+
+  const setDriverRouteStatus = async (driverId, routeStatus, routeStopCount) => {
+    if (isPreviewSession) {
+      const updatedUser = users.find(user => user.id === driverId);
+      if (!updatedUser) return;
+      const update = { routeStatus, routeStopCount, routeUpdatedAt: new Date(clockNow).toISOString() };
+      setUsers(prev => prev.map(item => item.id === driverId ? { ...item, ...update } : item));
+      if (currentUser?.id === driverId) setCurrentUser(prev => prev ? { ...prev, ...update } : prev);
+      return;
+    }
+
+    try {
+      const { user } = await apiRequest(`/api/users/${encodeURIComponent(driverId)}/route-status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ routeStatus, routeStopCount })
+      });
+      setUsers(prev => prev.map(item => item.id === user.id ? user : item));
+      if (currentUser?.id === user.id) setCurrentUser(user);
+    } catch (error) {
+      console.error('Could not update the driver route status:', error);
+      window.alert(`Route status could not be updated: ${error.message}`);
+    }
+  };
+
+  const removeDriverAccount = async (driver) => {
     const assignedStops = stops.filter(stop => stop.assignedDriverId === driver.id);
     const confirmed = window.confirm(
       `Remove ${driver.name}'s driver account? ${assignedStops.length} assigned stop${assignedStops.length === 1 ? ' will' : 's will'} be kept but unassigned.`
     );
     if (!confirmed) return;
 
-    const remainingDrivers = driversList.filter(item => item.id !== driver.id);
-    setUsers(prev => prev.filter(user => user.id !== driver.id));
-    setStops(prev => prev.map(stop =>
-      stop.assignedDriverId === driver.id ? { ...stop, assignedDriverId: '' } : stop
-    ));
-    setActiveDriverId(prev => prev === driver.id ? remainingDrivers[0]?.id || '' : prev);
-    if (assignedStops.some(stop => stop.id === selectedStopId)) setSelectedStopId(null);
+    try {
+      if (!isPreviewSession) {
+        await apiRequest(`/api/users/${encodeURIComponent(driver.id)}`, { method: 'DELETE' });
+      }
+      const remainingDrivers = driversList.filter(item => item.id !== driver.id);
+      setUsers(prev => prev.filter(user => user.id !== driver.id));
+      setStops(prev => prev.map(stop =>
+        stop.assignedDriverId === driver.id ? { ...stop, assignedDriverId: '' } : stop
+      ));
+      setActiveDriverId(prev => prev === driver.id ? remainingDrivers[0]?.id || '' : prev);
+      if (assignedStops.some(stop => stop.id === selectedStopId)) setSelectedStopId(null);
+    } catch (error) {
+      console.error('Could not remove the driver account:', error);
+      window.alert(`Driver account could not be removed: ${error.message}`);
+    }
   };
 
   const deleteStop = (stop) => {
     if (!window.confirm(`Delete "${stop.name}" from the route? This cannot be undone.`)) return;
     setStops(prev => prev.filter(item => item.id !== stop.id));
+    if (currentUser?.role === 'ADMIN' && stop.assignedDriverId) {
+      const remainingCount = Math.max(0, stops.filter(item => item.assignedDriverId === stop.assignedDriverId).length - 1);
+      setDriverRouteStatus(stop.assignedDriverId, remainingCount ? 'PENDING' : 'IDLE', remainingCount);
+    }
     if (selectedStopId === stop.id) setSelectedStopId(null);
     if (podStop?.id === stop.id) setPodStop(null);
   };
@@ -556,24 +796,52 @@ export default function App() {
     setShowAddStopModal(true);
   };
 
-  // --- GENERATE DRIVER INVITE LINK ---
-  const handleGenerateInvite = () => {
-    const token = `DRV-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-    const newInvite = {
-      id: `inv_${Date.now()}`,
-      token,
-      orgName: currentUser?.orgName || 'Delivery Network',
-      createdAt: 'Just now',
-      status: 'PENDING'
-    };
-    setInvites(prev => [newInvite, ...prev]);
+  const handleGenerateInvite = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    setInviteError('');
+    if (IS_GITHUB_PAGES_DEMO || isPreviewSession) {
+      setInviteError('Driver invitation emails need the fleet email service, which is not available in this static preview.');
+      return;
+    }
+    if (!email) {
+      setInviteError('Enter the driver’s email address first.');
+      return;
+    }
+    setIsSendingInvite(true);
+    try {
+      const { invite } = await apiRequest('/api/invitations', {
+        method: 'POST',
+        body: JSON.stringify({ email })
+      });
+      setInvites(prev => [invite, ...prev.filter(item => item.email !== invite.email)]);
+      setGeneratedInviteId(invite.id);
+      setInviteError('');
+    } catch (error) {
+      setInviteError(error.message);
+    } finally {
+      setIsSendingInvite(false);
+    }
   };
 
   const copyInviteLinkToClipboard = (token) => {
-    const fullLink = `${window.location.origin}${window.location.pathname}?invite=${token}`;
-    navigator.clipboard.writeText(fullLink);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 3000);
+    const invite = invites.find(item => item.token === token);
+    if (!invite) {
+      console.error('Cannot copy application link because the invitation was not found.');
+      setInviteError('This invitation is no longer available.');
+      return;
+    }
+    const fullLink = getInviteApplicationUrl(invite);
+    if (!navigator.clipboard?.writeText) {
+      window.prompt('Copy this application link:', fullLink);
+      return;
+    }
+    navigator.clipboard.writeText(fullLink).then(() => {
+      setCopiedLink(true);
+      window.setTimeout(() => setCopiedLink(false), 3000);
+    }).catch(error => {
+      console.error('Could not copy the application link:', error);
+      window.prompt('Copy this application link:', fullLink);
+    });
   };
 
   // --- "CLOSEST TO FARTHEST" ROUTE OPTIMIZATION ENGINE ---
@@ -652,6 +920,21 @@ export default function App() {
         watchIdRef.current = null;
       }
       setIsGpsActive(false);
+      if (currentUser) {
+        setCurrentUser(prev => prev ? { ...prev, isTracking: false, speed: 0 } : prev);
+        setUsers(prev => prev.map(user => user.id === currentUser.id
+          ? { ...user, isTracking: false, speed: 0 }
+          : user));
+        if (!isPreviewSession) {
+          apiRequest('/api/users/me/location', {
+            method: 'PATCH',
+            body: JSON.stringify({ isTracking: false })
+          }).catch(error => {
+            console.error('Could not stop sharing the live location:', error);
+            setAuthError(`Location sharing could not be stopped on the server: ${error.message}`);
+          });
+        }
+      }
     } else {
       if (!navigator.geolocation) {
         alert('Geolocation is not supported by your browser.');
@@ -663,17 +946,48 @@ export default function App() {
         (pos) => {
           const { latitude, longitude, speed } = pos.coords;
           const newPos = { lat: latitude, lng: longitude };
+          const speedKph = speed ? Math.round(speed * 3.6) : 0;
+          const locationUpdatedAt = new Date().toISOString();
           setGpsPos(newPos);
-          setGpsSpeed(speed ? Math.round(speed * 3.6) : 0);
+          setGpsSpeed(speedKph);
 
-          // Update current user's lat/lng in user roster for admin view
           if (currentUser) {
-            setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, lat: latitude, lng: longitude, speed: speed ? Math.round(speed * 3.6) : 0 } : u));
+            const location = {
+              lat: latitude,
+              lng: longitude,
+              speed: speedKph,
+              isTracking: true,
+              locationUpdatedAt
+            };
+            setCurrentUser(prev => prev ? { ...prev, ...location } : prev);
+            setUsers(prev => prev.map(user => user.id === currentUser.id ? { ...user, ...location } : user));
+            if (!isPreviewSession && Date.now() - lastLocationSyncRef.current >= 5000) {
+              lastLocationSyncRef.current = Date.now();
+              apiRequest('/api/users/me/location', {
+                method: 'PATCH',
+                body: JSON.stringify({
+                  lat: latitude,
+                  lng: longitude,
+                  speed: speedKph,
+                  isTracking: true
+                })
+              }).catch(error => {
+                console.error('Could not share the driver location with dispatch:', error);
+                setAuthError(`Live location could not be synchronized: ${error.message}`);
+              });
+            }
           }
         },
         (err) => {
           console.error('GPS tracking error:', err);
           setIsGpsActive(false);
+          if (currentUser && !isPreviewSession) {
+            apiRequest('/api/users/me/location', {
+              method: 'PATCH',
+              body: JSON.stringify({ isTracking: false })
+            }).catch(error => console.error('Could not clear the driver live-location status:', error));
+          }
+          window.alert(`Live location could not be shared: ${err.message}`);
         },
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
@@ -948,6 +1262,9 @@ export default function App() {
     if (!confirmed) return;
 
     setStops(prev => prev.filter(stop => stop.assignedDriverId !== targetDriverId));
+    if (targetDriverId) {
+      setDriverRouteStatus(targetDriverId, 'IDLE', 0);
+    }
     setSelectedStopId(null);
     setSearchQuery('');
   };
@@ -968,52 +1285,116 @@ export default function App() {
       completed: activeDriverStops.filter(s => s.status === 'DELIVERED').length,
       total: activeDriverStops.length
     };
-  }, [startDepot, activeDriverStops]);
+  }, [activeDriverStops]);
+  const analytics = useMemo(() => {
+    const now = new Date(clockNow);
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekStart = new Date(todayStart);
+    const weekday = (weekStart.getDay() + 6) % 7;
+    weekStart.setDate(weekStart.getDate() - weekday);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const completed = stops.filter(stop => {
+      if (stop.status !== 'DELIVERED' || !stop.deliveredAt) return false;
+      return Number.isFinite(new Date(stop.deliveredAt).getTime());
+    });
+    const completedAtOrAfter = (date) => completed.filter(stop => {
+      const timestamp = new Date(stop.deliveredAt).getTime();
+      return timestamp >= date.getTime() && timestamp <= now.getTime();
+    });
+    const daily = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(todayStart);
+      date.setDate(todayStart.getDate() - (6 - index));
+      const nextDate = new Date(date);
+      nextDate.setDate(date.getDate() + 1);
+      return {
+        label: date.toLocaleDateString(undefined, { weekday: 'short' }),
+        count: completed.filter(stop => {
+          const deliveredAt = new Date(stop.deliveredAt);
+          return deliveredAt >= date && deliveredAt < nextDate;
+        }).length
+      };
+    });
+    const monthly = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+      const nextDate = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+      return {
+        label: date.toLocaleDateString(undefined, { month: 'short' }),
+        count: completed.filter(stop => {
+          const deliveredAt = new Date(stop.deliveredAt);
+          return deliveredAt >= date && deliveredAt < nextDate;
+        }).length
+      };
+    });
+
+    return {
+      today: daily[6].count,
+      thisWeek: completedAtOrAfter(weekStart).length,
+      thisMonth: completedAtOrAfter(monthStart).length,
+      totalCompleted: completed.length,
+      driverCount: driversList.length,
+      activeDrivers: driversList.filter(driver =>
+        driver.isTracking &&
+        driver.locationUpdatedAt &&
+        now.getTime() - new Date(driver.locationUpdatedAt).getTime() < 90_000
+      ).length,
+      daily,
+      monthly,
+      byDriver: driversList.map(driver => ({
+        ...driver,
+        deliveries: completed.filter(stop => stop.assignedDriverId === driver.id).length
+      })).sort((a, b) => b.deliveries - a.deliveries)
+    };
+  }, [stops, driversList, clockNow]);
+  const [analyticsPeriod, setAnalyticsPeriod] = useState('WEEK');
 
   // =========================================================================
   // RENDER SCREEN 1: AUTHENTICATION & LOGIN / REGISTRATION
   // =========================================================================
-  if (showBrandSplash) {
-    return (
-      <main className="brand-splash">
-        <div className="brand-splash-art" aria-hidden="true">
-          <img className="brand-splash-logo" src={BRAND_LOGO_URL} alt="Tobs Route Circuit" />
-          <svg className="brand-route-animation" viewBox="0 0 1000 100">
-            <path
-              id="brand-route-path"
-              className="brand-route-path"
-              pathLength="1000"
-              d="M12 52 C112 52 112 15 220 15 S330 85 450 85 S570 15 690 15 S820 85 988 52"
-            />
-            <g className="brand-route-arrow">
-              <path d="M-18 -12 L18 0 L-18 12 L-10 0 Z" />
-              <animateMotion dur="5s" repeatCount="indefinite" rotate="auto">
-                <mpath href="#brand-route-path" />
-              </animateMotion>
-            </g>
-          </svg>
-        </div>
-        <p className="brand-splash-caption">Planning your route</p>
-        <span className="sr-only">Loading Tobs Route Circuit</span>
-      </main>
-    );
-  }
+  const brandSplash = showBrandSplash && (
+    <main className="brand-splash" aria-hidden="true">
+      <div className="brand-splash-art">
+        <img className="brand-splash-logo" src={BRAND_LOGO_URL} alt="" />
+        <svg className="brand-map-route" viewBox="0 0 300 64">
+          <path
+            id="brand-map-path"
+            className="brand-map-path"
+            d="M8 48 C55 48 53 15 105 15 S151 51 196 40 S244 15 292 15"
+          />
+          <g className="brand-map-arrow">
+            <path d="M-7 -5 L8 0 L-7 5 L-3 0 Z" />
+            <animateMotion dur="2.8s" repeatCount="indefinite" rotate="auto">
+              <mpath href="#brand-map-path" />
+            </animateMotion>
+          </g>
+        </svg>
+      </div>
+    </main>
+  );
 
   if (!currentUser) {
     return (
+      <>
+      {brandSplash}
       <div className="min-h-screen w-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans select-none">
         <div className="max-h-[90dvh] w-full max-w-lg space-y-6 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900 p-5 shadow-2xl sm:p-8">
           
           {/* LOGO & TITLE */}
           <div className="text-center space-y-2">
             <div className="mx-auto mb-1 flex h-24 w-48 items-center justify-center">
-              <img src={BRAND_LOGO_URL} alt="Tobs Route Circuit" className="max-h-full max-w-full object-contain grayscale" />
+              <img
+                src={orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()] || BRAND_LOGO_URL}
+                alt="Tobs Route Circuit"
+                className={`max-h-full max-w-full object-contain ${
+                  orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()] ? '' : 'brand-logo-image'
+                }`}
+              />
             </div>
             <h1 className="text-2xl font-black tracking-tight text-white">Lagos Circuit Route Planner</h1>
             <p className="text-xs text-slate-400 font-medium">Enterprise Driver Dispatch & Real-Time Logistics Platform</p>
           </div>
 
           {/* LOGIN vs REGISTER TAB SWITCHER */}
+          {!invitationToken && !IS_GITHUB_PAGES_DEMO && (
           <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 text-xs font-bold">
             <button
               onClick={() => { setAuthTab('LOGIN'); setAuthError(''); }}
@@ -1028,6 +1409,7 @@ export default function App() {
               Register Account
             </button>
           </div>
+          )}
 
           {authError && (
             <div className="p-3 bg-rose-500/20 border border-rose-500/50 rounded-xl text-xs text-rose-300 font-semibold flex items-center space-x-2">
@@ -1036,15 +1418,60 @@ export default function App() {
             </div>
           )}
           {!credentialsReady && (
-            <p className="text-center text-[10px] text-slate-400">Securing saved account credentials...</p>
+            <p className="text-center text-[10px] text-slate-400">Connecting to the secure account service...</p>
           )}
-          <p className="text-center text-[10px] text-slate-500">
-            Passwords are stored as salted hashes in this browser. Production authentication should use a server.
-          </p>
+          {!invitationToken && (
+            <p className="text-center text-[10px] text-slate-500">
+              {IS_GITHUB_PAGES_DEMO
+                ? 'This GitHub Pages preview uses sample data stored only in this browser.'
+                : 'Accounts and driver invitations are securely managed by your fleet.'}
+            </p>
+          )}
 
           {/* TAB 1: LOGIN FORM */}
-          {authTab === 'LOGIN' && (
-            <form onSubmit={handleLogin} className="space-y-4 text-xs">
+          {!invitationToken && authTab === 'LOGIN' && (
+            <form onSubmit={showPasswordHelp ? showPasswordRecoveryHelp : handleLogin} className="space-y-4 text-xs">
+              {showPasswordHelp ? (
+                <>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Account Email</label>
+                    <input
+                      type="email"
+                      required
+                      value={passwordHelpEmail}
+                      onChange={event => {
+                        setPasswordHelpEmail(event.target.value);
+                        setPasswordHelpMessage('');
+                      }}
+                      placeholder="you@company.com"
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-200 focus:border-violet-500 focus:outline-none"
+                    />
+                  </div>
+                  {passwordHelpMessage && (
+                    <p role="status" className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-[11px] leading-relaxed text-violet-900">
+                      {passwordHelpMessage}
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    className="w-full rounded-xl bg-violet-700 py-3 text-sm font-black text-white hover:bg-violet-800"
+                  >
+                    Password recovery help
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPasswordHelp(false);
+                      setPasswordHelpMessage('');
+                      setAuthError('');
+                    }}
+                    className="w-full text-center text-xs font-semibold text-violet-700 hover:underline"
+                  >
+                    Back to log in
+                  </button>
+                </>
+              ) : (
+                <>
               <div>
                 <label className="block text-slate-400 font-semibold mb-1">Email Address</label>
                 <input
@@ -1056,6 +1483,13 @@ export default function App() {
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-200 focus:outline-none focus:border-emerald-500"
                 />
               </div>
+              {orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()] && (
+                <img
+                  src={orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()]}
+                  alt="Your fleet logo"
+                  className="mx-auto max-h-20 max-w-40 object-contain"
+                />
+              )}
 
               <div>
                 <label className="block text-slate-400 font-semibold mb-1">Password</label>
@@ -1086,14 +1520,32 @@ export default function App() {
               >
                 Log In to Circuit Platform
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordHelpEmail(loginForm.email);
+                  setPasswordHelpMessage('');
+                  setShowPasswordHelp(true);
+                }}
+                className="w-full text-right text-xs font-semibold text-violet-700 hover:underline"
+              >
+                Forgot password?
+              </button>
+                </>
+              )}
             </form>
           )}
 
           {/* TAB 2: REGISTER FORM */}
-          {authTab === 'REGISTER' && (
+          {!IS_GITHUB_PAGES_DEMO && authTab === 'REGISTER' && (
             <form onSubmit={handleRegister} className="space-y-3 text-xs">
               
               {/* ROLE SELECTOR */}
+              {invitationToken ? (
+                <p className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-center font-bold text-violet-900">
+                  Driver application for {registerForm.orgName || 'your invited fleet'}
+                </p>
+              ) : (
               <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800">
                 <button
                   type="button"
@@ -1112,6 +1564,7 @@ export default function App() {
                   <span>Delivery Driver</span>
                 </button>
               </div>
+              )}
 
               <div>
                 <label className="block text-slate-400 font-semibold mb-1">Full Name</label>
@@ -1132,6 +1585,7 @@ export default function App() {
                     type="email"
                     required
                     placeholder="user@domain.com"
+                    readOnly={authRole === 'DRIVER' && Boolean(registerForm.inviteToken)}
                     value={registerForm.email}
                     onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
@@ -1143,6 +1597,7 @@ export default function App() {
                   <input
                     type="password"
                     required
+                    minLength={12}
                     placeholder="••••••••"
                     value={registerForm.password}
                     onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
@@ -1153,7 +1608,7 @@ export default function App() {
 
               {/* ADMIN REGISTRATION: ORGANIZATION NAME */}
               {authRole === 'ADMIN' ? (
-                <div>
+                <div className="space-y-3">
                   <label className="block text-slate-400 font-semibold mb-1">Organization / Fleet Name</label>
                   <input
                     type="text"
@@ -1163,21 +1618,26 @@ export default function App() {
                     onChange={(e) => setRegisterForm({ ...registerForm, orgName: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
                   />
+                  <label className="block text-slate-400 font-semibold">
+                    Fleet logo (optional; saved in this browser)
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleRegisterLogoChange}
+                      className="mt-1 block w-full text-[10px] text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-100 file:px-3 file:py-2 file:font-bold file:text-violet-800"
+                    />
+                  </label>
+                  {registerOrgLogo && (
+                    <img src={registerOrgLogo} alt="Fleet logo preview" className="h-16 max-w-36 object-contain" />
+                  )}
+                  {logoError && <p role="alert" className="text-[10px] text-rose-700">{logoError}</p>}
                 </div>
               ) : (
-                /* DRIVER REGISTRATION: INVITE TOKEN & VEHICLE DETAILS */
+                /* DRIVER REGISTRATION: INVITE DETAILS & VEHICLE */
                 <div className="space-y-2">
-                  <div>
-                    <label className="block text-slate-400 font-semibold mb-1">Driver Invitation Token (Optional if invited)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. DRV-89A2"
-                      value={registerForm.inviteToken}
-                      onChange={(e) => setRegisterForm({ ...registerForm, inviteToken: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-amber-400 font-mono font-bold focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-
+                  <p className="rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-900">
+                    Driver applications require a valid personal link sent to your invited email address.
+                  </p>
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       type="text"
@@ -1207,8 +1667,44 @@ export default function App() {
             </form>
           )}
 
+          {IS_GITHUB_PAGES_DEMO && !invitationToken && (
+            <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50 p-3">
+              <p className="text-[10px] font-bold text-violet-950">Open a sample dashboard</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => startPreviewSession('ADMIN')}
+                  className="rounded-xl bg-violet-700 px-3 py-2.5 text-[10px] font-extrabold text-white hover:bg-violet-800"
+                >
+                  Preview admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startPreviewSession('DRIVER')}
+                  className="rounded-xl border border-violet-300 bg-white px-3 py-2.5 text-[10px] font-extrabold text-violet-900 hover:bg-violet-100"
+                >
+                  Preview rider
+                </button>
+              </div>
+              <p className="text-[9px] leading-relaxed text-violet-900">
+                Preview accounts are not secure and do not send email or share location across devices.
+              </p>
+            </div>
+          )}
+
+          {!IS_GITHUB_PAGES_DEMO && !invitationToken && authTab === 'REGISTER' && (
+            <button
+              type="button"
+              onClick={() => { setAuthTab('LOGIN'); setAuthError(''); }}
+              className="w-full text-center text-xs font-semibold text-violet-700 hover:underline"
+            >
+              Already have an account? Log in
+            </button>
+          )}
+
         </div>
       </div>
+      </>
     );
   }
 
@@ -1216,22 +1712,24 @@ export default function App() {
   // MAIN APP INTERFACE (LOGGED IN STATE)
   // =========================================================================
   return (
-    <div className="flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden">
+    <>
+    {brandSplash}
+    <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden`}>
 
       {/* --- SIDEBAR PANEL (~25% WIDTH) --- */}
-      <div className={`z-20 flex max-h-[55dvh] w-full shrink-0 flex-col border-b border-slate-800 bg-slate-900 shadow-2xl transition-all duration-300 md:h-full md:max-h-none md:border-b-0 md:border-r ${
+      <div className={`admin-dashboard-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''} z-20 flex max-h-[55dvh] w-full shrink-0 flex-col border-b border-slate-800 bg-slate-900 shadow-2xl transition-all duration-300 md:h-full md:max-h-none md:border-b-0 md:border-r ${
         sidebarCollapsed ? 'md:w-16' : 'md:w-80 md:max-w-[24rem]'
       }`}>
 
         {/* SIDEBAR HEADER */}
-        <div className="p-3.5 border-b border-slate-800 space-y-2.5">
+        <div className="admin-sidebar-header p-3.5 border-b border-slate-800 space-y-2.5">
           <div className="flex items-center justify-between">
             {!sidebarCollapsed && (
               <div className="flex items-center space-x-2 min-w-0">
                 <img
-                  src={BRAND_LOGO_URL}
-                  alt="Tobs Route Circuit"
-                  className="h-8 w-16 shrink-0 object-contain"
+                  src={currentOrgLogo}
+                  alt={`${currentUser.orgName || 'Fleet'} logo`}
+                  className={`h-8 w-16 shrink-0 object-contain ${currentOrgLogo === BRAND_LOGO_URL ? 'brand-logo-image' : ''}`}
                 />
                 <div className="truncate">
                   <h1 className="font-black text-sm tracking-tight text-emerald-400 truncate">
@@ -1246,9 +1744,9 @@ export default function App() {
             )}
             {sidebarCollapsed && (
               <img
-                src={BRAND_LOGO_URL}
-                alt="Tobs Route Circuit"
-                className="h-6 w-8 shrink-0 object-contain"
+                src={currentOrgLogo}
+                alt={`${currentUser.orgName || 'Fleet'} logo`}
+                className={`h-6 w-8 shrink-0 object-contain ${currentOrgLogo === BRAND_LOGO_URL ? 'brand-logo-image' : ''}`}
               />
             )}
 
@@ -1285,12 +1783,57 @@ export default function App() {
 
         {/* SIDEBAR MAIN CONTROLS */}
         {!sidebarCollapsed && (
-          <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
+          <div className="admin-sidebar-controls flex-1 overflow-y-auto p-3.5 space-y-3">
+            {isPreviewSession && (
+              <p className="rounded-xl border border-amber-300 bg-amber-50 p-2 text-[9px] leading-relaxed text-amber-950">
+                Static preview: changes stay in this browser. Email, password reset and cross-device live tracking are disabled.
+              </p>
+            )}
+            {currentUser.role === 'ADMIN' && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveAdminView('ROUTES')}
+                    className={`rounded-xl border px-2 py-2 text-[10px] font-extrabold ${
+                      activeAdminView === 'ROUTES'
+                        ? 'border-violet-700 bg-violet-700 text-white'
+                        : 'border-violet-200 bg-violet-50 text-violet-900'
+                    }`}
+                  >
+                    Route dashboard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveAdminView('ANALYTICS')}
+                    className={`rounded-xl border px-2 py-2 text-[10px] font-extrabold ${
+                      activeAdminView === 'ANALYTICS'
+                        ? 'border-violet-700 bg-violet-700 text-white'
+                        : 'border-violet-200 bg-violet-50 text-violet-900'
+                    }`}
+                  >
+                    Fleet analytics
+                  </button>
+                </div>
+                <div className="rounded-xl border border-violet-200 bg-violet-50 p-2.5">
+                  <label className="block text-[10px] font-bold text-violet-950">
+                    Fleet logo (saved in this browser)
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleOrganizationLogoChange}
+                      className="mt-1 block w-full text-[9px] text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-violet-700 file:px-2 file:py-1.5 file:font-bold file:text-white"
+                    />
+                  </label>
+                  {logoUploadError && <p role="alert" className="mt-1 text-[9px] text-rose-700">{logoUploadError}</p>}
+                </div>
+              </>
+            )}
 
             {/* ADMIN FLEET SELECTION WORKFLOW */}
             {currentUser.role === 'ADMIN' ? (
               <>
-              <div className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
+              <div className="admin-fleet-card p-2.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
                 <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                   <span>Step 1: Select Driver Fleet</span>
                   <Users className="w-3.5 h-3.5 text-emerald-400" />
@@ -1316,7 +1859,15 @@ export default function App() {
                         >
                           <div className="truncate pr-2">
                             <div className="text-xs truncate">{d.name}</div>
-                            <div className="text-[9px] text-slate-500 truncate">{d.zone}</div>
+                            <div className="text-[9px] text-slate-500 truncate">
+                              {d.zone} · {d.routeStatus === 'IN_PROGRESS'
+                                ? 'On journey'
+                                : d.routeStatus === 'ACCEPTED'
+                                  ? 'Route accepted'
+                                  : d.routeStatus === 'PENDING'
+                                    ? 'Route assigned'
+                                    : 'Available'}
+                            </div>
                           </div>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
                             isSelected ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
@@ -1357,9 +1908,16 @@ export default function App() {
                         <button
                           type="button"
                           disabled={!activeDriverId}
-                          onClick={() => setStops(prev => prev.map(item =>
-                            item.id === stop.id ? { ...item, assignedDriverId: activeDriverId } : item
-                          ))}
+                          onClick={() => {
+                            setStops(prev => prev.map(item =>
+                              item.id === stop.id ? { ...item, assignedDriverId: activeDriverId } : item
+                            ));
+                            setDriverRouteStatus(
+                              activeDriverId,
+                              'PENDING',
+                              stops.filter(item => item.assignedDriverId === activeDriverId).length + 1
+                            );
+                          }}
                           className="rounded-md bg-emerald-500/15 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           Assign
@@ -1379,29 +1937,73 @@ export default function App() {
               )}
               </>
             ) : (
-              /* DRIVER ROLE DASHBOARD GPS BANNER */
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
-                  <span className="flex items-center space-x-1">
-                    <Radio className="w-4 h-4 animate-pulse" />
-                    <span>Driver Live GPS Broadcast</span>
-                  </span>
-                  <span className="text-[10px] font-mono">{gpsSpeed} km/h</span>
+              <div className="space-y-3">
+                {driverRouteStatus !== 'IDLE' && (
+                  <div className="rounded-2xl border border-violet-200 bg-violet-50 p-3.5">
+                    <div className="flex items-start gap-3">
+                      <span className="rounded-xl bg-white p-2 text-violet-700 shadow-sm">
+                        <Radio className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-extrabold text-violet-950">
+                          {driverRouteStatus === 'PENDING' ? 'New route assigned' : driverRouteStatus === 'ACCEPTED' ? 'Route accepted' : 'Journey in progress'}
+                        </p>
+                        <p className="mt-1 text-[10px] text-violet-800">
+                          {driverRouteStopCount} stop{driverRouteStopCount === 1 ? '' : 's'} · {driverRouteStops.filter(stop => stop.status === 'DELIVERED').length} completed
+                        </p>
+                      </div>
+                    </div>
+                    {driverRouteStatus === 'PENDING' && (
+                      <button
+                        type="button"
+                        onClick={() => setDriverRouteStatus(currentUser.id, 'ACCEPTED')}
+                        className="mt-3 w-full rounded-xl bg-violet-700 py-2.5 text-xs font-extrabold text-white hover:bg-violet-800"
+                      >
+                        Accept route
+                      </button>
+                    )}
+                    {driverRouteStatus === 'ACCEPTED' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDriverRouteStatus(currentUser.id, 'IN_PROGRESS');
+                          if (!isGpsActive) toggleGpsBroadcast();
+                        }}
+                        className="mt-3 w-full rounded-xl bg-violet-700 py-2.5 text-xs font-extrabold text-white hover:bg-violet-800"
+                      >
+                        Start journey
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="rounded-2xl border border-violet-200 bg-white p-3">
+                  <div className="mb-2 flex items-center justify-between text-xs font-bold text-violet-950">
+                    <span className="flex items-center gap-1.5">
+                      <Radio className={`h-4 w-4 ${isGpsActive ? 'animate-pulse text-violet-700' : 'text-slate-400'}`} />
+                      <span>Live location</span>
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-500">
+                      {isGpsActive ? `${gpsSpeed} km/h` : 'Not sharing'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={toggleGpsBroadcast}
+                    className={`w-full rounded-xl py-2.5 text-xs font-extrabold transition-all ${
+                      isGpsActive ? 'bg-rose-50 text-rose-700' : 'bg-violet-700 text-white hover:bg-violet-800'
+                    }`}
+                  >
+                    <span>{isGpsActive ? 'Stop sharing location' : 'Share live location'}</span>
+                  </button>
+                  <p className="mt-2 text-[9px] leading-relaxed text-slate-500">
+                    Location is visible to dispatchers while sharing is on.
+                  </p>
                 </div>
-                <button
-                  onClick={toggleGpsBroadcast}
-                  className={`w-full py-2 rounded-xl text-xs font-extrabold flex items-center justify-center space-x-1.5 transition-all shadow-md ${
-                    isGpsActive ? 'bg-rose-500 text-white' : 'bg-emerald-500 text-slate-950'
-                  }`}
-                >
-                  <Signal className="w-3.5 h-3.5" />
-                  <span>{isGpsActive ? 'Stop Live GPS Broadcast' : 'Broadcast Live GPS Location'}</span>
-                </button>
               </div>
             )}
 
             {/* ROUTE ACTIONS: ADD STOP MANUALLY & OPTIMIZE */}
-            <div className="space-y-2">
+            {currentUser.role === 'ADMIN' && (
+            <div className="admin-route-actions space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={openAddStopModal}
@@ -1480,24 +2082,29 @@ export default function App() {
                 />
               </div>
             </div>
+            )}
 
             {/* STOP LIST */}
-            <div className="space-y-2">
+            <div className="admin-stop-list space-y-2">
               <div className="flex items-center justify-between text-xs text-slate-400 px-1 font-semibold">
                 <span>Stops ({activeDriverStops.length})</span>
-                <span className="text-[10px] text-amber-400">Use arrows to reorder</span>
+                {currentUser.role === 'ADMIN' && (
+                  <span className="text-[10px] text-amber-400">Use arrows to reorder</span>
+                )}
               </div>
 
               {activeDriverStops.length === 0 ? (
                 <div className="p-4 text-center border border-dashed border-slate-800 rounded-xl space-y-2">
                   <MapPin className="w-6 h-6 text-slate-600 mx-auto" />
                   <p className="text-xs text-slate-500 font-medium">No stops assigned to this route yet.</p>
-                  <button
-                    onClick={() => setShowAddStopModal(true)}
-                    className="text-xs text-emerald-400 font-bold hover:underline"
-                  >
-                    + Add first manual stop
-                  </button>
+                  {currentUser.role === 'ADMIN' && (
+                    <button
+                      onClick={openAddStopModal}
+                      className="text-xs text-emerald-400 font-bold hover:underline"
+                    >
+                      + Add first manual stop
+                    </button>
+                  )}
                 </div>
               ) : (
                 activeDriverStops.map((stop, idx) => {
@@ -1572,6 +2179,8 @@ export default function App() {
 
                       {/* STOP CARD BUTTONS */}
                       <div className="pt-2 border-t border-slate-800/80 flex items-center space-x-1.5">
+                        {currentUser.role === 'ADMIN' && (
+                        <>
                         <button
                           type="button"
                           aria-label={`Move ${stop.name} closer in the route`}
@@ -1598,6 +2207,8 @@ export default function App() {
                         >
                           <ArrowDown className="h-3 w-3" />
                         </button>
+                        </>
+                        )}
                         <button
                           onClick={(e) => launchSingleStopGoogleNav(stop, e)}
                           className="flex-1 py-1 px-2 bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-emerald-400 font-bold text-[10px] rounded-lg flex items-center justify-center space-x-1 transition-all"
@@ -1657,11 +2268,125 @@ export default function App() {
 
       </div>
 
+      {currentUser.role === 'ADMIN' && activeAdminView === 'ANALYTICS' ? (
+      <main className="flex min-h-[42dvh] flex-1 flex-col overflow-y-auto bg-violet-50 p-4 text-slate-950 sm:p-6 md:min-h-0 md:p-8">
+        <div className="mx-auto w-full max-w-6xl space-y-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-violet-700">Admin dashboard</p>
+              <h2 className="mt-1 text-2xl font-black text-violet-950">Fleet analytics</h2>
+              <p className="mt-1 text-xs text-slate-600">Completed delivery stops across your fleet. Fuel and cash costs are not tracked.</p>
+            </div>
+            <span className="rounded-full border border-violet-200 bg-white px-3 py-1 text-[10px] font-bold text-violet-800">
+              Updated from recorded deliveries
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            {[
+              { label: 'Delivered today', value: analytics.today },
+              { label: 'Delivered this week', value: analytics.thisWeek },
+              { label: 'Delivered this month', value: analytics.thisMonth },
+              { label: 'Drivers in your fleet', value: analytics.driverCount }
+            ].map(metric => (
+              <section key={metric.label} className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm sm:p-5">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{metric.label}</p>
+                <p className="mt-2 text-3xl font-black text-violet-800">{metric.value}</p>
+              </section>
+            ))}
+          </div>
+
+          <section className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-violet-950">Delivery activity</h3>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  {analyticsPeriod === 'WEEK' ? 'Daily completed deliveries over the last 7 days' : 'Monthly completed deliveries over the last 6 months'}
+                </p>
+              </div>
+              <div className="flex gap-1 rounded-xl bg-violet-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setAnalyticsPeriod('WEEK')}
+                  aria-pressed={analyticsPeriod === 'WEEK'}
+                  className={`rounded-lg px-3 py-1.5 text-[10px] font-bold ${
+                    analyticsPeriod === 'WEEK' ? 'bg-violet-700 text-white' : 'text-violet-800'
+                  }`}
+                >
+                  Week
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAnalyticsPeriod('MONTH')}
+                  aria-pressed={analyticsPeriod === 'MONTH'}
+                  className={`rounded-lg px-3 py-1.5 text-[10px] font-bold ${
+                    analyticsPeriod === 'MONTH' ? 'bg-violet-700 text-white' : 'text-violet-800'
+                  }`}
+                >
+                  Month
+                </button>
+              </div>
+            </div>
+            {(() => {
+              const chartData = analyticsPeriod === 'WEEK' ? analytics.daily : analytics.monthly;
+              const maximum = Math.max(1, ...chartData.map(item => item.count));
+              return (
+                <div className="grid h-48 grid-cols-7 items-end gap-2 sm:h-56 sm:gap-4">
+                  {chartData.map(item => (
+                    <div key={item.label} className="flex h-full min-w-0 flex-col items-center justify-end gap-2">
+                      <span className="text-[10px] font-bold text-violet-900">{item.count}</span>
+                      <div className="flex h-36 w-full items-end rounded-t-lg bg-violet-50 sm:h-44">
+                        <div
+                          className="w-full rounded-t-lg bg-violet-600 transition-all"
+                          style={{ height: `${Math.max(item.count ? 8 : 2, (item.count / maximum) * 100)}%` }}
+                          title={`${item.count} deliveries`}
+                        />
+                      </div>
+                      <span className="text-[9px] font-semibold text-slate-500">{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </section>
+
+          <section className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-extrabold text-violet-950">Driver activity</h3>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  {analytics.activeDrivers} driver{analytics.activeDrivers === 1 ? '' : 's'} currently sharing a recent live location
+                </p>
+              </div>
+              <Users className="h-5 w-5 text-violet-700" />
+            </div>
+            {analytics.byDriver.length === 0 ? (
+              <p className="rounded-xl bg-violet-50 p-3 text-xs text-slate-600">No drivers have joined this fleet yet.</p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {analytics.byDriver.map(driver => (
+                  <div key={driver.id} className="flex items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/60 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-bold text-slate-800">{driver.name}</p>
+                      <p className="truncate text-[10px] text-slate-500">{driver.zone || driver.email}</p>
+                    </div>
+                    <span className="shrink-0 rounded-lg bg-white px-2 py-1 text-[10px] font-extrabold text-violet-800">
+                      {driver.deliveries} delivered
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      </main>
+      ) : (
+      <>
       {/* --- COMPACT GOOGLE MAP DISPLAY --- */}
-      <div className={`relative flex w-full flex-col overflow-hidden bg-slate-950 ${
+      <div className={`admin-map-panel relative flex w-full min-w-0 flex-col overflow-hidden bg-slate-950 md:w-auto md:flex-1 ${
         mapExpanded
           ? 'fixed inset-0 z-50 h-dvh'
-          : 'h-[42dvh] min-h-[280px] shrink-0 md:h-[min(52dvh,440px)] md:min-h-[320px]'
+          : 'h-[42dvh] min-h-[280px] shrink-0 md:h-full md:min-h-0'
       }`}>
 
         {/* MAP TOP METRICS HEADER */}
@@ -1675,7 +2400,7 @@ export default function App() {
             <span>Back to route</span>
           </button>
         )}
-        <div className="z-10 flex min-h-12 flex-wrap items-center justify-between gap-y-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">
+        <div className="admin-map-toolbar z-10 flex min-h-12 flex-wrap items-center justify-between gap-y-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:gap-x-5 sm:text-xs">
             <div className="flex items-center space-x-1.5">
               <UserCheck className="w-4 h-4 text-emerald-400" />
@@ -1707,14 +2432,14 @@ export default function App() {
               <span>Open in Google Maps</span>
             </a>
             <div className="flex items-center space-x-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] font-mono font-bold text-emerald-400 sm:px-2.5 sm:text-xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Lagos Live Network</span>
+              <span className={`w-2 h-2 rounded-full ${mapDriverIsLive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
+              <span>{mapDriverIsLive ? 'Driver live' : 'Location unavailable'}</span>
             </div>
           </div>
         </div>
 
         {/* Map follows the selected driver's next stop, or the selected stop. */}
-        <div className="flex-1 relative w-full h-full">
+        <div className="admin-map-canvas flex-1 relative w-full h-full">
           <iframe
             title={mapStop ? `Map for ${mapStop.name}` : 'Lagos, Nigeria map'}
             className="h-full w-full border-none"
@@ -1725,9 +2450,9 @@ export default function App() {
           />
 
           {/* OVERLAY MAP DRIVER RADAR BEACON */}
-          <div className="absolute right-2 top-2 z-20 max-h-[35%] w-[min(18rem,calc(100%-1rem))] space-y-2 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/95 p-2.5 shadow-2xl backdrop-blur-md sm:right-4 sm:top-4 sm:p-3">
+          <div className="admin-driver-locations absolute right-2 top-2 z-20 max-h-[35%] w-[min(18rem,calc(100%-1rem))] space-y-2 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/95 p-2.5 shadow-2xl backdrop-blur-md sm:right-4 sm:top-4 sm:p-3">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Driver Profiles</span>
+              <span>Driver locations</span>
               <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
             </div>
 
@@ -1738,8 +2463,14 @@ export default function App() {
                     <span className="font-bold text-slate-200 block truncate">{d.name}</span>
                     <span className="text-[9px] text-slate-400 font-mono">{d.zone}</span>
                   </div>
-                  <span className="text-[9px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded font-mono font-bold">
-                    {d.speed || 24} km/h
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                    d.isTracking && d.locationUpdatedAt && clockNow - new Date(d.locationUpdatedAt).getTime() < 90_000
+                      ? 'bg-emerald-500/20 text-emerald-400'
+                      : 'bg-slate-800 text-slate-500'
+                  }`}>
+                    {d.isTracking && d.locationUpdatedAt && clockNow - new Date(d.locationUpdatedAt).getTime() < 90_000
+                      ? `${d.speed ?? 0} km/h`
+                      : 'Offline'}
                   </span>
                 </div>
               ))}
@@ -1748,46 +2479,105 @@ export default function App() {
         </div>
 
       </div>
+      </>
+      )}
 
       {/* --- MODAL 1: DRIVER INVITATION GENERATOR --- */}
       {showInviteModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900 p-5 text-xs shadow-2xl sm:p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg space-y-5 overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 text-xs shadow-2xl sm:p-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-1.5">
-                <UserPlus className="w-4 h-4 text-blue-400" />
-                <span>Invite Drivers to {currentUser.orgName}</span>
-              </h3>
-              <button onClick={() => setShowInviteModal(false)} className="text-slate-400 hover:text-white">
-                <XCircle className="w-5 h-5" />
+              <div>
+                <h3 className="flex items-center gap-2 text-base font-extrabold text-slate-950">
+                  <UserPlus className="h-5 w-5 text-violet-700" />
+                  <span>Invite a driver</span>
+                </h3>
+                <p className="mt-1 text-[11px] text-slate-500">Send a secure driver application link for {currentUser.orgName}.</p>
+              </div>
+              <button onClick={() => setShowInviteModal(false)} aria-label="Close invite window" className="text-slate-400 hover:text-slate-900">
+                <XCircle className="h-5 w-5" />
               </button>
             </div>
 
-            <button
-              onClick={handleGenerateInvite}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20 flex items-center justify-center space-x-1.5"
+            <form
+              onSubmit={event => {
+                event.preventDefault();
+                handleGenerateInvite();
+              }}
+              className="space-y-3"
             >
-              <Plus className="w-4 h-4" />
-              <span>Generate New Driver Invite Token</span>
-            </button>
+              <label htmlFor="driver-invite-email" className="block font-bold text-slate-700">Driver email address</label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  id="driver-invite-email"
+                  type="email"
+                  required
+                  value={inviteEmail}
+                  onChange={event => {
+                    setInviteEmail(event.target.value);
+                    setInviteError('');
+                    setGeneratedInviteId('');
+                  }}
+                  placeholder="driver@example.com"
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-slate-900 outline-none focus:border-violet-500"
+                />
+                <button
+                  type="submit"
+                  disabled={isSendingInvite}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 font-extrabold text-white hover:bg-violet-800 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <Send className="h-4 w-4" />
+                  {isSendingInvite ? 'Sending...' : 'Send link'}
+                </button>
+              </div>
+              {inviteError && <p role="alert" className="text-[11px] font-semibold text-rose-700">{inviteError}</p>}
+            </form>
 
-            <div className="space-y-2 max-h-48 overflow-y-auto pt-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase">Active Invite Links</span>
+            {generatedInvite && (
+              <div className="space-y-3 rounded-2xl border border-violet-200 bg-violet-50 p-3.5">
+                <div>
+                  <p className="font-extrabold text-violet-950">Application link sent</p>
+                  <p className="mt-1 text-[10px] text-violet-800">An email with the personal link was sent to {generatedInvite.email}.</p>
+                </div>
+                <div className="break-all rounded-lg border border-violet-100 bg-white p-2.5 font-mono text-[10px] text-slate-600">
+                  {getInviteApplicationUrl(generatedInvite)}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyInviteLinkToClipboard(generatedInvite.token)}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-violet-200 bg-white py-2.5 font-bold text-violet-800 hover:bg-violet-100"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {copiedLink ? 'Copied' : 'Copy application link'}
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-2 border-t border-slate-100 pt-4">
+              <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">Recent invitations</span>
               {invites.map(inv => (
-                <div key={inv.id} className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                <div key={inv.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2.5">
                   <div>
-                    <span className="font-mono font-bold text-amber-400 text-xs block">{inv.token}</span>
-                    <span className="text-[9px] text-slate-500">Status: {inv.status}</span>
+                    <span className="block truncate font-bold text-slate-800">{inv.email || 'Legacy invitation'}</span>
+                    <span className="text-[9px] text-slate-500">
+                      {inv.status === 'REGISTERED' ? 'Application completed' : 'Email sent · awaiting application'}
+                    </span>
                   </div>
-                  <button
-                    onClick={() => copyInviteLinkToClipboard(inv.token)}
-                    className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg flex items-center space-x-1"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span className="text-[10px]">{copiedLink ? 'Copied!' : 'Copy Link'}</span>
-                  </button>
+                  {inv.status === 'PENDING' && inv.email && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGeneratedInviteId(inv.id);
+                        setInviteEmail(inv.email);
+                      }}
+                      className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[10px] font-bold text-violet-800 hover:bg-violet-50"
+                    >
+                      View link
+                    </button>
+                  )}
                 </div>
               ))}
+              {invites.length === 0 && <p className="text-[10px] text-slate-500">Invitations you create will appear here.</p>}
             </div>
           </div>
         </div>
@@ -1943,6 +2733,13 @@ export default function App() {
                     };
 
                     setStops(prev => [...prev, stopPayload]);
+                    if (currentUser.role === 'ADMIN') {
+                      setDriverRouteStatus(
+                        stopPayload.assignedDriverId,
+                        'PENDING',
+                        stops.filter(item => item.assignedDriverId === stopPayload.assignedDriverId).length + 1
+                      );
+                    }
                     setNewStopForm({
                       name: '', address: '', lat: null, lng: null,
                       assignedDriverId: '',
@@ -2098,5 +2895,6 @@ export default function App() {
       )}
 
     </div>
+    </>
   );
 }

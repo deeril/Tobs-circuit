@@ -1,16 +1,25 @@
-# React + Vite
+# Tobs Route Circuit
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A React and Vite fleet-dispatch dashboard with admin-owned driver accounts, email invitations, route assignment, live location updates, and proof of delivery.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Use Node.js 22.12 or newer.
+2. Install dependencies with `npm install`.
+3. Copy `.env.example` to `.env` and set your SMTP host, port, username, password, sender address, and `APP_BASE_URL`. Keep `.env` private.
+4. Run `npm run dev`. The command starts the Vite frontend and API server together.
 
-## React Compiler
+`npm start` serves the production build and API from one Node process. Run `npm run build` first.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Server configuration
 
-## Expanding the Oxlint configuration
+- The API stores accounts, invitations, route stops, and driver status in `DATA_DIRECTORY/store.json` (defaults to the ignored `data/` folder). Back this file up and use persistent storage in production.
+- Password hashes, one-use invitation tokens, admin ownership, and SMTP sending are handled on the server. SMTP credentials must only be configured in server environment variables.
+- `APP_BASE_URL` must be the public app URL, including `/Tobs-circuit/` when deployed with this Vite base path.
+- Use HTTPS in production; the session cookie is secure when `NODE_ENV=production`.
+- Route stops are synchronized with the API, and driver/admin dashboards poll fleet updates every 10 seconds. GPS sharing requires driver permission and remains visible while the location is fresh.
+- Accounts created by the previous browser-only prototype are not automatically imported. Create a new admin account in the server-backed version, then invite drivers to join that fleet.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## GitHub Pages preview
+
+GitHub Pages serves the frontend as a static demo and does not run this Node API. The Pages preview uses sample admin and rider sessions; changes and uploaded fleet logos are stored only in the current browser. Account login, password recovery, email delivery, and cross-device live location sharing require deploying the Node server separately with the environment variables above.
