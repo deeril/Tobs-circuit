@@ -1578,31 +1578,6 @@ export default function App() {
             </p>
           )}
 
-          {IS_GITHUB_PAGES_DEMO && !invitationToken && (
-            <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50 p-3">
-              <p className="text-center text-[10px] font-bold text-violet-950">Open a dashboard demo</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => startPreviewSession('ADMIN')}
-                  className="rounded-xl bg-violet-700 px-3 py-2.5 text-[10px] font-extrabold text-white hover:bg-violet-800"
-                >
-                  Log in as Admin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => startPreviewSession('DRIVER')}
-                  className="rounded-xl border border-violet-300 bg-white px-3 py-2.5 text-[10px] font-extrabold text-violet-900 hover:bg-violet-100"
-                >
-                  Log in as Driver
-                </button>
-              </div>
-              <p className="text-center text-[9px] leading-relaxed text-violet-900">
-                These buttons open sample dashboards. Use the email and password form below for a fleet account.
-              </p>
-            </div>
-          )}
-
           {/* TAB 1: LOGIN FORM */}
           {!invitationToken && authTab === 'LOGIN' && (
             <form onSubmit={showPasswordHelp ? showPasswordRecoveryHelp : handleLogin} className="space-y-4 text-xs">
@@ -1709,6 +1684,31 @@ export default function App() {
                 </>
               )}
             </form>
+          )}
+
+          {IS_GITHUB_PAGES_DEMO && !invitationToken && (
+            <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50 p-3">
+              <p className="text-[10px] font-bold text-violet-950">Choose a demo role</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => startPreviewSession('ADMIN')}
+                  className="rounded-xl bg-violet-700 px-3 py-2.5 text-[10px] font-extrabold text-white hover:bg-violet-800"
+                >
+                  Log in as Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startPreviewSession('DRIVER')}
+                  className="rounded-xl border border-violet-300 bg-white px-3 py-2.5 text-[10px] font-extrabold text-violet-900 hover:bg-violet-100"
+                >
+                  Log in as Driver
+                </button>
+              </div>
+              <p className="text-[9px] leading-relaxed text-violet-900">
+                Demo access uses sample data stored only in this browser.
+              </p>
+            </div>
           )}
 
           {/* TAB 2: REGISTER FORM */}
