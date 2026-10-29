@@ -192,6 +192,63 @@ const PREVIEW_DRIVERS = [
   }
 ];
 
+function createPreviewStops() {
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const lastWeek = new Date(now);
+  lastWeek.setDate(lastWeek.getDate() - 4);
+  return [
+    {
+      id: 'preview-delivered-today',
+      name: 'Ikeja Preview Delivery',
+      address: 'Ikeja, Lagos',
+      lat: 6.6139,
+      lng: 3.3582,
+      status: 'DELIVERED',
+      deliveredAt: now.toISOString(),
+      assignedDriverId: PREVIEW_DRIVERS[0].id,
+      priority: 'NORMAL',
+      packages: 1
+    },
+    {
+      id: 'preview-delivered-yesterday',
+      name: 'Yaba Preview Delivery',
+      address: 'Yaba, Lagos',
+      lat: 6.5095,
+      lng: 3.3711,
+      status: 'DELIVERED',
+      deliveredAt: yesterday.toISOString(),
+      assignedDriverId: PREVIEW_DRIVERS[1].id,
+      priority: 'NORMAL',
+      packages: 1
+    },
+    {
+      id: 'preview-delivered-last-week',
+      name: 'Maryland Preview Delivery',
+      address: 'Maryland, Lagos',
+      lat: 6.5683,
+      lng: 3.3688,
+      status: 'DELIVERED',
+      deliveredAt: lastWeek.toISOString(),
+      assignedDriverId: PREVIEW_DRIVERS[0].id,
+      priority: 'NORMAL',
+      packages: 1
+    },
+    {
+      id: 'preview-pending',
+      name: 'Pending Preview Delivery',
+      address: 'Victoria Island, Lagos',
+      lat: 6.4261,
+      lng: 3.4302,
+      status: 'PENDING',
+      assignedDriverId: PREVIEW_DRIVERS[0].id,
+      priority: 'HIGH',
+      packages: 1
+    }
+  ];
+}
+
 function resizeLogoImage(file) {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
@@ -614,6 +671,19 @@ export default function App() {
     } catch (error) {
       setLogoError(error.message);
     }
+  };
+
+  const startPreviewSession = (role) => {
+    const previewUsers = [PREVIEW_ADMIN, ...PREVIEW_DRIVERS];
+    setIsPreviewSession(true);
+    setAuthError('');
+    setUsers(previewUsers);
+    setStops(createPreviewStops());
+    setRouteDataReady(true);
+    setActiveDriverId(PREVIEW_DRIVERS[0].id);
+    setActiveAdminView('ROUTES');
+    setShowPasswordHelp(false);
+    setCurrentUser(role === 'ADMIN' ? PREVIEW_ADMIN : PREVIEW_DRIVERS[0]);
   };
 
   const handleOrganizationLogoChange = async (event) => {
@@ -1614,6 +1684,31 @@ export default function App() {
                 </>
               )}
             </form>
+          )}
+
+          {IS_GITHUB_PAGES_DEMO && !invitationToken && (
+            <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50 p-3">
+              <p className="text-[10px] font-bold text-violet-950">Choose a demo role</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => startPreviewSession('ADMIN')}
+                  className="rounded-xl bg-violet-700 px-3 py-2.5 text-[10px] font-extrabold text-white hover:bg-violet-800"
+                >
+                  Log in as Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startPreviewSession('DRIVER')}
+                  className="rounded-xl border border-violet-300 bg-white px-3 py-2.5 text-[10px] font-extrabold text-violet-900 hover:bg-violet-100"
+                >
+                  Log in as Driver
+                </button>
+              </div>
+              <p className="text-[9px] leading-relaxed text-violet-900">
+                Demo access uses sample data in this browser; it is not a real account login.
+              </p>
+            </div>
           )}
 
           {/* TAB 2: REGISTER FORM */}
