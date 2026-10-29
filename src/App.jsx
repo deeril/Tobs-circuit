@@ -5,7 +5,7 @@ import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, UserCheck, Users, UserPlus, Shield, PenTool,
-  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown
+  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, ChevronDown
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
@@ -308,6 +308,8 @@ export default function App() {
   const [showPasswordHelp, setShowPasswordHelp] = useState(false);
   const [passwordHelpEmail, setPasswordHelpEmail] = useState('');
   const [passwordHelpMessage, setPasswordHelpMessage] = useState('');
+  const [registerOrgLogo, setRegisterOrgLogo] = useState('');
+  const [logoError, setLogoError] = useState('');
   const [orgLogoStore, setOrgLogoStore] = useState(() => {
     const saved = localStorage.getItem(ORG_LOGOS_STORAGE_KEY);
     return saved ? JSON.parse(saved) : { byOrg: {}, byEmail: {} };
@@ -603,6 +605,17 @@ export default function App() {
     }));
   };
 
+  const handleRegisterLogoChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setLogoError('');
+    try {
+      setRegisterOrgLogo(await resizeLogoImage(file));
+    } catch (error) {
+      setLogoError(error.message);
+    }
+  };
+
   const handleOrganizationLogoChange = async (event) => {
     const file = event.target.files?.[0];
     if (!file || currentUser?.role !== 'ADMIN') return;
@@ -620,7 +633,7 @@ export default function App() {
     e.preventDefault();
     setAuthError('');
     if (IS_GITHUB_PAGES_DEMO) {
-      setAuthError('Account sign-in is unavailable. Please contact your fleet administrator.');
+      setAuthError('Account sign-in is unavailable in this static preview. Use one of the sample dashboard buttons below.');
       return;
     }
     if (!credentialsReady) {
@@ -674,7 +687,11 @@ export default function App() {
         method: 'POST',
         body: JSON.stringify(registration)
       });
+      if (user.role === 'ADMIN' && registerOrgLogo) {
+        saveOrganizationLogo(user.orgName, user.email, registerOrgLogo);
+      }
       setCurrentUser(user);
+      setRegisterOrgLogo('');
       setRegisterForm(prev => ({ ...prev, password: '' }));
       setAuthError('');
       if (user.role === 'DRIVER') setActiveDriverId(user.id);
@@ -686,7 +703,7 @@ export default function App() {
   const showPasswordRecoveryHelp = (event) => {
     event.preventDefault();
     setPasswordHelpMessage(
-      'Password reset email is not configured. Contact your fleet administrator to recover access.'
+      'Password reset email is not available on this GitHub Pages demo. Contact your fleet administrator to recover access.'
     );
   };
 
@@ -715,13 +732,15 @@ export default function App() {
         aria-haspopup="menu"
         aria-expanded={profileMenuOpen}
         aria-label="Profile"
-        className="profile-menu-trigger flex h-10 w-10 items-center justify-center rounded-full border border-violet-700 bg-violet-700 p-0 text-white shadow-sm transition-colors hover:bg-violet-800"
+        className="profile-menu-trigger flex min-h-9 items-center gap-1.5 rounded-full border border-violet-200 bg-white px-3 text-[10px] font-extrabold text-violet-900 shadow-sm transition-colors hover:bg-violet-50 sm:text-xs"
       >
-        <User className="h-5 w-5" fill="currentColor" stroke="white" />
+        <User className="h-4 w-4" />
+        <span>Profile</span>
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
       </button>
       {profileMenuOpen && (
         <div
-          className="profile-menu fixed left-4 top-20 z-[60] max-h-[calc(100dvh-6rem)] w-60 overflow-y-auto rounded-2xl border border-violet-200 bg-white p-2 shadow-xl"
+          className="profile-menu fixed right-4 top-20 z-[60] max-h-[calc(100dvh-6rem)] w-56 overflow-y-auto rounded-2xl border border-violet-200 bg-white p-2 shadow-xl"
           role="menu"
           aria-label="Profile menu"
         >
@@ -733,17 +752,6 @@ export default function App() {
           </div>
           {currentUser.role === 'ADMIN' && (
             <>
-              <label className="profile-menu-logo block cursor-pointer border-b border-violet-100 px-3 py-3 text-[10px] font-bold text-violet-950">
-                <span className="block">Fleet logo</span>
-                <span className="mt-1 block text-[9px] font-medium text-slate-500">Saved in this browser</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleOrganizationLogoChange}
-                  className="mt-2 block w-full text-[9px] text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-violet-700 file:px-2 file:py-1.5 file:font-bold file:text-white"
-                />
-                {logoUploadError && <span role="alert" className="mt-1 block text-[9px] text-rose-700">{logoUploadError}</span>}
-              </label>
               <button
                 type="button"
                 role="menuitem"
@@ -872,7 +880,7 @@ export default function App() {
     const email = inviteEmail.trim().toLowerCase();
     setInviteError('');
     if (IS_GITHUB_PAGES_DEMO || isPreviewSession) {
-      setInviteError('Driver invitation emails require a fleet email service that is not configured.');
+      setInviteError('Driver invitation emails need the fleet email service, which is not available in this static preview.');
       return;
     }
     if (!email) {
@@ -1492,9 +1500,11 @@ export default function App() {
           {!credentialsReady && (
             <p className="text-center text-[10px] text-slate-400">Connecting to the secure account service...</p>
           )}
-          {!invitationToken && !IS_GITHUB_PAGES_DEMO && (
+          {!invitationToken && (
             <p className="text-center text-[10px] text-slate-500">
-              Accounts and driver invitations are securely managed by your fleet.
+              {IS_GITHUB_PAGES_DEMO
+                ? 'This GitHub Pages preview uses sample data stored only in this browser.'
+                : 'Accounts and driver invitations are securely managed by your fleet.'}
             </p>
           )}
 
@@ -1688,6 +1698,19 @@ export default function App() {
                     onChange={(e) => setRegisterForm({ ...registerForm, orgName: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
                   />
+                  <label className="block text-slate-400 font-semibold">
+                    Fleet logo (optional; saved in this browser)
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleRegisterLogoChange}
+                      className="mt-1 block w-full text-[10px] text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-100 file:px-3 file:py-2 file:font-bold file:text-violet-800"
+                    />
+                  </label>
+                  {registerOrgLogo && (
+                    <img src={registerOrgLogo} alt="Fleet logo preview" className="h-16 max-w-36 object-contain" />
+                  )}
+                  {logoError && <p role="alert" className="text-[10px] text-rose-700">{logoError}</p>}
                 </div>
               ) : (
                 /* DRIVER REGISTRATION: INVITE DETAILS & VEHICLE */
@@ -1748,8 +1771,6 @@ export default function App() {
     {brandSplash}
     <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden`}>
 
-      {!(currentUser.role === 'ADMIN' && activeAdminView === 'ANALYTICS') && (
-      <>
       {/* --- SIDEBAR PANEL (~25% WIDTH) --- */}
       <div className={`admin-dashboard-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''} z-20 flex max-h-[55dvh] w-full shrink-0 flex-col border-b border-slate-800 bg-slate-900 shadow-2xl transition-all duration-300 md:h-full md:max-h-none md:border-b-0 md:border-r ${
         sidebarCollapsed ? 'md:w-16' : 'md:w-80 md:max-w-[24rem]'
@@ -1797,6 +1818,28 @@ export default function App() {
         {/* SIDEBAR MAIN CONTROLS */}
         {!sidebarCollapsed && (
           <div className="admin-sidebar-controls flex-1 overflow-y-auto p-3.5 space-y-3">
+            {isPreviewSession && (
+              <p className="rounded-xl border border-amber-300 bg-amber-50 p-2 text-[9px] leading-relaxed text-amber-950">
+                Static preview: changes stay in this browser. Email, password reset and cross-device live tracking are disabled.
+              </p>
+            )}
+            {currentUser.role === 'ADMIN' && (
+              <>
+                <div className="rounded-xl border border-violet-200 bg-violet-50 p-2.5">
+                  <label className="block text-[10px] font-bold text-violet-950">
+                    Fleet logo (saved in this browser)
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleOrganizationLogoChange}
+                      className="mt-1 block w-full text-[9px] text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-violet-700 file:px-2 file:py-1.5 file:font-bold file:text-white"
+                    />
+                  </label>
+                  {logoUploadError && <p role="alert" className="mt-1 text-[9px] text-rose-700">{logoUploadError}</p>}
+                </div>
+              </>
+            )}
+
             {/* ADMIN FLEET SELECTION WORKFLOW */}
             {currentUser.role === 'ADMIN' ? (
               <>
@@ -2234,25 +2277,21 @@ export default function App() {
         )}
 
       </div>
-      </>
-      )}
 
       {currentUser.role === 'ADMIN' && activeAdminView === 'ANALYTICS' ? (
-      <main className="flex h-dvh min-h-0 w-full flex-1 flex-col overflow-y-auto bg-violet-50 p-4 text-slate-950 sm:p-6 md:p-8">
-        <div className="w-full flex-1 space-y-5">
+      <main className="flex min-h-[42dvh] flex-1 flex-col overflow-y-auto bg-violet-50 p-4 text-slate-950 sm:p-6 md:min-h-0 md:p-8">
+        <div className="mx-auto w-full max-w-6xl space-y-5">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex items-start gap-3">
-              {profileMenu}
-              <div>
+            <div>
               <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-violet-700">Admin dashboard</p>
               <h2 className="mt-1 text-2xl font-black text-violet-950">Fleet analytics</h2>
               <p className="mt-1 text-xs text-slate-600">Completed delivery stops across your fleet. Fuel and cash costs are not tracked.</p>
-              </div>
             </div>
             <div className="flex items-center justify-between gap-3 sm:justify-end">
               <span className="hidden rounded-full border border-violet-200 bg-white px-3 py-1 text-[10px] font-bold text-violet-800 sm:inline">
                 Updated from recorded deliveries
               </span>
+              {profileMenu}
             </div>
           </div>
 
@@ -2376,7 +2415,6 @@ export default function App() {
         )}
         <div className="admin-map-toolbar z-10 flex min-h-12 flex-wrap items-center justify-between gap-y-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:gap-x-5 sm:text-xs">
-            {profileMenu}
             <div className="flex items-center space-x-1.5">
               <UserCheck className="w-4 h-4 text-emerald-400" />
               <span className="font-bold text-slate-200">
@@ -2406,6 +2444,7 @@ export default function App() {
               <ExternalLink className="h-3 w-3" />
               <span>Open in Google Maps</span>
             </a>
+            {profileMenu}
           </div>
         </div>
 

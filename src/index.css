@@ -623,24 +623,14 @@ button {
 }
 
 #root .admin-dashboard .profile-menu-trigger {
-  border-color: #542b85 !important;
-  background: #6f35b5 !important;
-  color: #fff !important;
-}
-
-#root .admin-dashboard .profile-menu-trigger svg {
-  fill: #fff !important;
-  color: #fff !important;
-  stroke: #fff !important;
+  border-color: #d8c8ed !important;
+  background: #fff !important;
+  color: #542b85 !important;
 }
 
 #root .admin-dashboard .profile-menu {
   border-color: #e4d8f2 !important;
   background: #fff !important;
-}
-
-#root .admin-dashboard .profile-menu-logo {
-  color: #342447 !important;
 }
 
 #root .admin-dashboard .profile-menu-item {
@@ -744,36 +734,27 @@ button {
 }
 
 #root .admin-dashboard .admin-driver-locations {
-  max-height: 22%;
-  width: min(10rem, calc(100% - 1rem));
-  padding: 7px !important;
+  max-height: 42%;
+  padding: 14px !important;
   border: 1px solid rgb(0 0 0 / 8%) !important;
-  border-radius: 12px !important;
+  border-radius: 16px !important;
   background: #fff !important;
-  box-shadow: 0 4px 14px rgb(0 0 0 / 10%) !important;
+  box-shadow: 0 8px 30px rgb(0 0 0 / 12%) !important;
 }
 
 #root .admin-dashboard .admin-driver-locations > div:first-child {
   color: #222 !important;
-  font-size: 8px !important;
-}
-
-#root .admin-dashboard .admin-driver-locations > div:first-child svg {
-  height: 11px !important;
-  width: 11px !important;
 }
 
 #root .admin-dashboard .admin-driver-locations > div:last-child > div {
-  gap: 4px !important;
-  padding: 4px !important;
+  padding: 10px !important;
   border: 1px solid #ededed !important;
-  border-radius: 8px !important;
+  border-radius: 11px !important;
   background: #fff !important;
 }
 
 #root .admin-dashboard .admin-driver-locations span {
   color: #333 !important;
-  font-size: 8px !important;
 }
 
 #root .admin-dashboard .admin-driver-locations span[class*="bg-emerald-"] {
@@ -833,7 +814,7 @@ button {
     right: 8px;
     top: auto;
     bottom: 8px;
-    max-height: 24%;
-    width: min(9rem, calc(100% - 1rem));
+    max-height: 45%;
+    width: min(13rem, calc(100% - 1rem));
   }
 }
