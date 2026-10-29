@@ -674,6 +674,7 @@ button {
 
 #root .admin-dashboard .bike-rider-marker {
   min-width: 58px;
+  z-index: 30;
   border: 0;
   background: transparent;
   padding: 0;
@@ -811,7 +812,8 @@ button {
 
   #root .admin-dashboard .admin-driver-locations {
     right: 8px;
-    top: 8px;
+    top: auto;
+    bottom: 8px;
     max-height: 45%;
     width: min(13rem, calc(100% - 1rem));
   }
