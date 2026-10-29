@@ -4,7 +4,7 @@ import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, UserCheck, Users, UserPlus, Shield, PenTool,
-  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown
+  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, ChevronDown
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
@@ -464,9 +464,27 @@ export default function App() {
   // --- APP DASHBOARD STATES ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef(null);
   const [activeDriverId, setActiveDriverId] = useState('');
   const [selectedStopId, setSelectedStopId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (!profileMenuOpen) return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (!profileMenuRef.current?.contains(event.target)) setProfileMenuOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setProfileMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [profileMenuOpen]);
 
   // GPS State
   const [isGpsActive, setIsGpsActive] = useState(false);
@@ -723,6 +741,86 @@ export default function App() {
     setAuthTab('LOGIN');
     setAuthRole('ADMIN');
   };
+
+  const profileMenu = currentUser && (
+    <div className="relative flex items-center space-x-2" ref={profileMenuRef}>
+      <button
+        type="button"
+        onClick={() => setProfileMenuOpen(open => !open)}
+        aria-haspopup="menu"
+        aria-expanded={profileMenuOpen}
+        aria-label="Profile"
+        className="profile-menu-trigger flex min-h-9 items-center gap-1.5 rounded-full border border-violet-200 bg-white px-3 text-[10px] font-extrabold text-violet-900 shadow-sm transition-colors hover:bg-violet-50 sm:text-xs"
+      >
+        <User className="h-4 w-4" />
+        <span>Profile</span>
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {profileMenuOpen && (
+        <div
+          className="profile-menu fixed right-4 top-20 z-[60] max-h-[calc(100dvh-6rem)] w-56 overflow-y-auto rounded-2xl border border-violet-200 bg-white p-2 shadow-xl"
+          role="menu"
+          aria-label="Profile menu"
+        >
+          <div className="border-b border-violet-100 px-3 py-2">
+            <p className="truncate text-xs font-extrabold text-violet-950">{currentUser.name}</p>
+            <p className="mt-0.5 text-[10px] font-semibold text-slate-500">
+              {currentUser.role === 'ADMIN' ? 'Administrator' : 'Driver'}
+            </p>
+          </div>
+          {currentUser.role === 'ADMIN' && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setActiveAdminView('ROUTES');
+                  setProfileMenuOpen(false);
+                }}
+                className="profile-menu-item"
+              >
+                <Truck className="h-4 w-4" />
+                <span>Route dashboard</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setActiveAdminView('ANALYTICS');
+                  setProfileMenuOpen(false);
+                }}
+                className="profile-menu-item"
+              >
+                <Users className="h-4 w-4" />
+                <span>Fleet analytics</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setShowInviteModal(true);
+                  setProfileMenuOpen(false);
+                }}
+                className="profile-menu-item"
+              >
+                <UserPlus className="h-4 w-4" />
+                <span>Invite drivers</span>
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={handleLogout}
+            className="profile-menu-item profile-menu-logout"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>Log out</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
   const setDriverRouteStatus = async (driverId, routeStatus, routeStopCount) => {
     if (isPreviewSession) {
@@ -1758,27 +1856,6 @@ export default function App() {
             </button>
           </div>
 
-          {!sidebarCollapsed && (
-            <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800">
-              {currentUser.role === 'ADMIN' && (
-                <button
-                  onClick={() => setShowInviteModal(true)}
-                  className="py-1 px-2.5 bg-blue-600/20 border border-blue-500/40 text-blue-400 font-bold text-[10px] rounded-lg flex items-center space-x-1 hover:bg-blue-600/30 transition-all"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Invite Drivers</span>
-                </button>
-              )}
-
-              <button
-                onClick={handleLogout}
-                className="py-1 px-2.5 bg-rose-500/20 border border-rose-500/40 text-rose-400 font-bold text-[10px] rounded-lg flex items-center space-x-1 hover:bg-rose-500/30 transition-all ml-auto"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Log Out</span>
-              </button>
-            </div>
-          )}
         </div>
 
         {/* SIDEBAR MAIN CONTROLS */}
@@ -1791,30 +1868,6 @@ export default function App() {
             )}
             {currentUser.role === 'ADMIN' && (
               <>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveAdminView('ROUTES')}
-                    className={`rounded-xl border px-2 py-2 text-[10px] font-extrabold ${
-                      activeAdminView === 'ROUTES'
-                        ? 'border-violet-700 bg-violet-700 text-white'
-                        : 'border-violet-200 bg-violet-50 text-violet-900'
-                    }`}
-                  >
-                    Route dashboard
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveAdminView('ANALYTICS')}
-                    className={`rounded-xl border px-2 py-2 text-[10px] font-extrabold ${
-                      activeAdminView === 'ANALYTICS'
-                        ? 'border-violet-700 bg-violet-700 text-white'
-                        : 'border-violet-200 bg-violet-50 text-violet-900'
-                    }`}
-                  >
-                    Fleet analytics
-                  </button>
-                </div>
                 <div className="rounded-xl border border-violet-200 bg-violet-50 p-2.5">
                   <label className="block text-[10px] font-bold text-violet-950">
                     Fleet logo (saved in this browser)
@@ -2277,9 +2330,12 @@ export default function App() {
               <h2 className="mt-1 text-2xl font-black text-violet-950">Fleet analytics</h2>
               <p className="mt-1 text-xs text-slate-600">Completed delivery stops across your fleet. Fuel and cash costs are not tracked.</p>
             </div>
-            <span className="rounded-full border border-violet-200 bg-white px-3 py-1 text-[10px] font-bold text-violet-800">
-              Updated from recorded deliveries
-            </span>
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <span className="hidden rounded-full border border-violet-200 bg-white px-3 py-1 text-[10px] font-bold text-violet-800 sm:inline">
+                Updated from recorded deliveries
+              </span>
+              {profileMenu}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -2431,10 +2487,7 @@ export default function App() {
               <ExternalLink className="h-3 w-3" />
               <span>Open in Google Maps</span>
             </a>
-            <div className="flex items-center space-x-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] font-mono font-bold text-emerald-400 sm:px-2.5 sm:text-xs">
-              <span className={`w-2 h-2 rounded-full ${mapDriverIsLive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
-              <span>{mapDriverIsLive ? 'Driver live' : 'Location unavailable'}</span>
-            </div>
+            {profileMenu}
           </div>
         </div>
 
