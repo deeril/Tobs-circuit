@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  base: '/Tobs-circuit/',
+  base: process.env.GITHUB_PAGES === 'true' ? '/Tobs-circuit/' : '/',
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {

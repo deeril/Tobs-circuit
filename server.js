@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import nodemailer from 'nodemailer';
+import pg from 'pg';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -12,28 +13,155 @@ const port = Number(process.env.PORT) || 3001;
 const isProduction = process.env.NODE_ENV === 'production';
 const dataDirectory = path.resolve(process.env.DATA_DIRECTORY || path.join(__dirname, 'data'));
 const dataFile = path.join(dataDirectory, 'store.json');
+const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
+const usesDatabase = Boolean(process.env.VERCEL || databaseUrl);
+const databasePool = usesDatabase && databaseUrl
+  ? new pg.Pool({ connectionString: databaseUrl, max: 1, idleTimeoutMillis: 10_000 })
+  : null;
 const sessionCookie = 'tobs_session';
 const sessions = new Map();
 const rateLimits = new Map();
+const frontendOrigin = process.env.FRONTEND_ORIGIN || '';
 
-fs.mkdirSync(dataDirectory, { recursive: true });
+if (!usesDatabase) fs.mkdirSync(dataDirectory, { recursive: true });
+
+let databaseSetupPromise;
+let databaseRequestClient = null;
+let databaseStoreDirty = false;
 
 function readStore() {
-  if (!fs.existsSync(dataFile)) return { users: [], invitations: [], stops: [] };
+  if (!fs.existsSync(dataFile)) return { users: [], invitations: [], passwordResets: [], stops: [], sessions: [] };
   const parsed = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
   return {
     users: Array.isArray(parsed.users) ? parsed.users : [],
     invitations: Array.isArray(parsed.invitations) ? parsed.invitations : [],
-    stops: Array.isArray(parsed.stops) ? parsed.stops : []
+    passwordResets: Array.isArray(parsed.passwordResets) ? parsed.passwordResets : [],
+    stops: Array.isArray(parsed.stops) ? parsed.stops : [],
+    sessions: Array.isArray(parsed.sessions) ? parsed.sessions : []
   };
 }
 
 let store = readStore();
 
 function writeStore() {
+  if (usesDatabase) {
+    if (!databaseRequestClient) throw new Error('Persistent database writes must run inside an API request.');
+    databaseStoreDirty = true;
+    return;
+  }
   const temporaryFile = `${dataFile}.tmp`;
   fs.writeFileSync(temporaryFile, JSON.stringify(store, null, 2), { mode: 0o600 });
   fs.renameSync(temporaryFile, dataFile);
+}
+
+function restoreStoredSessions() {
+  sessions.clear();
+  for (const session of store.sessions) {
+    if (session.expiresAt > Date.now()) sessions.set(session.token, {
+      userId: session.userId,
+      expiresAt: session.expiresAt
+    });
+  }
+  store.sessions = store.sessions.filter(session => session.expiresAt > Date.now());
+}
+
+async function ensureDatabaseTable() {
+  if (!databasePool) throw new Error('Set DATABASE_URL in the Vercel project environment to connect the Neon database.');
+  if (!databaseSetupPromise) {
+    databaseSetupPromise = databasePool.query(`
+      CREATE TABLE IF NOT EXISTS tobs_app_state (
+        id SMALLINT PRIMARY KEY CHECK (id = 1),
+        state JSONB NOT NULL
+      )
+    `).then(() => databasePool.query(`
+      INSERT INTO tobs_app_state (id, state)
+      VALUES (1, '{"users":[],"invitations":[],"passwordResets":[],"stops":[],"sessions":[]}'::jsonb)
+      ON CONFLICT (id) DO NOTHING
+    `)).catch(error => {
+      databaseSetupPromise = null;
+      throw error;
+    });
+  }
+  await databaseSetupPromise;
+}
+
+async function loadDatabaseStore(client) {
+  await client.query('BEGIN');
+  const { rows } = await client.query('SELECT state FROM tobs_app_state WHERE id = 1 FOR UPDATE');
+  const state = rows[0]?.state;
+  if (!state || typeof state !== 'object') throw new Error('The persistent application data is invalid.');
+  store = {
+    users: Array.isArray(state.users) ? state.users : [],
+    invitations: Array.isArray(state.invitations) ? state.invitations : [],
+    passwordResets: Array.isArray(state.passwordResets) ? state.passwordResets : [],
+    stops: Array.isArray(state.stops) ? state.stops : [],
+    sessions: Array.isArray(state.sessions) ? state.sessions : []
+  };
+  restoreStoredSessions();
+}
+
+function persistentApiState(request, response, next) {
+  if (!usesDatabase) return next();
+  if (!databasePool) {
+    return response.status(503).json({ error: 'The Vercel database connection is missing. Set DATABASE_URL to the Neon connection string in project settings.' });
+  }
+
+  ensureDatabaseTable()
+    .then(() => databasePool.connect())
+    .then(async client => {
+      try {
+        await loadDatabaseStore(client);
+        databaseRequestClient = client;
+        databaseStoreDirty = false;
+        let responseEnding = false;
+        const endResponse = response.end.bind(response);
+        response.end = (...args) => {
+          if (responseEnding) return response;
+          responseEnding = true;
+          (async () => {
+            try {
+              if (databaseStoreDirty) {
+                await client.query('UPDATE tobs_app_state SET state = $1::jsonb WHERE id = 1', [JSON.stringify(store)]);
+              }
+              await client.query('COMMIT');
+            } catch (error) {
+              console.error('Could not commit application data:', error);
+              try {
+                await client.query('ROLLBACK');
+              } catch (rollbackError) {
+                console.error('Could not roll back application data transaction:', rollbackError);
+              }
+              response.statusCode = 503;
+              response.removeHeader('Content-Length');
+              response.removeHeader('ETag');
+              response.setHeader('Content-Type', 'application/json; charset=utf-8');
+              endResponse(JSON.stringify({ error: 'The account database is temporarily unavailable. Please try again.' }));
+              return;
+            } finally {
+              databaseRequestClient = null;
+              databaseStoreDirty = false;
+              client.release();
+            }
+            endResponse(...args);
+          })();
+          return response;
+        };
+        next();
+      } catch (error) {
+        try {
+          await client.query('ROLLBACK');
+        } catch (rollbackError) {
+          console.error('Could not roll back application data transaction:', rollbackError);
+        }
+        client.release();
+        console.error('Could not load application data:', error);
+        response.status(503).json({ error: 'The account database could not be reached. Check the Neon connection settings and try again.' });
+      }
+    })
+    .catch(error => {
+      console.error('Could not connect to the account database:', error);
+      response.status(503).json({ error: 'The account database could not be reached. Check the Neon connection settings and try again.' });
+    });
 }
 
 function publicUser(user) {
@@ -56,7 +184,7 @@ function setSessionCookie(response, token, remember = true) {
   response.cookie(sessionCookie, token, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'strict',
+    sameSite: frontendOrigin && isProduction ? 'none' : 'strict',
     path: '/',
     ...(remember ? { maxAge: 12 * 60 * 60 * 1000 } : {})
   });
@@ -118,7 +246,10 @@ function cleanText(value, maxLength) {
 
 function issueSession(response, user, remember = true) {
   const token = crypto.randomBytes(32).toString('base64url');
-  sessions.set(token, { userId: user.id, expiresAt: Date.now() + 12 * 60 * 60 * 1000 });
+  const session = { userId: user.id, expiresAt: Date.now() + 12 * 60 * 60 * 1000 };
+  sessions.set(token, session);
+  store.sessions = [...store.sessions.filter(item => item.token !== token), { token, ...session }];
+  writeStore();
   setSessionCookie(response, token, remember);
   return publicUser(user);
 }
@@ -155,7 +286,22 @@ app.use(express.json({ limit: '8mb' }));
 app.use((request, response, next) => {
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (frontendOrigin && request.headers.origin === frontendOrigin) {
+    response.setHeader('Access-Control-Allow-Origin', frontendOrigin);
+    response.setHeader('Access-Control-Allow-Credentials', 'true');
+    response.setHeader('Vary', 'Origin');
+    if (request.method === 'OPTIONS') {
+      response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      return response.sendStatus(204);
+    }
+  }
   next();
+});
+app.use('/api', persistentApiState);
+
+app.get('/api/health', (request, response) => {
+  response.json({ ok: true, storage: usesDatabase ? 'neon-postgres' : 'local-json' });
 });
 app.use((request, response, next) => {
   const cookieHeader = request.headers.cookie || '';
@@ -211,8 +357,84 @@ app.get('/api/auth/session', (request, response) => {
 
 app.post('/api/auth/logout', (request, response) => {
   const token = request.cookies?.[sessionCookie];
-  if (token) sessions.delete(token);
-  response.clearCookie(sessionCookie, { httpOnly: true, secure: isProduction, sameSite: 'strict', path: '/' });
+  if (token) {
+    sessions.delete(token);
+    store.sessions = store.sessions.filter(session => session.token !== token);
+    writeStore();
+  }
+  response.clearCookie(sessionCookie, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: frontendOrigin && isProduction ? 'none' : 'strict',
+    path: '/'
+  });
+  return response.json({ ok: true });
+});
+
+app.post('/api/auth/password-reset', rateLimit({ limit: 5 }), async (request, response) => {
+  const email = cleanText(request.body.email, 254).toLowerCase();
+  if (!validEmail(email)) return response.status(400).json({ error: 'Enter a valid account email address.' });
+  const user = store.users.find(item => item.email === email);
+  if (user) {
+    try {
+      if (!process.env.APP_BASE_URL) throw new Error('APP_BASE_URL is not configured.');
+      const baseUrl = new URL(process.env.APP_BASE_URL);
+      baseUrl.search = '';
+      baseUrl.hash = '';
+      const token = crypto.randomBytes(32).toString('base64url');
+      baseUrl.searchParams.set('reset', token);
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const transporter = createTransport();
+      const previousResets = store.passwordResets;
+      store.passwordResets = [
+        ...previousResets.filter(item => item.userId !== user.id),
+        {
+          tokenHash,
+          userId: user.id,
+          expiresAt: Date.now() + 30 * 60 * 1000
+        }
+      ];
+      writeStore();
+      try {
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM,
+          to: user.email,
+          subject: 'Reset your Tobs Route Circuit password',
+          text: `Use this one-time link to reset your password. It expires in 30 minutes:\n${baseUrl.toString()}`,
+          html: `<p>Use this one-time link to reset your password. It expires in 30 minutes:</p><p><a href="${escapeHtml(baseUrl.toString())}">Reset password</a></p>`
+        });
+      } catch (error) {
+        store.passwordResets = previousResets;
+        writeStore();
+        throw error;
+      }
+    } catch (error) {
+      console.error('Password reset email could not be sent:', error);
+    }
+  }
+  return response.json({ message: 'If an account exists for that email, a password reset link has been sent. Contact your fleet administrator if it does not arrive.' });
+});
+
+app.post('/api/auth/password-reset/complete', rateLimit({ limit: 10 }), (request, response) => {
+  const token = cleanText(request.body.token, 128);
+  const password = request.body.password;
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const reset = store.passwordResets.find(item =>
+    item.tokenHash === tokenHash && item.expiresAt > Date.now()
+  );
+  if (!reset) return response.status(400).json({ error: 'This password reset link is invalid or expired. Request a new one.' });
+  if (typeof password !== 'string' || password.length < 12) {
+    return response.status(400).json({ error: 'Choose a password with at least 12 characters.' });
+  }
+  const user = store.users.find(item => item.id === reset.userId);
+  if (!user) return response.status(400).json({ error: 'This password reset link is invalid or expired. Request a new one.' });
+  Object.assign(user, passwordHash(password));
+  store.passwordResets = store.passwordResets.filter(item => item.userId !== user.id);
+  for (const [sessionToken, session] of sessions) {
+    if (session.userId === user.id) sessions.delete(sessionToken);
+  }
+  store.sessions = store.sessions.filter(session => session.userId !== user.id);
+  writeStore();
   return response.json({ ok: true });
 });
 
@@ -230,13 +452,15 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
   const invite = store.invitations.find(item =>
     item.token === token &&
     item.status === 'PENDING' &&
-    item.email === email
+    (!item.email || item.email === email)
   );
   if (!invite) {
     return response.status(400).json({ error: 'This link is invalid or has already been used. Use the invitation sent to your email.' });
   }
-  if (!name || !validEmail(email) || typeof password !== 'string' || password.length < 12) {
-    return response.status(400).json({ error: 'Enter your name and a password of at least 12 characters.' });
+  const zone = cleanText(request.body.zone, 100);
+  const vehicle = cleanText(request.body.vehicle, 100);
+  if (!name || !validEmail(email) || typeof password !== 'string' || password.length < 12 || !zone || !vehicle) {
+    return response.status(400).json({ error: 'Enter your name, valid email, password (at least 12 characters), operating zone, and vehicle plate number.' });
   }
   if (store.users.some(user => user.email === email)) {
     return response.status(409).json({ error: 'An account already exists for this email.' });
@@ -250,8 +474,8 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
     role: 'DRIVER',
     orgName: invite.orgName,
     ownerAdminId: invite.ownerAdminId,
-    zone: cleanText(request.body.zone, 100) || 'Lagos Central Zone',
-    vehicle: cleanText(request.body.vehicle, 100) || 'Logistics Bike / Van',
+    zone,
+    vehicle,
     phone: cleanText(request.body.phone, 40),
     status: 'ACTIVE',
     lat: 6.5244,
@@ -410,8 +634,8 @@ app.get('/api/invitations', requireUser, requireAdmin, (request, response) => {
 
 app.post('/api/invitations', requireUser, requireAdmin, rateLimit({ limit: 10 }), async (request, response) => {
   const email = cleanText(request.body.email, 254).toLowerCase();
-  if (!validEmail(email)) return response.status(400).json({ error: 'Enter a valid driver email address.' });
-  if (store.users.some(user => user.email === email)) {
+  if (email && !validEmail(email)) return response.status(400).json({ error: 'Enter a valid driver email address or leave it blank.' });
+  if (email && store.users.some(user => user.email === email)) {
     return response.status(409).json({ error: 'An account already exists for this email.' });
   }
   if (!process.env.APP_BASE_URL && isProduction) {
@@ -442,31 +666,32 @@ app.post('/api/invitations', requireUser, requireAdmin, rateLimit({ limit: 10 })
     createdAt: new Date().toISOString(),
     status: 'PENDING'
   };
-  try {
-    const transporter = createTransport();
-    const organization = escapeHtml(request.user.orgName);
-    const safeApplicationUrl = escapeHtml(applicationUrl);
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM,
-      to: email,
-      subject: `Apply to drive with ${request.user.orgName}`,
-      text: `You have been invited to apply as a driver with ${request.user.orgName}.\n\nComplete your application using this personal link:\n${applicationUrl}\n\nThis link is intended for ${email}.`,
-      html: `<p>You have been invited to apply as a driver with <strong>${organization}</strong>.</p><p><a href="${safeApplicationUrl}">Open your driver application</a></p><p>This personal link is intended for ${escapeHtml(email)}.</p>`
-    });
-    store.invitations = store.invitations.filter(item =>
-      !(item.ownerAdminId === request.user.id && item.email === email && item.status === 'PENDING')
-    );
-    store.invitations.unshift(invite);
-    writeStore();
-    return response.status(201).json({ invite: { ...invite, applicationUrl }, sent: true });
-  } catch (error) {
-    console.error('Invitation email could not be sent:', error);
-    const configured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD && process.env.SMTP_FROM);
-    const message = configured
-      ? 'The invitation email could not be sent. Check the SMTP server configuration and try again.'
-      : 'SMTP is not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, and SMTP_FROM on the server.';
-    return response.status(503).json({ error: message });
+  let sent = false;
+  let emailWarning = '';
+  if (email && process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD && process.env.SMTP_FROM) {
+    try {
+      const transporter = createTransport();
+      const organization = escapeHtml(request.user.orgName);
+      const safeApplicationUrl = escapeHtml(applicationUrl);
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM,
+        to: email,
+        subject: `Apply to drive with ${request.user.orgName}`,
+        text: `You have been invited to apply as a driver with ${request.user.orgName}.\n\nComplete your application using this personal link:\n${applicationUrl}\n\nThis link is intended for ${email}.`,
+        html: `<p>You have been invited to apply as a driver with <strong>${organization}</strong>.</p><p><a href="${safeApplicationUrl}">Open your driver application</a></p><p>This personal link is intended for ${escapeHtml(email)}.</p>`
+      });
+      sent = true;
+    } catch (error) {
+      console.error('Invitation email could not be sent:', error);
+      emailWarning = 'The application link was created, but the email could not be sent. Copy and share the link instead.';
+    }
   }
+  store.invitations = store.invitations.filter(item =>
+    !(email && item.ownerAdminId === request.user.id && item.email === email && item.status === 'PENDING')
+  );
+  store.invitations.unshift(invite);
+  writeStore();
+  return response.status(201).json({ invite: { ...invite, applicationUrl }, sent, emailWarning });
 });
 
 app.use('/api', (request, response) => response.status(404).json({ error: 'API route not found.' }));
@@ -478,6 +703,10 @@ app.use((request, response, next) => {
   return response.sendFile(path.join(distributionDirectory, 'index.html'));
 });
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Tobs Route Circuit server listening on port ${port}.`);
-});
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`Tobs Route Circuit server listening on port ${port}.`);
+  });
+}

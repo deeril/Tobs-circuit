@@ -318,6 +318,16 @@ button {
   box-shadow: 8px 0 36px rgb(0 0 0 / 5%);
 }
 
+#root .admin-dashboard.analytics-fullscreen > .admin-dashboard-sidebar {
+  display: none;
+}
+
+#root .admin-dashboard.analytics-fullscreen > main {
+  width: 100%;
+  min-width: 0;
+  min-height: 100dvh;
+}
+
 @media (min-width: 768px) {
   #root .admin-dashboard > .admin-dashboard-sidebar.is-collapsed {
     width: 72px;
@@ -631,6 +641,11 @@ button {
 #root .admin-dashboard .profile-menu {
   border-color: #e4d8f2 !important;
   background: #fff !important;
+  max-height: calc(100dvh - 5.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 #root .admin-dashboard .profile-menu-logo {
@@ -697,6 +712,19 @@ button {
   object-fit: contain;
 }
 
+#root .admin-dashboard .google-bike-marker {
+  display: flex;
+  min-width: 64px;
+  flex-direction: column;
+  align-items: center;
+  filter: drop-shadow(0 2px 5px rgb(22 10 36 / 40%));
+  cursor: pointer;
+}
+
+#root .admin-dashboard .google-map-fallback-notice {
+  color: #333 !important;
+}
+
 #root .admin-dashboard .bike-rider-icon-moving {
   animation: rider-bike-bob 420ms ease-in-out infinite alternate;
 }
@@ -739,35 +767,6 @@ button {
   #root .admin-dashboard .bike-rider-icon-moving {
     animation: none;
   }
-}
-
-#root .admin-dashboard .admin-driver-locations {
-  max-height: 42%;
-  padding: 14px !important;
-  border: 1px solid rgb(0 0 0 / 8%) !important;
-  border-radius: 16px !important;
-  background: #fff !important;
-  box-shadow: 0 8px 30px rgb(0 0 0 / 12%) !important;
-}
-
-#root .admin-dashboard .admin-driver-locations > div:first-child {
-  color: #222 !important;
-}
-
-#root .admin-dashboard .admin-driver-locations > div:last-child > div {
-  padding: 10px !important;
-  border: 1px solid #ededed !important;
-  border-radius: 11px !important;
-  background: #fff !important;
-}
-
-#root .admin-dashboard .admin-driver-locations span {
-  color: #333 !important;
-}
-
-#root .admin-dashboard .admin-driver-locations span[class*="bg-emerald-"] {
-  background: #f2eafa !important;
-  color: #592a8f !important;
 }
 
 @media (max-width: 767px) {
@@ -818,11 +817,16 @@ button {
     display: none;
   }
 
-  #root .admin-dashboard .admin-driver-locations {
-    right: 8px;
-    top: auto;
-    bottom: 8px;
-    max-height: 45%;
-    width: min(13rem, calc(100% - 1rem));
+  #root .admin-dashboard.analytics-fullscreen > main {
+    height: 100dvh;
+    min-height: 0;
+    flex: 1 1 100%;
+    overflow-y: auto;
+  }
+
+  #root .admin-dashboard .profile-menu {
+    right: 0.5rem;
+    top: 4.5rem;
+    max-height: calc(100dvh - 5rem);
   }
 }

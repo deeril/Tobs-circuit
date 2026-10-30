@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import brandLogo from './assets/tobs-circuit-logo-purple.png';
-import deliveryBike from './assets/delivery-bike.png';
 import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, UserCheck, Users, UserPlus, Shield, PenTool,
-  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, ChevronDown
+  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, ChevronDown,
+  Maximize2, Minimize2
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
-const BIKE_ICON_URL = deliveryBike;
+const BIKE_ICON_URL = 'https://res.cloudinary.com/djfkcfltf/image/upload/v1793287582/image-removebg-preview_1_l3xhbk.png';
 const MAP_ZOOM = 10;
 
 function getMapPixelOffset(location, center, zoom) {
@@ -148,7 +148,8 @@ const STORAGE_KEYS = { STOPS: 'lagos_circuit_stops' };
 const DEMO_STOP_IDS = new Set(['l1', 'l2', 'l3', 'l4', 'l5', 'l6']);
 const BRAND_LOGO_URL = brandLogo;
 const ORG_LOGOS_STORAGE_KEY = 'tobs_circuit_org_logos';
-const IS_GITHUB_PAGES_DEMO = window.location.hostname === 'deeril.github.io';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+const IS_GITHUB_PAGES_DEMO = window.location.hostname === 'deeril.github.io' && !API_BASE_URL;
 const PREVIEW_ADMIN = {
   id: 'preview-admin',
   name: 'Demo Dispatcher',
@@ -282,17 +283,31 @@ function resizeLogoImage(file) {
 }
 
 async function apiRequest(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    credentials: 'same-origin',
-    headers: {
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers
-    }
-  });
-  const payload = await response.json().catch(() => ({}));
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      credentials: API_BASE_URL ? 'include' : 'same-origin',
+      headers: {
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...options.headers
+      }
+    });
+  } catch (error) {
+    throw new Error(`Could not reach the account API. Check the Vercel deployment and network connection. ${error.message}`);
+  }
+  const contentType = response.headers.get('content-type') || '';
+  const payload = contentType.includes('application/json')
+    ? await response.json()
+    : {};
   if (!response.ok) {
+    if (response.status === 502 || response.status === 504) {
+      throw new Error('Vercel could not reach the account API function. Confirm the latest deployment succeeded and check its function logs.');
+    }
     throw new Error(payload.error || `Request failed (${response.status}).`);
+  }
+  if (!contentType.includes('application/json')) {
+    throw new Error('The account API returned an unexpected response. Check the Vercel API function route.');
   }
   return payload;
 }
@@ -317,10 +332,173 @@ function getInviteApplicationUrl(invite) {
   return url.toString();
 }
 
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID || 'DEMO_MAP_ID';
+const DEFAULT_MAP_CENTER = { lat: 6.6018, lng: 3.3515 };
+let googleMapsLoadPromise;
+
+function loadGoogleMapsApi() {
+  if (window.google?.maps?.importLibrary) return Promise.resolve(window.google.maps);
+  if (!GOOGLE_MAPS_API_KEY) return Promise.reject(new Error('Set VITE_GOOGLE_MAPS_API_KEY to enable interactive Google Maps.'));
+  if (!googleMapsLoadPromise) {
+    googleMapsLoadPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      const params = new URLSearchParams({
+        key: GOOGLE_MAPS_API_KEY,
+        v: 'weekly',
+        loading: 'async'
+      });
+      script.src = `https://maps.googleapis.com/maps/api/js?${params}`;
+      script.async = true;
+      script.onload = () => {
+        if (window.google?.maps?.importLibrary) resolve(window.google.maps);
+        else reject(new Error('Google Maps loaded without the JavaScript API.'));
+      };
+      script.onerror = () => reject(new Error('Google Maps JavaScript API could not be loaded.'));
+      document.head.appendChild(script);
+    });
+  }
+  return googleMapsLoadPromise;
+}
+
+function detachGoogleMapMarker(marker) {
+  marker.map = null;
+}
+
+function GoogleFleetMap({ center, drivers, now, fallbackUrl, onReadyChange, onDriverSelect }) {
+  const mapElementRef = useRef(null);
+  const mapRef = useRef(null);
+  const markersRef = useRef(new Map());
+  const markerConstructorRef = useRef(null);
+  const [mapStatus, setMapStatus] = useState(GOOGLE_MAPS_API_KEY ? 'loading' : 'fallback');
+
+  useEffect(() => {
+    let cancelled = false;
+    const markers = markersRef.current;
+    if (!GOOGLE_MAPS_API_KEY) {
+      onReadyChange(false);
+      return undefined;
+    }
+
+    loadGoogleMapsApi()
+      .then(async maps => {
+        const [{ Map }, { AdvancedMarkerElement }] = await Promise.all([
+          maps.importLibrary('maps'),
+          maps.importLibrary('marker')
+        ]);
+        if (cancelled || !mapElementRef.current) return;
+        mapRef.current = new Map(mapElementRef.current, {
+          center: DEFAULT_MAP_CENTER,
+          zoom: MAP_ZOOM,
+          mapId: GOOGLE_MAP_ID,
+          streetViewControl: false,
+          mapTypeControl: false,
+          fullscreenControl: false
+        });
+        markerConstructorRef.current = AdvancedMarkerElement;
+        setMapStatus('ready');
+        onReadyChange(true);
+      })
+      .catch(error => {
+        console.error('Interactive Google Maps could not be initialized:', error);
+        if (!cancelled) {
+          setMapStatus('fallback');
+          onReadyChange(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      for (const marker of markers.values()) detachGoogleMapMarker(marker);
+      markers.clear();
+    };
+  }, [onReadyChange]);
+
+  useEffect(() => {
+    if (mapStatus !== 'ready' || !mapRef.current) return;
+    mapRef.current.setCenter({ lat: center.lat, lng: center.lng });
+    const activeDrivers = drivers.filter(driver =>
+      driver.isTracking &&
+      driver.locationUpdatedAt &&
+      now - new Date(driver.locationUpdatedAt).getTime() < 90_000 &&
+      Number.isFinite(driver.lat) &&
+      Number.isFinite(driver.lng)
+    );
+    const activeIds = new Set(activeDrivers.map(driver => driver.id));
+
+    for (const [driverId, marker] of markersRef.current) {
+      if (!activeIds.has(driverId)) {
+        detachGoogleMapMarker(marker);
+        markersRef.current.delete(driverId);
+      }
+    }
+
+    for (const driver of activeDrivers) {
+      let marker = markersRef.current.get(driver.id);
+      if (!marker) {
+        const markerContent = document.createElement('div');
+        markerContent.className = 'google-bike-marker';
+        const speedLabel = document.createElement('span');
+        speedLabel.className = 'bike-rider-speed';
+        const bike = document.createElement('img');
+        bike.src = BIKE_ICON_URL;
+        bike.alt = '';
+        bike.className = 'bike-rider-icon';
+        const driverLabel = document.createElement('span');
+        driverLabel.className = 'bike-rider-name';
+        markerContent.append(speedLabel, bike, driverLabel);
+        marker = new markerConstructorRef.current({
+          map: mapRef.current,
+          position: { lat: driver.lat, lng: driver.lng },
+          title: `${driver.name} live location`,
+          content: markerContent,
+          gmpClickable: true
+        });
+        marker.addListener('click', () => onDriverSelect(driver.id));
+        markersRef.current.set(driver.id, marker);
+      }
+      marker.position = { lat: driver.lat, lng: driver.lng };
+      marker.title = `${driver.name} · ${driver.speed ?? 0} km/h`;
+      const markerContent = marker.content;
+      markerContent.querySelector('.bike-rider-speed').textContent = `${driver.speed ?? 0} km/h`;
+      markerContent.querySelector('.bike-rider-name').textContent = driver.name;
+      markerContent.querySelector('.bike-rider-icon').classList.toggle(
+        'bike-rider-icon-moving',
+        Number(driver.speed) > 0
+      );
+    }
+  }, [center, drivers, mapStatus, now, onDriverSelect]);
+
+  return (
+    <div className="google-fleet-map absolute inset-0">
+      <div ref={mapElementRef} className={mapStatus === 'ready' ? 'h-full w-full' : 'hidden'} />
+      {mapStatus !== 'ready' && (
+        <>
+          <iframe
+            title="Lagos, Nigeria map"
+            className="h-full w-full border-none"
+            src={fallbackUrl}
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            allowFullScreen
+          />
+          <div className="google-map-fallback-notice absolute bottom-3 left-3 z-10 max-w-[min(26rem,calc(100%-1.5rem))] rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-[10px] font-semibold text-slate-700 shadow-lg">
+            {GOOGLE_MAPS_API_KEY
+              ? 'Interactive Google Maps could not load. Check the key, billing, and Maps JavaScript API settings.'
+              : 'Showing the standard map. Add a restricted VITE_GOOGLE_MAPS_API_KEY to enable interactive driver pins.'}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   // --- AUTH & PERSISTENCE STATES ---
   const invitationParams = new URLSearchParams(window.location.search);
   const invitationToken = invitationParams.get('invite') || '';
+  const passwordResetToken = invitationParams.get('reset') || '';
+  const [activePasswordResetToken, setActivePasswordResetToken] = useState(passwordResetToken);
   const [currentUser, setCurrentUser] = useState(null);
   const [isPreviewSession, setIsPreviewSession] = useState(false);
   const [users, setUsers] = useState([]);
@@ -362,9 +540,12 @@ export default function App() {
   const [authRole, setAuthRole] = useState(invitationToken ? 'DRIVER' : 'ADMIN'); // 'ADMIN' or 'DRIVER'
   const [rememberLogin, setRememberLogin] = useState(true);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
-  const [showPasswordHelp, setShowPasswordHelp] = useState(false);
+  const [showPasswordHelp, setShowPasswordHelp] = useState(Boolean(passwordResetToken));
   const [passwordHelpEmail, setPasswordHelpEmail] = useState('');
   const [passwordHelpMessage, setPasswordHelpMessage] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
+  const [passwordResetComplete, setPasswordResetComplete] = useState(false);
   const [orgLogoStore, setOrgLogoStore] = useState(() => {
     const saved = localStorage.getItem(ORG_LOGOS_STORAGE_KEY);
     return saved ? JSON.parse(saved) : { byOrg: {}, byEmail: {} };
@@ -477,6 +658,7 @@ export default function App() {
   // --- APP DASHBOARD STATES ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [googleMapReady, setGoogleMapReady] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef(null);
   const [activeDriverId, setActiveDriverId] = useState('');
@@ -541,6 +723,7 @@ export default function App() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [generatedInviteId, setGeneratedInviteId] = useState('');
   const [inviteError, setInviteError] = useState('');
+  const [inviteNotice, setInviteNotice] = useState('');
   const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [newStopForm, setNewStopForm] = useState({
     name: '',
@@ -753,11 +936,47 @@ export default function App() {
     }
   };
 
-  const showPasswordRecoveryHelp = (event) => {
+  const showPasswordRecoveryHelp = async (event) => {
     event.preventDefault();
-    setPasswordHelpMessage(
-      'Password reset email is not available on this GitHub Pages demo. Contact your fleet administrator to recover access.'
-    );
+    setPasswordHelpMessage('');
+    if (IS_GITHUB_PAGES_DEMO || isPreviewSession) {
+      setPasswordHelpMessage('Password recovery needs the live account service. Deploy and connect the API to enable email reset links.');
+      return;
+    }
+    try {
+      const { message } = await apiRequest('/api/auth/password-reset', {
+        method: 'POST',
+        body: JSON.stringify({ email: passwordHelpEmail })
+      });
+      setPasswordHelpMessage(message);
+    } catch (error) {
+      setPasswordHelpMessage(error.message);
+    }
+  };
+
+  const handlePasswordReset = async (event) => {
+    event.preventDefault();
+    setPasswordHelpMessage('');
+    if (resetPassword.length < 12) {
+      setPasswordHelpMessage('Choose a password with at least 12 characters.');
+      return;
+    }
+    if (resetPassword !== resetPasswordConfirm) {
+      setPasswordHelpMessage('The passwords do not match.');
+      return;
+    }
+    try {
+      await apiRequest('/api/auth/password-reset/complete', {
+        method: 'POST',
+        body: JSON.stringify({ token: activePasswordResetToken, password: resetPassword })
+      });
+      setPasswordResetComplete(true);
+      setResetPassword('');
+      setResetPasswordConfirm('');
+      setPasswordHelpMessage('Your password has been changed. You can now sign in.');
+    } catch (error) {
+      setPasswordHelpMessage(error.message);
+    }
   };
 
   const handleLogout = async () => {
@@ -949,21 +1168,20 @@ export default function App() {
     const email = inviteEmail.trim().toLowerCase();
     setInviteError('');
     if (IS_GITHUB_PAGES_DEMO || isPreviewSession) {
-      setInviteError('Driver invitation emails need the fleet email service, which is not available in this static preview.');
-      return;
-    }
-    if (!email) {
-      setInviteError('Enter the driver’s email address first.');
+      setInviteError('Generating a reusable driver link needs the live account service. Connect a deployed API to enable invitations.');
       return;
     }
     setIsSendingInvite(true);
     try {
-      const { invite } = await apiRequest('/api/invitations', {
+      const { invite, sent, emailWarning } = await apiRequest('/api/invitations', {
         method: 'POST',
         body: JSON.stringify({ email })
       });
-      setInvites(prev => [invite, ...prev.filter(item => item.email !== invite.email)]);
+      setInvites(prev => [invite, ...prev.filter(item => !invite.email || item.email !== invite.email)]);
       setGeneratedInviteId(invite.id);
+      setInviteNotice(emailWarning || (email && !sent
+        ? 'Link created. Email was not sent; copy and share the application link instead.'
+        : 'Link created. Copy and share it with your driver.'));
       setInviteError('');
     } catch (error) {
       setInviteError(error.message);
@@ -1597,47 +1815,93 @@ export default function App() {
                 </button>
               </div>
               <p className="text-center text-[9px] leading-relaxed text-violet-900">
-                Demo dashboards use sample data. Use the account form below to sign in with fleet credentials.
+                This browser-only preview uses sample data. Connect the deployed account API for real accounts, driver links, and cross-device tracking.
               </p>
             </div>
           )}
 
           {/* TAB 1: LOGIN FORM */}
           {!invitationToken && authTab === 'LOGIN' && (
-            <form onSubmit={showPasswordHelp ? showPasswordRecoveryHelp : handleLogin} className="space-y-4 text-xs">
+            <form
+              onSubmit={showPasswordHelp
+                ? (activePasswordResetToken ? handlePasswordReset : showPasswordRecoveryHelp)
+                : handleLogin}
+              className="space-y-4 text-xs"
+            >
               {showPasswordHelp ? (
                 <>
-                  <div>
-                    <label className="block text-slate-400 font-semibold mb-1">Account Email</label>
-                    <input
-                      type="email"
-                      required
-                      value={passwordHelpEmail}
-                      onChange={event => {
-                        setPasswordHelpEmail(event.target.value);
-                        setPasswordHelpMessage('');
-                      }}
-                      placeholder="you@company.com"
-                      className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-200 focus:border-violet-500 focus:outline-none"
-                    />
-                  </div>
+                  {activePasswordResetToken ? (
+                    passwordResetComplete ? (
+                      <p role="status" className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-[11px] leading-relaxed text-violet-900">
+                        {passwordHelpMessage}
+                      </p>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-slate-400 font-semibold mb-1">New password</label>
+                          <input
+                            type="password"
+                            required
+                            minLength={12}
+                            autoComplete="new-password"
+                            value={resetPassword}
+                            onChange={event => setResetPassword(event.target.value)}
+                            className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-200 focus:border-violet-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-400 font-semibold mb-1">Confirm new password</label>
+                          <input
+                            type="password"
+                            required
+                            minLength={12}
+                            autoComplete="new-password"
+                            value={resetPasswordConfirm}
+                            onChange={event => setResetPasswordConfirm(event.target.value)}
+                            className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-200 focus:border-violet-500 focus:outline-none"
+                          />
+                        </div>
+                      </>
+                    )
+                  ) : (
+                    <div>
+                      <label className="block text-slate-400 font-semibold mb-1">Account Email</label>
+                      <input
+                        type="email"
+                        required
+                        value={passwordHelpEmail}
+                        onChange={event => {
+                          setPasswordHelpEmail(event.target.value);
+                          setPasswordHelpMessage('');
+                        }}
+                        placeholder="you@company.com"
+                        className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-200 focus:border-violet-500 focus:outline-none"
+                      />
+                    </div>
+                  )}
                   {passwordHelpMessage && (
                     <p role="status" className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-[11px] leading-relaxed text-violet-900">
                       {passwordHelpMessage}
                     </p>
                   )}
-                  <button
-                    type="submit"
-                    className="w-full rounded-xl bg-violet-700 py-3 text-sm font-black text-white hover:bg-violet-800"
-                  >
-                    Password recovery help
-                  </button>
+                  {!passwordResetComplete && (
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-violet-700 py-3 text-sm font-black text-white hover:bg-violet-800"
+                    >
+                      {activePasswordResetToken ? 'Save new password' : 'Send password reset link'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
                       setShowPasswordHelp(false);
                       setPasswordHelpMessage('');
                       setAuthError('');
+                      if (activePasswordResetToken) {
+                        setActivePasswordResetToken('');
+                        window.history.replaceState({}, '', window.location.pathname);
+                      }
                     }}
                     className="w-full text-center text-xs font-semibold text-violet-700 hover:underline"
                   >
@@ -1759,7 +2023,7 @@ export default function App() {
                     type="email"
                     required
                     placeholder="user@domain.com"
-                    readOnly={authRole === 'DRIVER' && Boolean(registerForm.inviteToken)}
+                    readOnly={authRole === 'DRIVER' && Boolean(registerForm.inviteToken && registerForm.email)}
                     value={registerForm.email}
                     onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
@@ -1797,11 +2061,13 @@ export default function App() {
                 /* DRIVER REGISTRATION: INVITE DETAILS & VEHICLE */
                 <div className="space-y-2">
                   <p className="rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-900">
-                    Driver applications require a valid personal link sent to your invited email address.
+                    Complete your driver profile. An email tied to this link is locked; otherwise enter the email you use for your account.
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       type="text"
+                      required
+                      aria-label="Operating zone"
                       placeholder="Operating Zone (e.g. Lekki / VI)"
                       value={registerForm.zone}
                       onChange={(e) => setRegisterForm({ ...registerForm, zone: e.target.value })}
@@ -1809,7 +2075,9 @@ export default function App() {
                     />
                     <input
                       type="text"
-                      placeholder="Vehicle / Plate Number"
+                      required
+                      aria-label="Vehicle plate number"
+                      placeholder="Vehicle Plate Number"
                       value={registerForm.vehicle}
                       onChange={(e) => setRegisterForm({ ...registerForm, vehicle: e.target.value })}
                       className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none"
@@ -1850,7 +2118,7 @@ export default function App() {
   return (
     <>
     {brandSplash}
-    <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden`}>
+    <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} ${activeAdminView === 'ANALYTICS' ? 'analytics-fullscreen' : ''} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden`}>
 
       {/* --- SIDEBAR PANEL (~25% WIDTH) --- */}
       <div className={`admin-dashboard-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''} z-20 flex max-h-[55dvh] w-full shrink-0 flex-col border-b border-slate-800 bg-slate-900 shadow-2xl transition-all duration-300 md:h-full md:max-h-none md:border-b-0 md:border-r ${
@@ -2508,22 +2776,33 @@ export default function App() {
               <ExternalLink className="h-3 w-3" />
               <span>Open in Google Maps</span>
             </a>
+            <button
+              type="button"
+              onClick={() => setMapExpanded(expanded => !expanded)}
+              aria-label={mapExpanded ? 'Exit full-screen map' : 'Open full-screen map'}
+              title={mapExpanded ? 'Exit full-screen map' : 'Open full-screen map'}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-violet-800 hover:bg-violet-50"
+            >
+              {mapExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
             {profileMenu}
           </div>
         </div>
 
         {/* Map follows the selected driver's next stop, or the selected stop. */}
         <div className="admin-map-canvas flex-1 relative w-full h-full">
-          <iframe
-            title={mapStop ? `Map for ${mapStop.name}` : 'Lagos, Nigeria map'}
-            className="h-full w-full border-none"
-            src={googleMapsEmbedUrl}
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            allowFullScreen
+          <GoogleFleetMap
+            center={mapCenter}
+            drivers={liveMapDrivers}
+            now={clockNow}
+            fallbackUrl={googleMapsEmbedUrl}
+            onReadyChange={setGoogleMapReady}
+            onDriverSelect={driverId => {
+              if (currentUser.role === 'ADMIN') setActiveDriverId(driverId);
+            }}
           />
 
-          {liveMapDrivers.map(driver => {
+          {!googleMapReady && liveMapDrivers.map(driver => {
             const locationIsFresh = driver.isTracking
               && driver.locationUpdatedAt
               && clockNow - new Date(driver.locationUpdatedAt).getTime() < 90_000;
@@ -2562,33 +2841,6 @@ export default function App() {
             );
           })}
 
-          {/* OVERLAY MAP DRIVER RADAR BEACON */}
-          <div className="admin-driver-locations absolute right-2 top-2 z-20 max-h-[35%] w-[min(18rem,calc(100%-1rem))] space-y-2 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/95 p-2.5 shadow-2xl backdrop-blur-md sm:right-4 sm:top-4 sm:p-3">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-              <span>Driver locations</span>
-              <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-            </div>
-
-            <div className="space-y-1.5 text-xs">
-              {driversList.map(d => (
-                <div key={d.id} className="p-1.5 bg-slate-950 rounded-lg border border-slate-800/80 flex items-center justify-between">
-                  <div className="truncate pr-2">
-                    <span className="font-bold text-slate-200 block truncate">{d.name}</span>
-                    <span className="text-[9px] text-slate-400 font-mono">{d.zone}</span>
-                  </div>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
-                    d.isTracking && d.locationUpdatedAt && clockNow - new Date(d.locationUpdatedAt).getTime() < 90_000
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : 'bg-slate-800 text-slate-500'
-                  }`}>
-                    {d.isTracking && d.locationUpdatedAt && clockNow - new Date(d.locationUpdatedAt).getTime() < 90_000
-                      ? `${d.speed ?? 0} km/h`
-                      : 'Offline'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
       </div>
@@ -2605,7 +2857,7 @@ export default function App() {
                   <UserPlus className="h-5 w-5 text-violet-700" />
                   <span>Invite a driver</span>
                 </h3>
-                <p className="mt-1 text-[11px] text-slate-500">Send a secure driver application link for {currentUser.orgName}.</p>
+                <p className="mt-1 text-[11px] text-slate-500">Generate a one-use driver application link for {currentUser.orgName}. Email is optional.</p>
               </div>
               <button onClick={() => setShowInviteModal(false)} aria-label="Close invite window" className="text-slate-400 hover:text-slate-900">
                 <XCircle className="h-5 w-5" />
@@ -2619,16 +2871,16 @@ export default function App() {
               }}
               className="space-y-3"
             >
-              <label htmlFor="driver-invite-email" className="block font-bold text-slate-700">Driver email address</label>
+              <label htmlFor="driver-invite-email" className="block font-bold text-slate-700">Driver email address (optional)</label>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   id="driver-invite-email"
                   type="email"
-                  required
                   value={inviteEmail}
                   onChange={event => {
                     setInviteEmail(event.target.value);
                     setInviteError('');
+                    setInviteNotice('');
                     setGeneratedInviteId('');
                   }}
                   placeholder="driver@example.com"
@@ -2640,17 +2892,22 @@ export default function App() {
                   className="flex items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 font-extrabold text-white hover:bg-violet-800 disabled:cursor-wait disabled:opacity-60"
                 >
                   <Send className="h-4 w-4" />
-                  {isSendingInvite ? 'Sending...' : 'Send link'}
+                  {isSendingInvite ? 'Generating...' : 'Generate link'}
                 </button>
               </div>
               {inviteError && <p role="alert" className="text-[11px] font-semibold text-rose-700">{inviteError}</p>}
+              {inviteNotice && <p role="status" className="text-[11px] font-semibold text-emerald-700">{inviteNotice}</p>}
             </form>
 
             {generatedInvite && (
               <div className="space-y-3 rounded-2xl border border-violet-200 bg-violet-50 p-3.5">
                 <div>
-                  <p className="font-extrabold text-violet-950">Application link sent</p>
-                  <p className="mt-1 text-[10px] text-violet-800">An email with the personal link was sent to {generatedInvite.email}.</p>
+                  <p className="font-extrabold text-violet-950">Driver application link ready</p>
+                  <p className="mt-1 text-[10px] text-violet-800">
+                    {generatedInvite.email
+                      ? `This link is reserved for ${generatedInvite.email}.`
+                      : 'Share this link with your driver. They will enter their own email address.'}
+                  </p>
                 </div>
                 <div className="break-all rounded-lg border border-violet-100 bg-white p-2.5 font-mono text-[10px] text-slate-600">
                   {getInviteApplicationUrl(generatedInvite)}
@@ -2673,10 +2930,10 @@ export default function App() {
                   <div>
                     <span className="block truncate font-bold text-slate-800">{inv.email || 'Legacy invitation'}</span>
                     <span className="text-[9px] text-slate-500">
-                      {inv.status === 'REGISTERED' ? 'Application completed' : 'Email sent · awaiting application'}
+                      {inv.status === 'REGISTERED' ? 'Application completed' : 'Link created · awaiting application'}
                     </span>
                   </div>
-                  {inv.status === 'PENDING' && inv.email && (
+                  {inv.status === 'PENDING' && (
                     <button
                       type="button"
                       onClick={() => {
