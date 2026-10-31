@@ -568,7 +568,8 @@ export default function App() {
 
 const [showRegisterPassword, setShowRegisterPassword] = useState(false);
 const [showConfirmRegisterPassword, setShowConfirmRegisterPassword] = useState(false);
-  const [authError, setAuthError] = useState('');
+const [showLoginPassword, setShowLoginPassword] = useState(false);
+const [authError, setAuthError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
