@@ -554,16 +554,20 @@ export default function App() {
     localStorage.setItem(ORG_LOGOS_STORAGE_KEY, JSON.stringify(orgLogoStore));
   }, [orgLogoStore]);
   const [activeAdminView, setActiveAdminView] = useState('ROUTES');
-  const [registerForm, setRegisterForm] = useState(() => ({
-    name: '',
-    email: '',
-    password: '',
-    orgName: '',
-    inviteToken: invitationToken,
-    zone: '',
-    vehicle: '',
-    phone: ''
-  }));
+ const [registerForm, setRegisterForm] = useState(() => ({
+  name: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+  orgName: '',
+  inviteToken: invitationToken,
+  zone: '',
+  vehicle: '',
+  phone: ''
+}));
+
+const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+const [showConfirmRegisterPassword, setShowConfirmRegisterPassword] = useState(false);
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
@@ -899,9 +903,14 @@ export default function App() {
     e.preventDefault();
     setAuthError('');
     if (!credentialsReady) {
-      setAuthError('Connecting to the account service. Please try again in a moment.');
-      return;
-    }
+  setAuthError('Connecting to the account service. Please try again in a moment.');
+  return;
+}
+
+if (registerForm.password !== registerForm.confirmPassword) {
+  setAuthError('Passwords do not match. Please check and try again.');
+  return;
+}
 
     try {
       const endpoint = authRole === 'ADMIN'
@@ -928,7 +937,11 @@ export default function App() {
         body: JSON.stringify(registration)
       });
       setCurrentUser(user);
-      setRegisterForm(prev => ({ ...prev, password: '' }));
+     setRegisterForm(prev => ({
+  ...prev,
+  password: '',
+  confirmPassword: ''
+}));
       setAuthError('');
       if (user.role === 'DRIVER') setActiveDriverId(user.id);
     } catch (error) {
@@ -2036,17 +2049,67 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Password</label>
-                  <input
-                    type="password"
-                    required
-                    minLength={12}
-                    placeholder="••••••••"
-                    value={registerForm.password}
-                    onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
+  <label className="block text-slate-400 font-semibold mb-1">Password</label>
+  <div className="relative">
+    <input
+      type={showRegisterPassword ? "text" : "password"}
+      required
+      minLength={12}
+      placeholder="••••••••"
+      value={registerForm.password}
+      onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 pr-12 text-slate-200 focus:outline-none focus:border-emerald-500"
+    />
+    <button
+      type="button"
+      onPointerDown={(e) => { e.preventDefault(); setShowRegisterPassword(true); }}
+      onPointerUp={() => setShowRegisterPassword(false)}
+      onPointerLeave={() => setShowRegisterPassword(false)}
+      onPointerCancel={() => setShowRegisterPassword(false)}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+    >
+      👁
+    </button>
+  </div>
+</div>
+
+<div className="mt-4">
+  <label className="block text-slate-400 font-semibold mb-1">Confirm Password</label>
+  <div className="relative">
+    <input
+      type={showConfirmRegisterPassword ? "text" : "password"}
+      required
+      minLength={12}
+      placeholder="Confirm your password"
+      value={registerForm.confirmPassword || ''}
+      onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })}
+      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 pr-12 text-slate-200 focus:outline-none focus:border-emerald-500"
+    />
+    <button
+      type="button"
+      onPointerDown={(e) => { e.preventDefault(); setShowConfirmRegisterPassword(true); }}
+      onPointerUp={() => setShowConfirmRegisterPassword(false)}
+      onPointerLeave={() => setShowConfirmRegisterPassword(false)}
+      onPointerCancel={() => setShowConfirmRegisterPassword(false)}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+    >
+      👁
+    </button>
+  </div>
+</div>
+
+<div className="mt-4">
+  <label className="block text-slate-400 font-semibold mb-1">Confirm Password</label>
+  <input
+    type="password"
+    required
+    minLength={12}
+    placeholder="Confirm your password"
+    value={registerForm.confirmPassword || ''}
+    onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })}
+    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
+  />
+</div>
               </div>
 
               {/* ADMIN REGISTRATION: ORGANIZATION NAME */}
