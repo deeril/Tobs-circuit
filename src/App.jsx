@@ -1012,10 +1012,15 @@ export default function App() {
       </button>
       {profileMenuOpen && (
         <div
-          className="profile-menu fixed right-4 top-20 z-[60] max-h-[calc(100dvh-6rem)] w-56 overflow-y-auto rounded-2xl border border-violet-200 bg-white p-2 shadow-xl"
-          role="menu"
-          aria-label="Profile menu"
-        >
+  className="profile-menu fixed right-4 top-20 z-[9999] h-auto max-h-[calc(100dvh-5rem)] w-56 overflow-y-scroll overscroll-contain rounded-2xl border border-violet-200 bg-white p-2 shadow-xl"
+  style={{
+    WebkitOverflowScrolling: 'touch',
+    touchAction: 'pan-y',
+    pointerEvents: 'auto'
+  }}
+  role="menu"
+  aria-label="Profile menu"
+>
           <div className="border-b border-violet-100 px-3 py-2">
             <p className="truncate text-xs font-extrabold text-violet-950">{currentUser.name}</p>
             <p className="mt-0.5 text-[10px] font-semibold text-slate-500">
