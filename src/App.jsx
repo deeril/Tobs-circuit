@@ -1947,17 +1947,35 @@ if (registerForm.password !== registerForm.confirmPassword) {
                 />
               )}
 
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Password</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-200 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
+             <div>
+  <label className="block text-slate-400 font-semibold mb-1">Password</label>
+
+  <div className="relative">
+    <input
+      type={showLoginPassword ? "text" : "password"}
+      required
+      placeholder="••••••••"
+      value={loginForm.password}
+      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 pr-12 text-slate-200 focus:outline-none focus:border-emerald-500"
+    />
+
+    <button
+      type="button"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        setShowLoginPassword(true);
+      }}
+      onPointerUp={() => setShowLoginPassword(false)}
+      onPointerLeave={() => setShowLoginPassword(false)}
+      onPointerCancel={() => setShowLoginPassword(false)}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+      aria-label="Hold to show login password"
+    >
+      👁
+    </button>
+  </div>
+</div>
 
               <label className="flex items-center gap-2 text-slate-300">
                 <input

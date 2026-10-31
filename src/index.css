@@ -827,7 +827,7 @@ button {
   #root .admin-dashboard .profile-menu {
   right: 0.5rem;
   top: 4.5rem;
-  max-height: 40dvh;
+  max-height: 50dvh;
   overflow-y: scroll;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
