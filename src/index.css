@@ -639,13 +639,17 @@ button {
 }
 
 #root .admin-dashboard .profile-menu {
-  border-color: #e4d8f2 !important;
-  background: #fff !important;
-  max-height: calc(100dvh - 5.5rem);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  position: fixed;
+  z-index: 9999;
+  max-height: calc(100dvh - 6rem);
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+  border-color: #e4d8f2 !important;
+  background: #fff !important;
+
 }
 
 #root .admin-dashboard .profile-menu-logo {
@@ -822,15 +826,5 @@ button {
     min-height: 0;
     flex: 1 1 100%;
     overflow-y: auto;
-  }
-
-  #root .admin-dashboard .profile-menu {
-  right: 0.5rem;
-  top: 4.5rem;
-  max-height: 50dvh;
-  overflow-y: scroll;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
   }
 }
