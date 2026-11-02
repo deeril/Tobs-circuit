@@ -674,27 +674,30 @@ const [authError, setAuthError] = useState('');
 
   useEffect(() => {
     if (!profileMenuOpen) return undefined;
+
     const closeOnOutsideClick = (event) => {
-  const clickedInsideButton = profileMenuRef.current?.contains(event.target);
-  const clickedInsideMenu = document.querySelector('.profile-menu')?.contains(event.target);
+      const clickedInsideButton = profileMenuRef.current?.contains(event.target);
+      const clickedInsideMenu = document.querySelector('.profile-menu')?.contains(event.target);
 
-  if (!clickedInsideButton && !clickedInsideMenu) {
-    setProfileMenuOpen(false);
-  }
-};
+      if (!clickedInsideButton && !clickedInsideMenu) {
+        setProfileMenuOpen(false);
+      }
+    };
 
-const closeOnEscape = (event) => {
-  if (event.key === 'Escape') setProfileMenuOpen(false);
-};
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        setProfileMenuOpen(false);
+      }
+    };
 
-document.addEventListener('pointerdown', closeOnOutsideClick);
-document.addEventListener('keydown', closeOnEscape);
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
 
-return () => {
-  document.removeEventListener('pointerdown', closeOnOutsideClick);
-  document.removeEventListener('keydown', closeOnEscape);
-};
-}, [profileMenuOpen]);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [profileMenuOpen]);
   // GPS State
   const [isGpsActive, setIsGpsActive] = useState(false);
   const [gpsPos, setGpsPos] = useState({ lat: 6.5244, lng: 3.3792 });
@@ -1898,11 +1901,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       />
                     </div>
                   )}
+
                   {passwordHelpMessage && (
                     <p role="status" className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-[11px] leading-relaxed text-violet-900">
                       {passwordHelpMessage}
                     </p>
                   )}
+
                   {!passwordResetComplete && (
                     <button
                       type="submit"
@@ -1911,6 +1916,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       {activePasswordResetToken ? 'Save new password' : 'Send password reset link'}
                     </button>
                   )}
+
                   <button
                     type="button"
                     onClick={() => {
@@ -1929,78 +1935,78 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 </>
               ) : (
                 <>
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="admin@lagosexpress.com"
-                  value={loginForm.email}
-                  onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-200 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              {orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()] && (
-                <img
-                  src={orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()]}
-                  alt="Your fleet logo"
-                  className="mx-auto max-h-20 max-w-40 object-contain"
-                />
-              )}
-<div>
-  <label className="block text-slate-400 font-semibold mb-1">
-    Password
-  </label>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="admin@lagosexpress.com"
+                      value={loginForm.email}
+                      onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-200 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
 
-  <div className="relative">
-    <input
-      type={showLoginPassword ? 'text' : 'password'}
-      required
-      placeholder="••••••••"
-      value={loginForm.password}
-      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 pr-11 text-slate-200 focus:outline-none focus:border-emerald-500"
-    />
+                  {orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()] && (
+                    <img
+                      src={orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()]}
+                      alt="Your fleet logo"
+                      className="mx-auto max-h-20 max-w-40 object-contain"
+                    />
+                  )}
 
-    <button
-      type="button"
-      onClick={() => setShowLoginPassword(prev => !prev)}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-400"
-      aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
-    >
-      {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-    </button>
-  </div>
-</div>
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">Password</label>
+                    <div className="relative">
+                      <input
+                        type={showLoginPassword ? 'text' : 'password'}
+                        required
+                        placeholder="••••••••"
+                        value={loginForm.password}
+                        onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 pr-11 text-slate-200 focus:outline-none focus:border-emerald-500"
+                      />
 
-              <label className="flex items-center gap-2 text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={rememberLogin}
-                  onChange={event => setRememberLogin(event.target.checked)}
-                  className="h-4 w-4 accent-emerald-500"
-                />
-                <span>Remember me on this device</span>
-              </label>
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPassword(prev => !prev)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-400"
+                        aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                  </div>
 
-              <button
-                type="submit"
-                disabled={!credentialsReady}
-                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20"
-              >
-                Log In to Circuit Platform
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPasswordHelpEmail(loginForm.email);
-                  setPasswordHelpMessage('');
-                  setShowPasswordHelp(true);
-                }}
-                className="w-full text-right text-xs font-semibold text-violet-700 hover:underline"
-              >
-                Forgot password?
-              </button>
+                  <label className="flex items-center gap-2 text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={rememberLogin}
+                      onChange={event => setRememberLogin(event.target.checked)}
+                      className="h-4 w-4 accent-emerald-500"
+                    />
+                    <span>Remember me on this device</span>
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={!credentialsReady}
+                    className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                  >
+                    Log In to Circuit Platform
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPasswordHelpEmail(loginForm.email);
+                      setPasswordHelpMessage('');
+                      setShowPasswordHelp(true);
+                    }}
+                    className="w-full text-right text-xs font-semibold text-violet-700 hover:underline"
+                  >
+                    Forgot password?
+                  </button>
                 </>
               )}
             </form>
@@ -2095,6 +2101,12 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       placeholder="Confirm your password"
       value={confirmPassword}
       onChange={(e) => setConfirmPassword(e.target.value)}
+      aria-invalid={Boolean(confirmPassword && registerForm.password !== confirmPassword)}
+      aria-describedby={
+        confirmPassword && registerForm.password !== confirmPassword
+          ? 'confirm-password-error'
+          : undefined
+      }
       className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 pr-10 text-slate-200 focus:outline-none focus:border-emerald-500"
     />
     <button
@@ -2106,7 +2118,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
     </button>
   </div>
+  {confirmPassword && registerForm.password !== confirmPassword && (
+    <p id="confirm-password-error" role="alert" className="mt-1 text-[10px] font-semibold text-rose-600">
+      Passwords do not match.
+    </p>
+  )}
 </div>
+              </div>
 
               {/* ADMIN REGISTRATION: ORGANIZATION NAME */}
               {authRole === 'ADMIN' ? (

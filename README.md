@@ -6,7 +6,7 @@ A React and Vite fleet-dispatch dashboard with admin-owned driver accounts, emai
 
 1. Use Node.js 22.12 or newer.
 2. Install dependencies with `npm install`.
-3. Copy `.env.example` to `.env`; set `APP_BASE_URL` and configure SMTP for password-reset emails and optional driver-invitation emails. Keep `.env` private.
+3. Copy `.env.example` to `.env`; set `APP_BASE_URL` and configure SMTP for password-reset emails and optional driver-invitation emails. Add your restricted Google Maps browser key as `VITE_GOOGLE_MAPS_API_KEY` in `.env.local` (do not commit that file).
 4. Run `npm run dev`. The command starts the Vite frontend and API server together.
 
 `npm start` serves the production build and API from one Node process. Run `npm run build` first.
@@ -22,7 +22,9 @@ Vercel can host both the Vite frontend and the Express API. The `/api` serverles
 5. Add SMTP environment variables if you want password-reset and invitation emails. Driver application links still work without SMTP.
 6. Redeploy after adding or changing environment variables. Git pushes to the connected branch trigger new deployments automatically.
 
-The map uses Lagos, Nigeria as its initial center. Without a Google Maps key, the app shows the standard keyless Google Maps embed; add the key to enable interactive moving driver pins. The first HTML example is a map custom element, while the second snippet is a JavaScript API loader. This app loads the Maps JavaScript API and uses advanced markers.
+The map uses Lagos, Nigeria as its initial center. Without a Google Maps key, the app shows the standard keyless Google Maps embed; add the key to enable interactive moving driver pins. For GitHub Pages, add a repository Actions secret named `VITE_GOOGLE_MAPS_API_KEY` and restrict the key to the Pages site referrer (for this repository, `https://deeril.github.io/Tobs-circuit/*`). The deployment workflow passes that secret only to the frontend build. For local development, create a key in Google Cloud, enable billing and **Maps JavaScript API**, and add an HTTP referrer restriction for `http://localhost:5173/*` (and `http://127.0.0.1:5173/*` if you use that host). Put the key in `.env.local`, restart Vite, and check the browser console if the map still falls back. The key is necessarily visible in the frontend bundle, so use a browser key restricted by allowed sites and APIs; never put a service-account key or OAuth token in frontend code.
+
+This app loads the Maps JavaScript API and uses advanced markers; it does not use the `<gmp-map>` custom element from the sample. The Route Optimization API example is a separate server-side feature, not required to display the map or driver pins. Do not call it from the browser with a service-account credential or access token.
 
 If the frontend and API are on different domains, set `VITE_API_BASE_URL` to the API origin and `FRONTEND_ORIGIN` to the exact frontend origin. For a single Vercel project these can be left blank; the frontend calls `/api` on the same origin. On GitHub Pages without an API URL, the app remains a browser-only sample preview and does not provide real accounts or cross-device tracking.
 
