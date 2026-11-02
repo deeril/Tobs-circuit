@@ -4,7 +4,7 @@ import brandLogo from './assets/tobs-circuit-logo-purple.png';
 import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
-  ChevronLeft, Target, UserCheck, Users, UserPlus, Shield, PenTool,
+  ChevronLeft, Target, Users, UserPlus, Shield, PenTool,
  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, Menu,
  BellRing, Eye, EyeOff
 } from 'lucide-react';
@@ -2283,6 +2283,25 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 Static preview: changes stay in this browser. Email, password reset and cross-device live tracking are disabled.
               </p>
             )}
+            <section className="rounded-xl border border-slate-800 bg-slate-950 p-3">
+              <h2 className="mb-2 truncate text-xs font-extrabold text-slate-200">
+                {currentUser.role === 'ADMIN' ? selectedDriver?.name || 'Select a driver' : currentUser.name}
+              </h2>
+              <div className="grid grid-cols-3 gap-2 text-[9px] font-semibold text-slate-400">
+                <div className="flex min-w-0 items-center gap-1">
+                  <Truck className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                  <span>{routeMetrics.totalKm} km</span>
+                </div>
+                <div className="flex min-w-0 items-center gap-1">
+                  <Clock className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                  <span>{routeMetrics.hours}h {routeMetrics.mins}m</span>
+                </div>
+                <div className="flex min-w-0 items-center gap-1 text-emerald-400">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  <span>{routeMetrics.completed}/{routeMetrics.total} delivered</span>
+                </div>
+              </div>
+            </section>
             {/* ADMIN FLEET SELECTION WORKFLOW */}
             {currentUser.role === 'ADMIN' ? (
               <>
@@ -2845,7 +2864,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           : 'h-[42dvh] min-h-[280px] shrink-0 md:h-full md:min-h-0'
       }`}>
 
-        {/* MAP TOP METRICS HEADER */}
+        {/* MAP ACTIONS */}
         {mapExpanded && (
           <button
             type="button"
@@ -2856,33 +2875,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             <span>Back to route</span>
           </button>
         )}
-        <div className="admin-map-toolbar z-10 flex min-h-12 flex-wrap items-center justify-between gap-y-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:gap-x-5 sm:text-xs">
-            <div className="flex items-center space-x-1.5">
-              <UserCheck className="w-4 h-4 text-emerald-400" />
-              <span className="font-bold text-slate-200">
-                {currentUser.role === 'ADMIN' ? selectedDriver?.name : currentUser.name}
-              </span>
-            </div>
-            <div className="flex items-center space-x-1.5 font-mono text-slate-300">
-              <Truck className="w-4 h-4 text-blue-400" />
-              <span>{routeMetrics.totalKm} km</span>
-            </div>
-            <div className="flex items-center space-x-1.5 font-mono text-slate-300">
-              <Clock className="w-4 h-4 text-amber-400" />
-              <span>{routeMetrics.hours}h {routeMetrics.mins}m</span>
-            </div>
-            <div className="flex items-center space-x-1 font-mono text-emerald-400">
-              <span>{routeMetrics.completed}/{routeMetrics.total} Delivered</span>
-            </div>
-          </div>
-
-          <div className="ml-auto flex items-center space-x-2">
+        <div className="admin-map-toolbar z-10 flex min-h-12 items-center justify-end gap-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">
+          <div className="admin-map-actions flex items-center gap-2">
             <a
               href={googleMapsSearchUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-300 hover:bg-emerald-500/20 sm:text-xs"
+              className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/20 sm:px-2.5 sm:text-[10px]"
             >
               <ExternalLink className="h-3 w-3" />
               <span>Open in Google Maps</span>
