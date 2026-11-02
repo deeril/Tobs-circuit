@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import brandLogo from './assets/tobs-circuit-logo-purple.png';
 import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
@@ -554,22 +555,17 @@ export default function App() {
     localStorage.setItem(ORG_LOGOS_STORAGE_KEY, JSON.stringify(orgLogoStore));
   }, [orgLogoStore]);
   const [activeAdminView, setActiveAdminView] = useState('ROUTES');
- const [registerForm, setRegisterForm] = useState(() => ({
-  name: '',
-  email: '',
-  password: '',
-  confirmPassword: '',
-  orgName: '',
-  inviteToken: invitationToken,
-  zone: '',
-  vehicle: '',
-  phone: ''
-}));
-
-const [showRegisterPassword, setShowRegisterPassword] = useState(false);
-const [showConfirmRegisterPassword, setShowConfirmRegisterPassword] = useState(false);
-const [showLoginPassword, setShowLoginPassword] = useState(false);
-const [authError, setAuthError] = useState('');
+  const [registerForm, setRegisterForm] = useState(() => ({
+    name: '',
+    email: '',
+    password: '',
+    orgName: '',
+    inviteToken: invitationToken,
+    zone: '',
+    vehicle: '',
+    phone: ''
+  }));
+  const [authError, setAuthError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -673,19 +669,26 @@ const [authError, setAuthError] = useState('');
   useEffect(() => {
     if (!profileMenuOpen) return undefined;
     const closeOnOutsideClick = (event) => {
-      if (!profileMenuRef.current?.contains(event.target)) setProfileMenuOpen(false);
-    };
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setProfileMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', closeOnOutsideClick);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsideClick);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [profileMenuOpen]);
+  const clickedInsideButton = profileMenuRef.current?.contains(event.target);
+  const clickedInsideMenu = document.querySelector('.profile-menu')?.contains(event.target);
 
+  if (!clickedInsideButton && !clickedInsideMenu) {
+    setProfileMenuOpen(false);
+  }
+};
+
+const closeOnEscape = (event) => {
+  if (event.key === 'Escape') setProfileMenuOpen(false);
+};
+
+document.addEventListener('pointerdown', closeOnOutsideClick);
+document.addEventListener('keydown', closeOnEscape);
+
+return () => {
+  document.removeEventListener('pointerdown', closeOnOutsideClick);
+  document.removeEventListener('keydown', closeOnEscape);
+};
+}, [profileMenuOpen]);
   // GPS State
   const [isGpsActive, setIsGpsActive] = useState(false);
   const [gpsPos, setGpsPos] = useState({ lat: 6.5244, lng: 3.3792 });
@@ -904,14 +907,9 @@ const [authError, setAuthError] = useState('');
     e.preventDefault();
     setAuthError('');
     if (!credentialsReady) {
-  setAuthError('Connecting to the account service. Please try again in a moment.');
-  return;
-}
-
-if (registerForm.password !== registerForm.confirmPassword) {
-  setAuthError('Passwords do not match. Please check and try again.');
-  return;
-}
+      setAuthError('Connecting to the account service. Please try again in a moment.');
+      return;
+    }
 
     try {
       const endpoint = authRole === 'ADMIN'
@@ -938,11 +936,7 @@ if (registerForm.password !== registerForm.confirmPassword) {
         body: JSON.stringify(registration)
       });
       setCurrentUser(user);
-     setRegisterForm(prev => ({
-  ...prev,
-  password: '',
-  confirmPassword: ''
-}));
+      setRegisterForm(prev => ({ ...prev, password: '' }));
       setAuthError('');
       if (user.role === 'DRIVER') setActiveDriverId(user.id);
     } catch (error) {
@@ -1024,17 +1018,11 @@ if (registerForm.password !== registerForm.confirmPassword) {
         <span>Profile</span>
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
       </button>
-      {profileMenuOpen && (
+     {profileMenuOpen && createPortal(
         <div
-  className="profile-menu fixed right-4 top-20 z-[9999] h-auto max-h-[calc(100dvh-5rem)] w-56 overflow-y-scroll overscroll-contain rounded-2xl border border-violet-200 bg-white p-2 shadow-xl"
-  style={{
-    WebkitOverflowScrolling: 'touch',
-    touchAction: 'pan-y',
-    pointerEvents: 'auto'
-  }}
-  role="menu"
-  aria-label="Profile menu"
->
+className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5rem)] w-56 flex-col overflow-y-auto overscroll-contain touch-pan-y rounded-2xl border border-violet-200 bg-white p-2 shadow-xl sm:right-4 sm:top-20 sm:max-h-[calc(100dvh-6rem)]"
+          aria-label="Profile menu"
+        >
           <div className="border-b border-violet-100 px-3 py-2">
             <p className="truncate text-xs font-extrabold text-violet-950">{currentUser.name}</p>
             <p className="mt-0.5 text-[10px] font-semibold text-slate-500">
@@ -1102,15 +1090,15 @@ if (registerForm.password !== registerForm.confirmPassword) {
             role="menuitem"
             onClick={handleLogout}
             className="profile-menu-item profile-menu-logout"
-          >
+ >
             <LogOut className="h-4 w-4" />
             <span>Log out</span>
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
-
   const setDriverRouteStatus = async (driverId, routeStatus, routeStopCount) => {
     if (isPreviewSession) {
       const updatedUser = users.find(user => user.id === driverId);
@@ -1948,35 +1936,17 @@ if (registerForm.password !== registerForm.confirmPassword) {
                 />
               )}
 
-             <div>
-  <label className="block text-slate-400 font-semibold mb-1">Password</label>
-
-  <div className="relative">
-    <input
-      type={showLoginPassword ? "text" : "password"}
-      required
-      placeholder="••••••••"
-      value={loginForm.password}
-      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 pr-12 text-slate-200 focus:outline-none focus:border-emerald-500"
-    />
-
-    <button
-      type="button"
-      onPointerDown={(e) => {
-        e.preventDefault();
-        setShowLoginPassword(true);
-      }}
-      onPointerUp={() => setShowLoginPassword(false)}
-      onPointerLeave={() => setShowLoginPassword(false)}
-      onPointerCancel={() => setShowLoginPassword(false)}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-      aria-label="Hold to show login password"
-    >
-      👁
-    </button>
-  </div>
-</div>
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={loginForm.password}
+                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-200 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
 
               <label className="flex items-center gap-2 text-slate-300">
                 <input
@@ -2068,67 +2038,17 @@ if (registerForm.password !== registerForm.confirmPassword) {
                 </div>
 
                 <div>
-  <label className="block text-slate-400 font-semibold mb-1">Password</label>
-  <div className="relative">
-    <input
-      type={showRegisterPassword ? "text" : "password"}
-      required
-      minLength={12}
-      placeholder="••••••••"
-      value={registerForm.password}
-      onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
-      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 pr-12 text-slate-200 focus:outline-none focus:border-emerald-500"
-    />
-    <button
-      type="button"
-      onPointerDown={(e) => { e.preventDefault(); setShowRegisterPassword(true); }}
-      onPointerUp={() => setShowRegisterPassword(false)}
-      onPointerLeave={() => setShowRegisterPassword(false)}
-      onPointerCancel={() => setShowRegisterPassword(false)}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-    >
-      👁
-    </button>
-  </div>
-</div>
-
-<div className="mt-4">
-  <label className="block text-slate-400 font-semibold mb-1">Confirm Password</label>
-  <div className="relative">
-    <input
-      type={showConfirmRegisterPassword ? "text" : "password"}
-      required
-      minLength={12}
-      placeholder="Confirm your password"
-      value={registerForm.confirmPassword || ''}
-      onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })}
-      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 pr-12 text-slate-200 focus:outline-none focus:border-emerald-500"
-    />
-    <button
-      type="button"
-      onPointerDown={(e) => { e.preventDefault(); setShowConfirmRegisterPassword(true); }}
-      onPointerUp={() => setShowConfirmRegisterPassword(false)}
-      onPointerLeave={() => setShowConfirmRegisterPassword(false)}
-      onPointerCancel={() => setShowConfirmRegisterPassword(false)}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-    >
-      👁
-    </button>
-  </div>
-</div>
-
-<div className="mt-4">
-  <label className="block text-slate-400 font-semibold mb-1">Confirm Password</label>
-  <input
-    type="password"
-    required
-    minLength={12}
-    placeholder="Confirm your password"
-    value={registerForm.confirmPassword || ''}
-    onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })}
-    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
-  />
-</div>
+                  <label className="block text-slate-400 font-semibold mb-1">Password</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={12}
+                    placeholder="••••••••"
+                    value={registerForm.password}
+                    onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
 
               {/* ADMIN REGISTRATION: ORGANIZATION NAME */}
