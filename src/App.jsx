@@ -6,7 +6,7 @@ import {
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, UserCheck, Users, UserPlus, Shield, PenTool,
   Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, ChevronDown,
-  Maximize2, Minimize2
+ Maximize2, Minimize2, Eye, EyeOff
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
@@ -541,6 +541,7 @@ export default function App() {
   const [authRole, setAuthRole] = useState(invitationToken ? 'DRIVER' : 'ADMIN'); // 'ADMIN' or 'DRIVER'
   const [rememberLogin, setRememberLogin] = useState(true);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [showPasswordHelp, setShowPasswordHelp] = useState(Boolean(passwordResetToken));
   const [passwordHelpEmail, setPasswordHelpEmail] = useState('');
   const [passwordHelpMessage, setPasswordHelpMessage] = useState('');
@@ -555,17 +556,22 @@ export default function App() {
     localStorage.setItem(ORG_LOGOS_STORAGE_KEY, JSON.stringify(orgLogoStore));
   }, [orgLogoStore]);
   const [activeAdminView, setActiveAdminView] = useState('ROUTES');
-  const [registerForm, setRegisterForm] = useState(() => ({
-    name: '',
-    email: '',
-    password: '',
-    orgName: '',
-    inviteToken: invitationToken,
-    zone: '',
-    vehicle: '',
-    phone: ''
-  }));
-  const [authError, setAuthError] = useState('');
+const [registerForm, setRegisterForm] = useState(() => ({
+  name: '',
+  email: '',
+  password: '',
+  orgName: '',
+  inviteToken: invitationToken,
+  zone: '',
+  vehicle: '',
+  phone: ''
+}));
+
+const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+const [confirmPassword, setConfirmPassword] = useState('');
+
+const [authError, setAuthError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -903,13 +909,19 @@ return () => {
     }
   };
 
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    if (!credentialsReady) {
-      setAuthError('Connecting to the account service. Please try again in a moment.');
-      return;
-    }
+ const handleRegister = async (e) => {
+  e.preventDefault();
+  setAuthError('');
+
+  if (registerForm.password !== confirmPassword) {
+    setAuthError('Passwords do not match. Please check and try again.');
+    return;
+  }
+
+  if (!credentialsReady) {
+    setAuthError('Connecting to the account service. Please try again in a moment.');
+    return;
+  }
 
     try {
       const endpoint = authRole === 'ADMIN'
@@ -1935,18 +1947,31 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   className="mx-auto max-h-20 max-w-40 object-contain"
                 />
               )}
+<div>
+  <label className="block text-slate-400 font-semibold mb-1">
+    Password
+  </label>
 
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Password</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-200 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
+  <div className="relative">
+    <input
+      type={showLoginPassword ? 'text' : 'password'}
+      required
+      placeholder="••••••••"
+      value={loginForm.password}
+      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 pr-11 text-slate-200 focus:outline-none focus:border-emerald-500"
+    />
+
+    <button
+      type="button"
+      onClick={() => setShowLoginPassword(prev => !prev)}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-400"
+      aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+    >
+      {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+    </button>
+  </div>
+</div>
 
               <label className="flex items-center gap-2 text-slate-300">
                 <input
@@ -2037,19 +2062,51 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   />
                 </div>
 
-                <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Password</label>
-                  <input
-                    type="password"
-                    required
-                    minLength={12}
-                    placeholder="••••••••"
-                    value={registerForm.password}
-                    onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
+               <div>
+  <label className="block text-slate-400 font-semibold mb-1">Password</label>
+  <div className="relative">
+    <input
+      type={showRegisterPassword ? 'text' : 'password'}
+      required
+      minLength={12}
+      placeholder="••••••••"
+      value={registerForm.password}
+      onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 pr-10 text-slate-200 focus:outline-none focus:border-emerald-500"
+    />
+    <button
+      type="button"
+      onClick={() => setShowRegisterPassword(prev => !prev)}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-400"
+      aria-label={showRegisterPassword ? 'Hide password' : 'Show password'}
+    >
+      {showRegisterPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+    </button>
+  </div>
+</div>
+
+<div>
+  <label className="block text-slate-400 font-semibold mb-1">Confirm Password</label>
+  <div className="relative">
+    <input
+      type={showConfirmPassword ? 'text' : 'password'}
+      required
+      minLength={12}
+      placeholder="Confirm your password"
+      value={confirmPassword}
+      onChange={(e) => setConfirmPassword(e.target.value)}
+      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 pr-10 text-slate-200 focus:outline-none focus:border-emerald-500"
+    />
+    <button
+      type="button"
+      onClick={() => setShowConfirmPassword(prev => !prev)}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-400"
+      aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+    >
+      {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+    </button>
+  </div>
+</div>
 
               {/* ADMIN REGISTRATION: ORGANIZATION NAME */}
               {authRole === 'ADMIN' ? (
