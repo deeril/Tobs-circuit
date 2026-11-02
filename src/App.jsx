@@ -5,8 +5,8 @@ import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, UserCheck, Users, UserPlus, Shield, PenTool,
-  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, ChevronDown,
- Maximize2, Minimize2, Eye, EyeOff
+ Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, Menu,
+ BellRing, Eye, EyeOff
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
@@ -806,6 +806,9 @@ const [authError, setAuthError] = useState('');
     ? 'PENDING'
     : driverRecord?.routeStatus || currentUser?.routeStatus || (driverRouteStops.length > 0 ? 'PENDING' : 'IDLE');
   const driverRouteStopCount = Math.max(driverRouteStops.length, driverRecord?.routeStopCount || 0);
+  const hasPendingDriverRoute = currentUser?.role === 'DRIVER'
+    && driverRouteStatus === 'PENDING'
+    && driverRouteStops.length > 0;
 
   // Filtered Stops for Active Driver
   const activeDriverStops = useMemo(() => {
@@ -1026,12 +1029,14 @@ const [authError, setAuthError] = useState('');
         onClick={() => setProfileMenuOpen(open => !open)}
         aria-haspopup="menu"
         aria-expanded={profileMenuOpen}
-        aria-label="Profile"
-        className="profile-menu-trigger flex min-h-9 items-center gap-1.5 rounded-full border border-violet-200 bg-white px-3 text-[10px] font-extrabold text-violet-900 shadow-sm transition-colors hover:bg-violet-50 sm:text-xs"
+        aria-label={hasPendingDriverRoute ? 'Open menu, new route awaiting acceptance' : 'Open menu'}
+        title={hasPendingDriverRoute ? 'New route awaiting acceptance' : 'Menu'}
+        className="profile-menu-trigger relative ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-violet-200 bg-white text-violet-900 shadow-sm transition-colors hover:bg-violet-50"
       >
-        <User className="h-4 w-4" />
-        <span>Profile</span>
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
+        <Menu className="h-5 w-5" aria-hidden="true" />
+        {hasPendingDriverRoute && (
+          <span className="profile-menu-notification-dot" aria-hidden="true" />
+        )}
       </button>
      {profileMenuOpen && createPortal(
         <div
@@ -1044,6 +1049,30 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               {currentUser.role === 'ADMIN' ? 'Administrator' : 'Driver'}
             </p>
           </div>
+          {hasPendingDriverRoute && (
+            <div className="profile-menu-route-notice" role="status">
+              <span className="flex items-start gap-2">
+                <BellRing className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  <span className="block font-extrabold">New route assigned</span>
+                  <span className="mt-0.5 block text-[10px]">
+                    {driverRouteStopCount} stop{driverRouteStopCount === 1 ? '' : 's'} need your acceptance.
+                  </span>
+                </span>
+              </span>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setDriverRouteStatus(currentUser.id, 'ACCEPTED', driverRouteStopCount);
+                  setProfileMenuOpen(false);
+                }}
+                className="profile-menu-accept-route"
+              >
+                Accept route
+              </button>
+            </div>
+          )}
           {currentUser.role === 'ADMIN' && (
             <>
               <label className="profile-menu-logo block cursor-pointer border-b border-violet-100 px-3 py-3 text-[10px] font-bold text-violet-950">
@@ -1114,7 +1143,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       )}
     </div>
   );
-  const setDriverRouteStatus = async (driverId, routeStatus, routeStopCount) => {
+  async function setDriverRouteStatus(driverId, routeStatus, routeStopCount) {
     if (isPreviewSession) {
       const updatedUser = users.find(user => user.id === driverId);
       if (!updatedUser) return;
@@ -1135,7 +1164,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       console.error('Could not update the driver route status:', error);
       window.alert(`Route status could not be updated: ${error.message}`);
     }
-  };
+  }
 
   const removeDriverAccount = async (driver) => {
     const assignedStops = stops.filter(stop => stop.assignedDriverId === driver.id);
@@ -2848,7 +2877,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="ml-auto flex items-center space-x-2">
             <a
               href={googleMapsSearchUrl}
               target="_blank"
@@ -2858,15 +2887,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               <ExternalLink className="h-3 w-3" />
               <span>Open in Google Maps</span>
             </a>
-            <button
-              type="button"
-              onClick={() => setMapExpanded(expanded => !expanded)}
-              aria-label={mapExpanded ? 'Exit full-screen map' : 'Open full-screen map'}
-              title={mapExpanded ? 'Exit full-screen map' : 'Open full-screen map'}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-violet-800 hover:bg-violet-50"
-            >
-              {mapExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            </button>
             {profileMenu}
           </div>
         </div>
