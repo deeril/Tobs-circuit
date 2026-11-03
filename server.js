@@ -270,6 +270,26 @@ function createTransport() {
   });
 }
 
+function emailFailureMessage(error) {
+  if (error?.code === 'EAUTH' || error?.responseCode === 535) {
+    return 'The mail server rejected the SMTP credentials. Check the SMTP username and app password in Render.';
+  }
+  if (['ECONNECTION', 'ETIMEDOUT', 'ESOCKET'].includes(error?.code)) {
+    return 'The app could not connect to the SMTP server. Check the SMTP host, port, and secure setting in Render.';
+  }
+  if (Number.isInteger(error?.responseCode) && error.responseCode >= 500) {
+    return 'The mail server rejected the message. Check the authorized sender address and SMTP settings in Render.';
+  }
+  return 'The email could not be sent. Check the SMTP settings in Render and try again.';
+}
+
+function logEmailFailure(context, error) {
+  console.error(context, {
+    code: typeof error?.code === 'string' ? error.code : 'UNKNOWN',
+    responseCode: Number.isInteger(error?.responseCode) ? error.responseCode : null
+  });
+}
+
 function escapeHtml(value) {
   return value.replace(/[&<>"']/g, character => ({
     '&': '&amp;',
@@ -412,7 +432,7 @@ app.post('/api/auth/password-reset', rateLimit({ limit: 5 }), async (request, re
         throw error;
       }
     } catch (error) {
-      console.error('Password reset email could not be sent:', error);
+      logEmailFailure('Password reset email could not be sent:', error);
       return response.status(503).json({ error: 'The recovery code email could not be sent. Check the email service settings or try again later.' });
     }
   }
@@ -695,22 +715,26 @@ app.post('/api/invitations', requireUser, requireAdmin, rateLimit({ limit: 10 })
   };
   let sent = false;
   let emailWarning = '';
-  if (email && process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD && process.env.SMTP_FROM) {
-    try {
-      const transporter = createTransport();
-      const organization = escapeHtml(request.user.orgName);
-      const safeApplicationUrl = escapeHtml(applicationUrl);
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM,
-        to: email,
-        subject: `Apply to drive with ${request.user.orgName}`,
-        text: `You have been invited to apply as a driver with ${request.user.orgName}.\n\nComplete your application using this personal link:\n${applicationUrl}\n\nThis link is intended for ${email}.`,
-        html: `<p>You have been invited to apply as a driver with <strong>${organization}</strong>.</p><p><a href="${safeApplicationUrl}">Open your driver application</a></p><p>This personal link is intended for ${escapeHtml(email)}.</p>`
-      });
-      sent = true;
-    } catch (error) {
-      console.error('Invitation email could not be sent:', error);
-      emailWarning = 'The application link was created, but the email could not be sent. Copy and share the link instead.';
+  if (email) {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD || !process.env.SMTP_FROM) {
+      emailWarning = 'Email is not configured. Add the SMTP settings in Render; you can copy and share the application link meanwhile.';
+    } else {
+      try {
+        const transporter = createTransport();
+        const organization = escapeHtml(request.user.orgName);
+        const safeApplicationUrl = escapeHtml(applicationUrl);
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM,
+          to: email,
+          subject: `Apply to drive with ${request.user.orgName}`,
+          text: `You have been invited to apply as a driver with ${request.user.orgName}.\n\nComplete your application using this personal link:\n${applicationUrl}\n\nThis link is intended for ${email}.`,
+          html: `<p>You have been invited to apply as a driver with <strong>${organization}</strong>.</p><p><a href="${safeApplicationUrl}">Open your driver application</a></p><p>This personal link is intended for ${escapeHtml(email)}.</p>`
+        });
+        sent = true;
+      } catch (error) {
+        logEmailFailure('Invitation email could not be sent:', error);
+        emailWarning = `${emailFailureMessage(error)} The application link was created; copy and share it as a backup.`;
+      }
     }
   }
   store.invitations = store.invitations.filter(item =>

@@ -745,6 +745,7 @@ const [authError, setAuthError] = useState('');
   const [generatedInviteId, setGeneratedInviteId] = useState('');
   const [inviteError, setInviteError] = useState('');
   const [inviteNotice, setInviteNotice] = useState('');
+  const [inviteEmailFailed, setInviteEmailFailed] = useState(false);
   const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [newStopForm, setNewStopForm] = useState({
     name: '',
@@ -1224,6 +1225,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   const handleGenerateInvite = async () => {
     const email = inviteEmail.trim().toLowerCase();
     setInviteError('');
+    setInviteEmailFailed(false);
     if (IS_GITHUB_PAGES_DEMO || isPreviewSession) {
       setInviteError('Generating a reusable driver link needs the live account service. Connect a deployed API to enable invitations.');
       return;
@@ -1236,8 +1238,9 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       });
       setInvites(prev => [invite, ...prev.filter(item => !invite.email || item.email !== invite.email)]);
       setGeneratedInviteId(invite.id);
-      setInviteNotice(emailWarning || (email && !sent
-        ? 'Link created. Email was not sent; copy and share the application link instead.'
+      setInviteEmailFailed(Boolean(email && !sent));
+      setInviteNotice(emailWarning || (email && sent
+        ? `The mail server accepted the invitation for ${invite.email}. Delivery may take a few minutes; check spam if needed. You can copy the link below as a backup.`
         : 'Link created. Copy and share it with your driver.'));
       setInviteError('');
     } catch (error) {
@@ -2998,6 +3001,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     setInviteEmail(event.target.value);
                     setInviteError('');
                     setInviteNotice('');
+                    setInviteEmailFailed(false);
                     setGeneratedInviteId('');
                   }}
                   placeholder="driver@example.com"
@@ -3013,7 +3017,14 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 </button>
               </div>
               {inviteError && <p role="alert" className="text-[11px] font-semibold text-rose-700">{inviteError}</p>}
-              {inviteNotice && <p role="status" className="text-[11px] font-semibold text-emerald-700">{inviteNotice}</p>}
+              {inviteNotice && (
+                <p
+                  role={inviteEmailFailed ? 'alert' : 'status'}
+                  className={`text-[11px] font-semibold ${inviteEmailFailed ? 'text-rose-700' : 'text-emerald-700'}`}
+                >
+                  {inviteNotice}
+                </p>
+              )}
             </form>
 
             {generatedInvite && (
