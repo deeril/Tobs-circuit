@@ -398,42 +398,38 @@ app.post('/api/auth/password-reset', rateLimit({ limit: 5 }), async (request, re
   try {
     transporter = createTransport();
   } catch (error) {
-    console.error('Password reset email could not be sent:', error);
+    logEmailFailure('Password reset email could not be sent:', error);
     return response.status(503).json({ error: 'Password recovery email is not configured. Please contact your fleet administrator.' });
   }
 
   const user = store.users.find(item => item.email === email);
   if (user) {
-    try {
-      const code = crypto.randomInt(10_000_000, 100_000_000).toString();
-      const { passwordHash: codeHash, passwordSalt: codeSalt } = passwordHash(code);
-      const previousResets = store.passwordResets;
-      store.passwordResets = [
-        ...previousResets.filter(item => item.userId !== user.id),
-        {
-          codeHash,
-          codeSalt,
-          userId: user.id,
-          expiresAt: Date.now() + 15 * 60 * 1000
-        }
-      ];
-      writeStore();
-      try {
-        await transporter.sendMail({
-          from: process.env.SMTP_FROM,
-          to: user.email,
-          subject: 'Your Tobs Route Circuit password reset code',
-          text: `Your password reset code is ${code}. Enter this one-time code in the password recovery form within 15 minutes. If you did not request a password reset, you can ignore this email.`,
-          html: `<p>Your password reset code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>Enter this one-time code in the password recovery form within 15 minutes.</p><p>If you did not request a password reset, you can ignore this email.</p>`
-        });
-      } catch (error) {
-        store.passwordResets = previousResets;
-        writeStore();
-        throw error;
+    const code = crypto.randomInt(10_000_000, 100_000_000).toString();
+    const { passwordHash: codeHash, passwordSalt: codeSalt } = passwordHash(code);
+    const previousResets = store.passwordResets;
+    store.passwordResets = [
+      ...previousResets.filter(item => item.userId !== user.id),
+      {
+        codeHash,
+        codeSalt,
+        userId: user.id,
+        expiresAt: Date.now() + 15 * 60 * 1000
       }
+    ];
+    writeStore();
+    try {
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM,
+        to: user.email,
+        subject: 'Your Tobs Route Circuit password reset code',
+        text: `Your password reset code is ${code}. Enter this one-time code in the password recovery form within 15 minutes. If you did not request a password reset, you can ignore this email.`,
+        html: `<p>Your password reset code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>Enter this one-time code in the password recovery form within 15 minutes.</p><p>If you did not request a password reset, you can ignore this email.</p>`
+      });
     } catch (error) {
+      store.passwordResets = previousResets;
+      writeStore();
       logEmailFailure('Password reset email could not be sent:', error);
-      return response.status(503).json({ error: 'The recovery code email could not be sent. Check the email service settings or try again later.' });
+      return response.status(503).json({ error: emailFailureMessage(error) });
     }
   }
   return response.json({ message: 'If an account exists for that email, a recovery code has been sent. Check your inbox and spam folder.' });
