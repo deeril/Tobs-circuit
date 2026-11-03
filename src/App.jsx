@@ -6,7 +6,7 @@ import {
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, Users, UserPlus, Shield, PenTool,
  Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, Menu,
- BellRing, Eye, EyeOff
+ BellRing, Eye, EyeOff, Maximize2, Minimize2
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
@@ -392,6 +392,7 @@ function GoogleFleetMap({ center, drivers, now, fallbackUrl, onReadyChange, onDr
           center: DEFAULT_MAP_CENTER,
           zoom: MAP_ZOOM,
           mapId: GOOGLE_MAP_ID,
+          gestureHandling: window.matchMedia('(pointer: coarse)').matches ? 'greedy' : 'cooperative',
           streetViewControl: false,
           mapTypeControl: false,
           fullscreenControl: false
@@ -2879,22 +2880,21 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       {/* --- COMPACT GOOGLE MAP DISPLAY --- */}
       <div className={`admin-map-panel relative flex w-full min-w-0 flex-col overflow-hidden bg-slate-950 md:w-auto md:flex-1 ${
         mapExpanded
-          ? 'fixed inset-0 z-50 h-dvh'
+          ? 'is-expanded fixed inset-0 z-50 h-dvh'
           : 'h-[42dvh] min-h-[280px] shrink-0 md:h-full md:min-h-0'
       }`}>
 
-        {/* MAP ACTIONS */}
-        {mapExpanded && (
+        <div className="admin-map-toolbar z-10 flex min-h-12 items-center justify-between gap-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">
           <button
             type="button"
-            onClick={() => setMapExpanded(false)}
-            className="absolute left-3 top-14 z-30 flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-900/95 px-3 py-2 text-xs font-bold text-white shadow-xl hover:bg-slate-800"
+            onClick={() => setMapExpanded(!mapExpanded)}
+            aria-label={mapExpanded ? 'Return to route' : 'Expand map'}
+            title={mapExpanded ? 'Return to route' : 'Expand map'}
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-800 hover:bg-slate-50"
           >
-            <ChevronLeft className="h-4 w-4" />
-            <span>Back to route</span>
+            {mapExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            <span>{mapExpanded ? 'Back' : 'Expand map'}</span>
           </button>
-        )}
-        <div className="admin-map-toolbar z-10 flex min-h-12 items-center justify-end gap-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">
           <div className="admin-map-actions flex items-center gap-2">
             <a
               href={googleMapsSearchUrl}
@@ -2903,7 +2903,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/20 sm:px-2.5 sm:text-[10px]"
             >
               <ExternalLink className="h-3 w-3" />
-              <span>Open in Google Maps</span>
+              <span className="hidden sm:inline">Open in Google Maps</span>
+              <span className="sm:hidden">Google Maps</span>
             </a>
             {profileMenu}
           </div>
