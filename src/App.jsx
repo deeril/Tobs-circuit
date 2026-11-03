@@ -295,7 +295,7 @@ async function apiRequest(path, options = {}) {
       }
     });
   } catch (error) {
-    throw new Error(`Could not reach the account API. Check the Vercel deployment and network connection. ${error.message}`);
+    throw new Error(`Could not reach the account API. Check the deployment and network connection. ${error.message}`);
   }
   const contentType = response.headers.get('content-type') || '';
   const payload = contentType.includes('application/json')
@@ -303,12 +303,12 @@ async function apiRequest(path, options = {}) {
     : {};
   if (!response.ok) {
     if (response.status === 502 || response.status === 504) {
-      throw new Error('Vercel could not reach the account API function. Confirm the latest deployment succeeded and check its function logs.');
+      throw new Error('The deployment could not reach the account API. Confirm the latest deployment succeeded and check the service logs.');
     }
     throw new Error(payload.error || `Request failed (${response.status}).`);
   }
   if (!contentType.includes('application/json')) {
-    throw new Error('The account API returned an unexpected response. Check the Vercel API function route.');
+    throw new Error('The account API returned an unexpected response. Check the deployed API route.');
   }
   return payload;
 }
@@ -545,6 +545,8 @@ export default function App() {
   const [showPasswordHelp, setShowPasswordHelp] = useState(Boolean(passwordResetToken));
   const [passwordHelpEmail, setPasswordHelpEmail] = useState('');
   const [passwordHelpMessage, setPasswordHelpMessage] = useState('');
+  const [passwordResetCode, setPasswordResetCode] = useState('');
+  const [passwordResetCodeSent, setPasswordResetCodeSent] = useState(Boolean(passwordResetToken));
   const [resetPassword, setResetPassword] = useState('');
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
   const [passwordResetComplete, setPasswordResetComplete] = useState(false);
@@ -966,7 +968,7 @@ const [authError, setAuthError] = useState('');
     event.preventDefault();
     setPasswordHelpMessage('');
     if (IS_GITHUB_PAGES_DEMO || isPreviewSession) {
-      setPasswordHelpMessage('Password recovery needs the live account service. Deploy and connect the API to enable email reset links.');
+      setPasswordHelpMessage('Password recovery needs the live account service. Deploy and connect the API to enable recovery-code emails.');
       return;
     }
     try {
@@ -974,6 +976,7 @@ const [authError, setAuthError] = useState('');
         method: 'POST',
         body: JSON.stringify({ email: passwordHelpEmail })
       });
+      setPasswordResetCodeSent(true);
       setPasswordHelpMessage(message);
     } catch (error) {
       setPasswordHelpMessage(error.message);
@@ -994,9 +997,14 @@ const [authError, setAuthError] = useState('');
     try {
       await apiRequest('/api/auth/password-reset/complete', {
         method: 'POST',
-        body: JSON.stringify({ token: activePasswordResetToken, password: resetPassword })
+        body: JSON.stringify({
+          token: activePasswordResetToken,
+          code: activePasswordResetToken ? '' : passwordResetCode,
+          password: resetPassword
+        })
       });
       setPasswordResetComplete(true);
+      setPasswordResetCode('');
       setResetPassword('');
       setResetPasswordConfirm('');
       setPasswordHelpMessage('Your password has been changed. You can now sign in.');
@@ -1875,19 +1883,35 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           {!invitationToken && authTab === 'LOGIN' && (
             <form
               onSubmit={showPasswordHelp
-                ? (activePasswordResetToken ? handlePasswordReset : showPasswordRecoveryHelp)
+                ? (passwordResetCodeSent ? handlePasswordReset : showPasswordRecoveryHelp)
                 : handleLogin}
               className="space-y-4 text-xs"
             >
               {showPasswordHelp ? (
                 <>
-                  {activePasswordResetToken ? (
+                  {passwordResetCodeSent ? (
                     passwordResetComplete ? (
                       <p role="status" className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-[11px] leading-relaxed text-violet-900">
                         {passwordHelpMessage}
                       </p>
                     ) : (
                       <>
+                        {!activePasswordResetToken && (
+                          <div>
+                            <label className="block text-slate-400 font-semibold mb-1">8-digit recovery code</label>
+                            <input
+                              type="text"
+                              required
+                              inputMode="numeric"
+                              autoComplete="one-time-code"
+                              pattern="[0-9]{8}"
+                              maxLength={8}
+                              value={passwordResetCode}
+                              onChange={event => setPasswordResetCode(event.target.value.replace(/\D/g, '').slice(0, 8))}
+                              className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-slate-200 focus:border-violet-500 focus:outline-none"
+                            />
+                          </div>
+                        )}
                         <div>
                           <label className="block text-slate-400 font-semibold mb-1">New password</label>
                           <input
@@ -1942,7 +1966,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       type="submit"
                       className="w-full rounded-xl bg-violet-700 py-3 text-sm font-black text-white hover:bg-violet-800"
                     >
-                      {activePasswordResetToken ? 'Save new password' : 'Send password reset link'}
+                      {passwordResetCodeSent ? 'Save new password' : 'Send recovery code'}
                     </button>
                   )}
 
@@ -1952,6 +1976,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       setShowPasswordHelp(false);
                       setPasswordHelpMessage('');
                       setAuthError('');
+                      setPasswordResetCodeSent(false);
+                      setPasswordResetCode('');
                       if (activePasswordResetToken) {
                         setActivePasswordResetToken('');
                         window.history.replaceState({}, '', window.location.pathname);

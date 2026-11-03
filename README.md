@@ -22,6 +22,18 @@ Vercel can host both the Vite frontend and the Express API. The `/api` serverles
 5. Add SMTP environment variables if you want password-reset and invitation emails. Driver application links still work without SMTP.
 6. Redeploy after adding or changing environment variables. Git pushes to the connected branch trigger new deployments automatically.
 
+## Deploy on Render
+
+Render does not provide an email inbox or SMTP relay. The app sends driver invitations and password-recovery codes through the SMTP service you configure; both features use the same mail settings.
+
+1. Create a Render **PostgreSQL** database and a Node web service for this repository. Use the database's **internal** connection string for the web service when both are in the same Render region.
+2. Set `DATABASE_URL` to that PostgreSQL connection string. Production now requires this persistent database instead of writing accounts, invitations, and reset tokens to Render's temporary service filesystem.
+3. Set `NODE_ENV` to `production` and `APP_BASE_URL` to the public service URL, for example `https://your-service.onrender.com/`. Use the real frontend URL if the frontend is hosted separately.
+4. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM` using credentials from an SMTP email provider. The sender address in `SMTP_FROM` must be authorized by that provider. Keep these values in Render's environment settings; never put credentials in frontend variables or source control.
+5. Deploy with the web service's build command `npm install && npm run build` and start command `npm start`. After changing environment variables, redeploy the service.
+
+When SMTP is configured, creating an invitation sends its application link to the entered email, and Forgot password sends an 8-digit, single-use recovery code that expires after 15 minutes. The driver/admin enters that code in the app with their new password. Invitation links are single-use and remain available until redeemed or replaced by a newer invitation for the same driver. If SMTP is missing or rejects a message, the app reports that email could not be sent; mail delivery errors are recorded in the service logs. A missing `DATABASE_URL` in production is reported as a service error rather than risking invitation links becoming invalid after a restart.
+
 The map uses Lagos, Nigeria as its initial center. Without a Google Maps key, the app shows the standard keyless Google Maps embed; add the key to enable interactive moving driver pins. For GitHub Pages, add a repository Actions secret named `VITE_GOOGLE_MAPS_API_KEY` and restrict the key to the Pages site referrer (for this repository, `https://deeril.github.io/Tobs-circuit/*`). The deployment workflow passes that secret only to the frontend build. For local development, create a key in Google Cloud, enable billing and **Maps JavaScript API**, and add an HTTP referrer restriction for `http://localhost:5173/*` (and `http://127.0.0.1:5173/*` if you use that host). Put the key in `.env.local`, restart Vite, and check the browser console if the map still falls back. The key is necessarily visible in the frontend bundle, so use a browser key restricted by allowed sites and APIs; never put a service-account key or OAuth token in frontend code.
 
 This app loads the Maps JavaScript API and uses advanced markers; it does not use the `<gmp-map>` custom element from the sample. The Route Optimization API example is a separate server-side feature, not required to display the map or driver pins. Do not call it from the browser with a service-account credential or access token.

@@ -14,7 +14,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const dataDirectory = path.resolve(process.env.DATA_DIRECTORY || path.join(__dirname, 'data'));
 const dataFile = path.join(dataDirectory, 'store.json');
 const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
-const usesDatabase = Boolean(process.env.VERCEL || databaseUrl);
+const usesDatabase = Boolean(process.env.VERCEL || databaseUrl || isProduction);
 const databasePool = usesDatabase && databaseUrl
   ? new pg.Pool({ connectionString: databaseUrl, max: 1, idleTimeoutMillis: 10_000 })
   : null;
@@ -66,7 +66,7 @@ function restoreStoredSessions() {
 }
 
 async function ensureDatabaseTable() {
-  if (!databasePool) throw new Error('Set DATABASE_URL in the Vercel project environment to connect the Neon database.');
+  if (!databasePool) throw new Error('Set DATABASE_URL in the production environment to connect a persistent PostgreSQL database.');
   if (!databaseSetupPromise) {
     databaseSetupPromise = databasePool.query(`
       CREATE TABLE IF NOT EXISTS tobs_app_state (
@@ -103,7 +103,7 @@ async function loadDatabaseStore(client) {
 function persistentApiState(request, response, next) {
   if (!usesDatabase) return next();
   if (!databasePool) {
-    return response.status(503).json({ error: 'The Vercel database connection is missing. Set DATABASE_URL to the Neon connection string in project settings.' });
+    return response.status(503).json({ error: 'The production database connection is missing. Set DATABASE_URL to a persistent PostgreSQL connection string in the service environment.' });
   }
 
   ensureDatabaseTable()
@@ -155,12 +155,12 @@ function persistentApiState(request, response, next) {
         }
         client.release();
         console.error('Could not load application data:', error);
-        response.status(503).json({ error: 'The account database could not be reached. Check the Neon connection settings and try again.' });
+        response.status(503).json({ error: 'The account database could not be reached. Check the PostgreSQL connection settings and try again.' });
       }
     })
     .catch(error => {
       console.error('Could not connect to the account database:', error);
-      response.status(503).json({ error: 'The account database could not be reached. Check the Neon connection settings and try again.' });
+      response.status(503).json({ error: 'The account database could not be reached. Check the PostgreSQL connection settings and try again.' });
     });
 }
 
@@ -301,7 +301,7 @@ app.use((request, response, next) => {
 app.use('/api', persistentApiState);
 
 app.get('/api/health', (request, response) => {
-  response.json({ ok: true, storage: usesDatabase ? 'neon-postgres' : 'local-json' });
+  response.json({ ok: true, storage: usesDatabase ? 'postgres' : 'local-json' });
 });
 app.use((request, response, next) => {
   const cookieHeader = request.headers.cookie || '';
@@ -374,24 +374,27 @@ app.post('/api/auth/logout', (request, response) => {
 app.post('/api/auth/password-reset', rateLimit({ limit: 5 }), async (request, response) => {
   const email = cleanText(request.body.email, 254).toLowerCase();
   if (!validEmail(email)) return response.status(400).json({ error: 'Enter a valid account email address.' });
+  let transporter;
+  try {
+    transporter = createTransport();
+  } catch (error) {
+    console.error('Password reset email could not be sent:', error);
+    return response.status(503).json({ error: 'Password recovery email is not configured. Please contact your fleet administrator.' });
+  }
+
   const user = store.users.find(item => item.email === email);
   if (user) {
     try {
-      if (!process.env.APP_BASE_URL) throw new Error('APP_BASE_URL is not configured.');
-      const baseUrl = new URL(process.env.APP_BASE_URL);
-      baseUrl.search = '';
-      baseUrl.hash = '';
-      const token = crypto.randomBytes(32).toString('base64url');
-      baseUrl.searchParams.set('reset', token);
-      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      const transporter = createTransport();
+      const code = crypto.randomInt(10_000_000, 100_000_000).toString();
+      const { passwordHash: codeHash, passwordSalt: codeSalt } = passwordHash(code);
       const previousResets = store.passwordResets;
       store.passwordResets = [
         ...previousResets.filter(item => item.userId !== user.id),
         {
-          tokenHash,
+          codeHash,
+          codeSalt,
           userId: user.id,
-          expiresAt: Date.now() + 30 * 60 * 1000
+          expiresAt: Date.now() + 15 * 60 * 1000
         }
       ];
       writeStore();
@@ -399,9 +402,9 @@ app.post('/api/auth/password-reset', rateLimit({ limit: 5 }), async (request, re
         await transporter.sendMail({
           from: process.env.SMTP_FROM,
           to: user.email,
-          subject: 'Reset your Tobs Route Circuit password',
-          text: `Use this one-time link to reset your password. It expires in 30 minutes:\n${baseUrl.toString()}`,
-          html: `<p>Use this one-time link to reset your password. It expires in 30 minutes:</p><p><a href="${escapeHtml(baseUrl.toString())}">Reset password</a></p>`
+          subject: 'Your Tobs Route Circuit password reset code',
+          text: `Your password reset code is ${code}. Enter this one-time code in the password recovery form within 15 minutes. If you did not request a password reset, you can ignore this email.`,
+          html: `<p>Your password reset code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>Enter this one-time code in the password recovery form within 15 minutes.</p><p>If you did not request a password reset, you can ignore this email.</p>`
         });
       } catch (error) {
         store.passwordResets = previousResets;
@@ -410,24 +413,34 @@ app.post('/api/auth/password-reset', rateLimit({ limit: 5 }), async (request, re
       }
     } catch (error) {
       console.error('Password reset email could not be sent:', error);
+      return response.status(503).json({ error: 'The recovery code email could not be sent. Check the email service settings or try again later.' });
     }
   }
-  return response.json({ message: 'If an account exists for that email, a password reset link has been sent. Contact your fleet administrator if it does not arrive.' });
+  return response.json({ message: 'If an account exists for that email, a recovery code has been sent. Check your inbox and spam folder.' });
 });
 
 app.post('/api/auth/password-reset/complete', rateLimit({ limit: 10 }), (request, response) => {
   const token = cleanText(request.body.token, 128);
+  const code = cleanText(request.body.code, 8);
   const password = request.body.password;
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  const reset = store.passwordResets.find(item =>
-    item.tokenHash === tokenHash && item.expiresAt > Date.now()
-  );
-  if (!reset) return response.status(400).json({ error: 'This password reset link is invalid or expired. Request a new one.' });
+  const reset = token
+    ? store.passwordResets.find(item =>
+      item.tokenHash === crypto.createHash('sha256').update(token).digest('hex') && item.expiresAt > Date.now()
+    )
+    : /^\d{8}$/.test(code)
+      ? store.passwordResets.find(item =>
+        item.codeSalt
+        && item.codeHash
+        && verifyPassword(code, { passwordSalt: item.codeSalt, passwordHash: item.codeHash })
+        && item.expiresAt > Date.now()
+      )
+      : null;
+  if (!reset) return response.status(400).json({ error: 'This password reset code is invalid or expired. Request a new one.' });
   if (typeof password !== 'string' || password.length < 12) {
     return response.status(400).json({ error: 'Choose a password with at least 12 characters.' });
   }
   const user = store.users.find(item => item.id === reset.userId);
-  if (!user) return response.status(400).json({ error: 'This password reset link is invalid or expired. Request a new one.' });
+  if (!user) return response.status(400).json({ error: 'This password reset code or link is invalid or expired. Request a new one.' });
   Object.assign(user, passwordHash(password));
   store.passwordResets = store.passwordResets.filter(item => item.userId !== user.id);
   for (const [sessionToken, session] of sessions) {
