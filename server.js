@@ -257,7 +257,7 @@ function issueSession(response, user, remember = true) {
 function createTransport() {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
-  const password = process.env.SMTP_PASSWORD;
+  const password = process.env.SMTP_PASSWORD?.replace(/\s/g, '');
   if (!host || !user || !password || !process.env.SMTP_FROM) {
     throw new Error('SMTP is not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, and SMTP_FROM on the server.');
   }
