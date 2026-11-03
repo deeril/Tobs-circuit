@@ -530,6 +530,7 @@ app.put('/api/stops', requireUser, (request, response) => {
   const ownerAdminId = request.user.role === 'ADMIN' ? request.user.id : request.user.ownerAdminId;
   if (!ownerAdminId) return response.status(403).json({ error: 'This account has no fleet owner.' });
 
+  const previousFleetStops = store.stops.filter(stop => stop.ownerAdminId === ownerAdminId);
   const otherStops = store.stops.filter(stop => stop.ownerAdminId !== ownerAdminId);
   const ownedDrivers = store.users.filter(user => user.role === 'DRIVER' && user.ownerAdminId === ownerAdminId);
   const allowedDriverIds = new Set(ownedDrivers.map(driver => driver.id));
@@ -560,9 +561,16 @@ app.put('/api/stops', requireUser, (request, response) => {
   }
 
   for (const driver of ownedDrivers) {
-    const routeStopCount = store.stops.filter(stop =>
+    const driverStops = store.stops.filter(stop =>
       stop.ownerAdminId === ownerAdminId && stop.assignedDriverId === driver.id
-    ).length;
+    );
+    const previousDriverStopIds = new Set(previousFleetStops
+      .filter(stop => stop.assignedDriverId === driver.id)
+      .map(stop => stop.id));
+    const routeAssignmentChanged = request.user.role === 'ADMIN'
+      && (driverStops.length !== previousDriverStopIds.size
+        || driverStops.some(stop => !previousDriverStopIds.has(stop.id)));
+    const routeStopCount = driverStops.length;
     driver.routeStopCount = routeStopCount;
     if (routeStopCount > 0 && driver.routeStatus === 'IDLE') {
       driver.routeStatus = 'PENDING';
@@ -570,10 +578,16 @@ app.put('/api/stops', requireUser, (request, response) => {
     } else if (routeStopCount === 0 && driver.routeStatus !== 'IDLE') {
       driver.routeStatus = 'IDLE';
       driver.routeUpdatedAt = new Date().toISOString();
+    } else if (routeStopCount > 0 && routeAssignmentChanged) {
+      driver.routeStatus = 'PENDING';
+      driver.routeUpdatedAt = new Date().toISOString();
     }
   }
   writeStore();
-  return response.json({ stops: sanitizedStops });
+  const users = store.users.filter(user =>
+    user.id === ownerAdminId || user.ownerAdminId === ownerAdminId
+  );
+  return response.json({ stops: sanitizedStops, users: users.map(publicUser) });
 });
 
 app.patch('/api/users/me/location', requireUser, (request, response) => {

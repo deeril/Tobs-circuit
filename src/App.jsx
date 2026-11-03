@@ -638,6 +638,8 @@ const [authError, setAuthError] = useState('');
       apiRequest('/api/stops', {
         method: 'PUT',
         body: JSON.stringify({ stops })
+      }).then(({ users: updatedUsers }) => {
+        if (Array.isArray(updatedUsers)) setUsers(updatedUsers);
       }).catch(error => {
         console.error('Could not synchronize route stops with the fleet:', error);
         setAuthError(`Route changes could not be saved: ${error.message}`);
@@ -1201,10 +1203,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   const deleteStop = (stop) => {
     if (!window.confirm(`Delete "${stop.name}" from the route? This cannot be undone.`)) return;
     setStops(prev => prev.filter(item => item.id !== stop.id));
-    if (currentUser?.role === 'ADMIN' && stop.assignedDriverId) {
-      const remainingCount = Math.max(0, stops.filter(item => item.assignedDriverId === stop.assignedDriverId).length - 1);
-      setDriverRouteStatus(stop.assignedDriverId, remainingCount ? 'PENDING' : 'IDLE', remainingCount);
-    }
     if (selectedStopId === stop.id) setSelectedStopId(null);
     if (podStop?.id === stop.id) setPodStop(null);
   };
@@ -1688,9 +1686,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     if (!confirmed) return;
 
     setStops(prev => prev.filter(stop => stop.assignedDriverId !== targetDriverId));
-    if (targetDriverId) {
-      setDriverRouteStatus(targetDriverId, 'IDLE', 0);
-    }
     setSelectedStopId(null);
     setSearchQuery('');
   };
@@ -2410,11 +2405,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                             setStops(prev => prev.map(item =>
                               item.id === stop.id ? { ...item, assignedDriverId: activeDriverId } : item
                             ));
-                            setDriverRouteStatus(
-                              activeDriverId,
-                              'PENDING',
-                              stops.filter(item => item.assignedDriverId === activeDriverId).length + 1
-                            );
                           }}
                           className="rounded-md bg-emerald-500/15 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40"
                         >
@@ -3230,13 +3220,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     };
 
                     setStops(prev => [...prev, stopPayload]);
-                    if (currentUser.role === 'ADMIN') {
-                      setDriverRouteStatus(
-                        stopPayload.assignedDriverId,
-                        'PENDING',
-                        stops.filter(item => item.assignedDriverId === stopPayload.assignedDriverId).length + 1
-                      );
-                    }
                     setNewStopForm({
                       name: '', address: '', lat: null, lng: null,
                       assignedDriverId: '',
