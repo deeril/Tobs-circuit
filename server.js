@@ -272,15 +272,15 @@ function createTransport() {
 
 function emailFailureMessage(error) {
   if (error?.code === 'EAUTH' || error?.responseCode === 535) {
-    return 'The mail server rejected the SMTP credentials. Check the SMTP username and app password in Render.';
+    return 'The mail server rejected the SMTP credentials. Check the SMTP username, app password, and authorized sender in your hosting settings.';
   }
   if (['ECONNECTION', 'ETIMEDOUT', 'ESOCKET'].includes(error?.code)) {
-    return 'The app could not connect to the SMTP server. Check the SMTP host, port, and secure setting in Render.';
+    return 'The app could not connect to the SMTP server. Check the SMTP host, port, and secure setting in your hosting settings.';
   }
   if (Number.isInteger(error?.responseCode) && error.responseCode >= 500) {
-    return 'The mail server rejected the message. Check the authorized sender address and SMTP settings in Render.';
+    return 'The mail server rejected the message. Check the authorized sender address and SMTP settings in your hosting settings.';
   }
-  return 'The email could not be sent. Check the SMTP settings in Render and try again.';
+  return 'The email could not be sent. Check the SMTP settings in your hosting settings and try again.';
 }
 
 function logEmailFailure(context, error) {
