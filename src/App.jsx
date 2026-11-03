@@ -3205,8 +3205,12 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   <input
                     type="number"
                     min="1"
+                    step="1"
                     value={newStopForm.packages}
-                    onChange={(e) => setNewStopForm(prev => ({ ...prev, packages: Number(e.target.value) || 1 }))}
+                    onChange={(e) => setNewStopForm(prev => ({
+                      ...prev,
+                      packages: e.target.value === '' ? '' : Number(e.target.value)
+                    }))}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -3226,7 +3230,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       lng: newStopForm.lng,
                       priority: newStopForm.priority,
                       timeWindow: newStopForm.timeWindow,
-                      packages: newStopForm.packages,
+                      packages: Math.max(1, Math.floor(Number(newStopForm.packages) || 1)),
                       status: 'PENDING',
                       assignedDriverId: currentUser.role === 'DRIVER' ? currentUser.id : newStopForm.assignedDriverId
                     };
