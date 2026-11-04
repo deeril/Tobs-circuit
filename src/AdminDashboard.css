@@ -1311,6 +1311,7 @@
     height: 100dvh;
     min-height: 0;
     overflow: hidden;
+    background: #fff !important;
   }
 
   #root .app-shell.admin-dashboard.is-route-planner > .admin-dashboard-sidebar,
