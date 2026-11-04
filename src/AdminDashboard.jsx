@@ -461,7 +461,8 @@ export default function AdminDashboard({
   search,
   onSearchChange,
   onNavigate,
-  onOpenMenu
+  onOpenMenu,
+  onTrackDriver
 }) {
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [selectedDriver, setSelectedDriver] = useState(null);
@@ -626,8 +627,25 @@ export default function AdminDashboard({
               <div><dt>Email</dt><dd>{selectedDriver.email || '—'}</dd></div>
               <div><dt>Phone</dt><dd>{selectedDriver.phone || '—'}</dd></div>
               <div><dt>Current status</dt><dd>{selectedDriver.isTracking && selectedDriver.locationUpdatedAt && now - new Date(selectedDriver.locationUpdatedAt).getTime() < 90_000 ? 'On duty · sharing location' : selectedDriver.routeStatus === 'IN_PROGRESS' ? 'On route' : 'Offline'}</dd></div>
+              <div><dt>Last GPS update</dt><dd>{selectedDriver.isTracking && selectedDriver.locationUpdatedAt ? formatRelativeTime(selectedDriver.locationUpdatedAt, now) : 'Not sharing'}</dd></div>
               <div><dt>Assigned deliveries</dt><dd>{stops.filter(stop => stop.assignedDriverId === selectedDriver.id && !isDelivered(stop)).length}</dd></div>
             </dl>
+            {selectedDriver.isTracking
+              && selectedDriver.locationUpdatedAt
+              && now - new Date(selectedDriver.locationUpdatedAt).getTime() < 90_000
+              && Number.isFinite(selectedDriver.lat)
+              && Number.isFinite(selectedDriver.lng) && (
+              <button
+                type="button"
+                className="admin-primary-button"
+                onClick={() => {
+                  onTrackDriver(selectedDriver.id);
+                  setSelectedDriver(null);
+                }}
+              >
+                Track driver on map
+              </button>
+            )}
           </section>
         </div>
       )}

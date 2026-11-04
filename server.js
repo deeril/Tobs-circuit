@@ -507,9 +507,6 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
     vehicle,
     phone: cleanText(request.body.phone, 40),
     status: 'ACTIVE',
-    lat: 6.5244,
-    lng: 3.3792,
-    speed: 0,
     isTracking: false,
     routeStatus: 'IDLE',
     createdAt: new Date().toISOString()
@@ -607,6 +604,9 @@ app.put('/api/stops', requireUser, (request, response) => {
 });
 
 app.patch('/api/users/me/location', requireUser, (request, response) => {
+  if (request.user.role !== 'DRIVER') {
+    return response.status(403).json({ error: 'Only driver accounts can share live location.' });
+  }
   const { lat, lng, speed, isTracking } = request.body;
   if (typeof isTracking !== 'boolean'
     || (isTracking && (!Number.isFinite(lat) || lat < -90 || lat > 90
@@ -618,7 +618,11 @@ app.patch('/api/users/me/location', requireUser, (request, response) => {
   user.isTracking = isTracking;
   user.locationUpdatedAt = isTracking ? new Date().toISOString() : null;
   if (isTracking) Object.assign(user, { lat, lng, speed });
-  else user.speed = 0;
+  else {
+    user.lat = null;
+    user.lng = null;
+    user.speed = 0;
+  }
   writeStore();
   return response.json({ user: publicUser(user) });
 });

@@ -788,11 +788,23 @@ const [authError, setAuthError] = useState('');
   }, [profileMenuOpen]);
   // GPS State
   const [isGpsActive, setIsGpsActive] = useState(false);
-  const [gpsPos, setGpsPos] = useState({ lat: 6.5244, lng: 3.3792 });
+  const [gpsPos, setGpsPos] = useState(null);
   const [gpsSpeed, setGpsSpeed] = useState(0);
+  const [gpsStatus, setGpsStatus] = useState('Not sharing');
   const [clockNow, setClockNow] = useState(() => Date.now());
   const lastLocationSyncRef = useRef(0);
   const watchIdRef = useRef(null);
+  const gpsPositionRef = useRef(null);
+  const locationHeartbeatRef = useRef(null);
+
+  useEffect(() => () => {
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+    if (locationHeartbeatRef.current !== null) {
+      window.clearInterval(locationHeartbeatRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     const timerId = window.setInterval(() => setClockNow(Date.now()), 15_000);
@@ -932,7 +944,11 @@ const [authError, setAuthError] = useState('');
       Number.isFinite(driver.lat) &&
       Number.isFinite(driver.lng)
     );
-  const dashboardMapCenter = dashboardMappedStops.length
+  const focusedLiveDriver = dashboardMappedDrivers.find(driver => driver.id === activeDriverId)
+    || dashboardMappedDrivers[0];
+  const dashboardMapCenter = focusedLiveDriver
+    ? { lat: focusedLiveDriver.lat, lng: focusedLiveDriver.lng }
+    : dashboardMappedStops.length
     ? {
       lat: dashboardMappedStops.reduce((total, stop) => total + stop.lat, 0) / dashboardMappedStops.length,
       lng: dashboardMappedStops.reduce((total, stop) => total + stop.lng, 0) / dashboardMappedStops.length
@@ -1105,6 +1121,7 @@ const [authError, setAuthError] = useState('');
   };
 
   const handleLogout = async () => {
+    if (isGpsActive) await toggleGpsBroadcast();
     if (!isPreviewSession) {
       try {
         await apiRequest('/api/auth/logout', { method: 'POST' });
@@ -1448,14 +1465,29 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
+      if (locationHeartbeatRef.current !== null) {
+        window.clearInterval(locationHeartbeatRef.current);
+        locationHeartbeatRef.current = null;
+      }
       setIsGpsActive(false);
+      setGpsStatus('Not sharing');
+      gpsPositionRef.current = null;
+      setGpsPos(null);
+      setGpsSpeed(0);
       if (currentUser) {
-        setCurrentUser(prev => prev ? { ...prev, isTracking: false, speed: 0 } : prev);
+        setCurrentUser(prev => prev ? {
+          ...prev,
+          isTracking: false,
+          locationUpdatedAt: null,
+          lat: null,
+          lng: null,
+          speed: 0
+        } : prev);
         setUsers(prev => prev.map(user => user.id === currentUser.id
-          ? { ...user, isTracking: false, speed: 0 }
+          ? { ...user, isTracking: false, locationUpdatedAt: null, lat: null, lng: null, speed: 0 }
           : user));
         if (!isPreviewSession) {
-          apiRequest('/api/users/me/location', {
+          return apiRequest('/api/users/me/location', {
             method: 'PATCH',
             body: JSON.stringify({ isTracking: false })
           }).catch(error => {
@@ -1464,52 +1496,97 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           });
         }
       }
+      return Promise.resolve();
     } else {
-      if (!navigator.geolocation) {
-        alert('Geolocation is not supported by your browser.');
+      if (isPreviewSession) {
+        setGpsStatus('Unavailable in preview');
+        window.alert('Live GPS sharing requires a signed-in driver account connected to the dispatch service.');
+        return;
+      }
+      if (!navigator.geolocation || !window.isSecureContext) {
+        setGpsStatus('HTTPS required for location');
+        window.alert('Live location requires a browser with location access over a secure HTTPS connection.');
         return;
       }
 
       setIsGpsActive(true);
+      setGpsStatus('Waiting for GPS signal');
+      gpsPositionRef.current = null;
+      setGpsPos(null);
+      lastLocationSyncRef.current = 0;
+      const publishLocation = position => {
+        if (!position || !currentUser || isPreviewSession) return Promise.resolve();
+        const location = {
+          lat: position.lat,
+          lng: position.lng,
+          speed: position.speed,
+          isTracking: true
+        };
+        const locationUpdatedAt = new Date().toISOString();
+        setGpsStatus('Sharing live location');
+        setGpsPos({ lat: location.lat, lng: location.lng });
+        setGpsSpeed(location.speed);
+        setCurrentUser(prev => prev ? { ...prev, ...location, locationUpdatedAt } : prev);
+        setUsers(prev => prev.map(user => user.id === currentUser.id
+          ? { ...user, ...location, locationUpdatedAt }
+          : user));
+        lastLocationSyncRef.current = Date.now();
+        return apiRequest('/api/users/me/location', {
+          method: 'PATCH',
+          body: JSON.stringify(location)
+        }).catch(error => {
+          console.error('Could not share the driver location with dispatch:', error);
+          setGpsStatus('Location sync retrying');
+          setAuthError(`Live location could not be synchronized: ${error.message}`);
+        });
+      };
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           const { latitude, longitude, speed } = pos.coords;
-          const newPos = { lat: latitude, lng: longitude };
-          const speedKph = speed ? Math.round(speed * 3.6) : 0;
-          const locationUpdatedAt = new Date().toISOString();
-          setGpsPos(newPos);
-          setGpsSpeed(speedKph);
-
-          if (currentUser) {
-            const location = {
-              lat: latitude,
-              lng: longitude,
-              speed: speedKph,
-              isTracking: true,
-              locationUpdatedAt
-            };
-            setCurrentUser(prev => prev ? { ...prev, ...location } : prev);
-            setUsers(prev => prev.map(user => user.id === currentUser.id ? { ...user, ...location } : user));
-            if (!isPreviewSession && Date.now() - lastLocationSyncRef.current >= 5000) {
-              lastLocationSyncRef.current = Date.now();
-              apiRequest('/api/users/me/location', {
-                method: 'PATCH',
-                body: JSON.stringify({
-                  lat: latitude,
-                  lng: longitude,
-                  speed: speedKph,
-                  isTracking: true
-                })
-              }).catch(error => {
-                console.error('Could not share the driver location with dispatch:', error);
-                setAuthError(`Live location could not be synchronized: ${error.message}`);
-              });
-            }
+          const position = {
+            lat: latitude,
+            lng: longitude,
+            speed: speed === null ? 0 : Math.min(300, Math.max(0, Math.round(speed * 3.6)))
+          };
+          gpsPositionRef.current = position;
+          if (Date.now() - lastLocationSyncRef.current >= 5000) {
+            publishLocation(position);
+          } else {
+            setGpsPos({ lat: position.lat, lng: position.lng });
+            setGpsSpeed(position.speed);
+          }
+          if (locationHeartbeatRef.current === null) {
+            locationHeartbeatRef.current = window.setInterval(() => {
+              if (gpsPositionRef.current) publishLocation(gpsPositionRef.current);
+            }, 15_000);
           }
         },
         (err) => {
           console.error('GPS tracking error:', err);
           setIsGpsActive(false);
+          setGpsStatus('GPS unavailable');
+          if (watchIdRef.current !== null) {
+            navigator.geolocation.clearWatch(watchIdRef.current);
+            watchIdRef.current = null;
+          }
+          if (locationHeartbeatRef.current !== null) {
+            window.clearInterval(locationHeartbeatRef.current);
+            locationHeartbeatRef.current = null;
+          }
+          gpsPositionRef.current = null;
+          setGpsPos(null);
+          setGpsSpeed(0);
+          setCurrentUser(prev => prev ? {
+            ...prev,
+            isTracking: false,
+            locationUpdatedAt: null,
+            lat: null,
+            lng: null,
+            speed: 0
+          } : prev);
+          setUsers(prev => prev.map(user => user.id === currentUser?.id
+            ? { ...user, isTracking: false, locationUpdatedAt: null, lat: null, lng: null, speed: 0 }
+            : user));
           if (currentUser && !isPreviewSession) {
             apiRequest('/api/users/me/location', {
               method: 'PATCH',
@@ -1518,7 +1595,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           }
           window.alert(`Live location could not be shared: ${err.message}`);
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
       );
     }
   };
@@ -2604,11 +2681,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       <Radio className={`h-4 w-4 ${isGpsActive ? 'animate-pulse text-violet-700' : 'text-slate-400'}`} />
                       <span>Live location</span>
                     </span>
-                    <span className="text-[10px] font-semibold text-slate-500">
-                      {isGpsActive ? `${gpsSpeed} km/h` : 'Not sharing'}
+                    <span className="max-w-[55%] text-right text-[10px] font-semibold leading-tight text-slate-500" role="status" aria-live="polite">
+                      {isGpsActive && gpsPos && gpsStatus === 'Sharing live location' ? `${gpsSpeed} km/h` : gpsStatus}
                     </span>
                   </div>
                   <button
+                    type="button"
+                    aria-pressed={isGpsActive}
                     onClick={toggleGpsBroadcast}
                     className={`w-full rounded-xl py-2.5 text-xs font-extrabold transition-all ${
                       isGpsActive ? 'bg-rose-50 text-rose-700' : 'bg-violet-700 text-white hover:bg-violet-800'
@@ -2617,7 +2696,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     <span>{isGpsActive ? 'Stop sharing location' : 'Share live location'}</span>
                   </button>
                   <p className="mt-2 text-[9px] leading-relaxed text-slate-500">
-                    Location is visible to dispatchers while sharing is on.
+                    Your recent location is visible to dispatchers while sharing is on. Keep this app open for ongoing updates.
                   </p>
                 </div>
               </div>
@@ -2911,6 +2990,10 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           profileMenu={profileMenu}
           search={dashboardSearchQuery}
           onSearchChange={setDashboardSearchQuery}
+          onTrackDriver={driverId => {
+            setActiveDriverId(driverId);
+            setActiveAdminView('LIVE_TRACKING');
+          }}
           onNavigate={view => {
             setActiveAdminView(view);
             setMobileSidebarOpen(false);

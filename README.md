@@ -6,6 +6,8 @@ A React and Vite fleet-dispatch dashboard with admin-owned driver accounts, emai
 
 The admin workspace opens to an overview of recorded deliveries, performance trends, mapped delivery destinations, driver availability, and timestamped activity. Deliveries can be searched, filtered, paginated, and reviewed from the dashboard. The sidebar links to the existing Route Planner and Live Tracking views; Customers, Fleet Management, Payments, and Settings are navigation placeholders for later phases. Driver map markers are shown only for fresh GPS updates shared by drivers. The map uses saved delivery coordinates when available; the restricted Google Maps browser key enables interactive Google Maps.
 
+Drivers opt in with **Share live location** or **Start journey**. Location is read from the device only while sharing is enabled, and requires a secure HTTPS page plus browser permission. The app syncs fresh coordinates and heartbeats while open; admins can view recent driver locations on the Live Tracking map and focus a driver from their profile. Stopping sharing clears the saved coordinates. Browser backgrounding or closing the app can interrupt updates, so the map automatically stops treating locations older than 90 seconds as live.
+
 ## Super Admin portal UI
 
 The Super Admin UI design is retained in `src/SuperAdminPreview.jsx` and `src/SuperAdminPreview.css` for the future separate, secured portal. It is not mounted or accessible from the business application. Do not expose it until separate Super Admin authentication, backend authorization, and platform APIs are implemented.
