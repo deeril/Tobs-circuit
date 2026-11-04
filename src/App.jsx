@@ -639,7 +639,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(ORG_LOGOS_STORAGE_KEY, JSON.stringify(orgLogoStore));
   }, [orgLogoStore]);
-  const [activeAdminView, setActiveAdminView] = useState('OVERVIEW');
+  const [activeAdminView, setActiveAdminView] = useState('ROUTES');
 const [registerForm, setRegisterForm] = useState(() => ({
   name: '',
   email: '',
@@ -663,6 +663,7 @@ const [authError, setAuthError] = useState('');
       try {
         const { user } = await apiRequest('/api/auth/session');
         if (!cancelled) {
+          if (user.role === 'ADMIN') setActiveAdminView('ROUTES');
           setCurrentUser(user);
         }
       } catch (error) {
@@ -1015,6 +1016,7 @@ const [authError, setAuthError] = useState('');
         method: 'POST',
         body: JSON.stringify({ ...loginForm, remember: rememberLogin })
       });
+      if (user.role === 'ADMIN') setActiveAdminView('ROUTES');
       setCurrentUser(user);
       setAuthError('');
       setLoginForm({ email: '', password: '' });
@@ -1062,6 +1064,7 @@ const [authError, setAuthError] = useState('');
         method: 'POST',
         body: JSON.stringify(registration)
       });
+      if (user.role === 'ADMIN') setActiveAdminView('ROUTES');
       setCurrentUser(user);
       setRegisterForm(prev => ({ ...prev, password: '' }));
       setAuthError('');
