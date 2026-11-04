@@ -48,7 +48,7 @@ The map uses Lagos, Nigeria as its initial center. Without a Google Maps key, th
 
 This app loads the Maps JavaScript API and uses advanced markers; it does not use the `<gmp-map>` custom element from the sample. The Route Optimization API example is a separate server-side feature, not required to display the map or driver pins. Do not call it from the browser with a service-account credential or access token.
 
-If the frontend and API are on different domains, set `VITE_API_BASE_URL` to the API origin and `FRONTEND_ORIGIN` to the exact frontend origin. For a single Vercel project these can be left blank; the frontend calls `/api` on the same origin. On GitHub Pages without an API URL, the app remains a browser-only sample preview and does not provide real accounts or cross-device tracking.
+GitHub Pages is configured to call the production API at `https://tobs-circuit.vercel.app`; the API allows the Pages origin `https://deeril.github.io` for credentialed requests. Keep the frontend API URL and server CORS origin in sync if either domain changes. For a single Vercel project these can be left blank; the frontend calls `/api` on the same origin. On GitHub Pages, real accounts and cross-device tracking require the configured API and its persistent PostgreSQL connection.
 
 ## Local server configuration
 

@@ -21,7 +21,7 @@ const databasePool = usesDatabase && databaseUrl
 const sessionCookie = 'tobs_session';
 const sessions = new Map();
 const rateLimits = new Map();
-const frontendOrigin = process.env.FRONTEND_ORIGIN || '';
+const frontendOrigin = process.env.FRONTEND_ORIGIN || 'https://deeril.github.io';
 
 if (!usesDatabase) fs.mkdirSync(dataDirectory, { recursive: true });
 
