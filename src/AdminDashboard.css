@@ -1333,7 +1333,9 @@
     transform: none !important;
   }
 
-  #root .app-shell.admin-dashboard.is-route-planner > .admin-dashboard-sidebar {
+  #root .app-shell.admin-dashboard.is-route-planner > .admin-dashboard-sidebar,
+  #root .app-shell.admin-dashboard.is-route-planner .admin-sidebar-header,
+  #root .app-shell.admin-dashboard.is-route-planner .admin-sidebar-controls {
     background: #fff !important;
     color: #111827 !important;
     border-color: #e5e7eb !important;
@@ -1409,16 +1411,14 @@
     margin-left: 12px;
   }
 
-  .app-shell.admin-dashboard.is-route-planner .admin-sidebar-controls {
+  #root .app-shell.admin-dashboard.is-route-planner .admin-sidebar-controls {
     display: block;
     min-height: 0;
     flex: 1 1 auto;
     overflow-x: hidden;
     overflow-y: auto;
     padding: 14px 16px calc(24px + env(safe-area-inset-bottom)) !important;
-    border-top: 1px solid #263244;
-    background: #fff !important;
-    color: #111827 !important;
+    border-top: 1px solid #e5e7eb !important;
     overscroll-behavior-y: contain;
     scrollbar-color: #c9c9c9 transparent;
     scrollbar-width: thin;
@@ -1426,14 +1426,15 @@
     touch-action: pan-y;
   }
 
-  .app-shell.admin-dashboard.is-route-planner .admin-sidebar-controls > section {
+  #root .app-shell.admin-dashboard.is-route-planner .admin-sidebar-controls > section {
     border-color: #e5e7eb !important;
     background: #fff !important;
     color: #111827 !important;
     box-shadow: 0 2px 8px rgb(17 24 39 / 5%);
   }
 
-  .app-shell.admin-dashboard.is-route-planner .admin-sidebar-controls > section h2 {
+  #root .app-shell.admin-dashboard.is-route-planner .admin-sidebar-controls > section h2,
+  #root .app-shell.admin-dashboard.is-route-planner .admin-sidebar-controls > section span {
     color: #111827 !important;
   }
 
