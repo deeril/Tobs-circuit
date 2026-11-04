@@ -2435,7 +2435,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   return (
     <>
     {brandSplash}
-    <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden`}>
+    <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} ${currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES' ? 'is-route-planner' : ''} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden`}>
       {currentUser.role === 'ADMIN' && mobileSidebarOpen && (
         <button
           type="button"
