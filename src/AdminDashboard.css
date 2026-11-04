@@ -1303,6 +1303,10 @@
   #root .app-shell.admin-dashboard.is-route-planner {
     display: flex !important;
     flex-direction: column;
+    width: 100%;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
   }
 
   #root .app-shell.admin-dashboard.is-route-planner > .admin-dashboard-sidebar,
@@ -1313,10 +1317,10 @@
     width: 100% !important;
     max-width: none !important;
     min-width: 0 !important;
-    height: 64dvh;
-    max-height: 64dvh !important;
+    height: 58dvh;
+    max-height: 58dvh !important;
     min-height: 0;
-    flex: 0 0 64dvh !important;
+    flex: 0 0 58dvh !important;
     overflow: hidden;
     border: 0 !important;
     border-radius: 0;
@@ -1357,6 +1361,12 @@
     box-shadow: inset 0 -3px #60a5fa;
   }
 
+  .app-shell.admin-dashboard.is-route-planner .admin-dashboard-sidebar.is-collapsed .admin-sidebar-nav button {
+    width: auto;
+    justify-content: flex-start;
+    padding: 0 10px;
+  }
+
   .app-shell.admin-dashboard.is-route-planner .admin-sidebar-controls {
     display: block;
     min-height: 0;
@@ -1367,13 +1377,13 @@
     border-top: 1px solid #263244;
   }
 
-  #root .app-shell.admin-dashboard.is-route-planner > .admin-map-panel {
+  #root .app-shell.admin-dashboard.is-route-planner > .admin-map-panel:not(.is-expanded) {
     position: relative;
     order: 1;
     width: 100%;
-    height: 36dvh;
+    height: 42dvh;
     min-height: 0;
-    flex: 1 1 36dvh;
+    flex: 0 0 42dvh;
   }
 
   #root .app-shell.admin-dashboard > .tobs-admin-dashboard {
