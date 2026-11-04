@@ -1309,7 +1309,7 @@
   #root .app-shell.admin-dashboard.is-route-planner > .admin-dashboard-sidebar.is-collapsed {
     position: relative !important;
     inset: auto !important;
-    order: 1;
+    order: 2;
     width: 100% !important;
     max-width: none !important;
     min-width: 0 !important;
@@ -1369,7 +1369,7 @@
 
   #root .app-shell.admin-dashboard.is-route-planner > .admin-map-panel {
     position: relative;
-    order: 2;
+    order: 1;
     width: 100%;
     height: 36dvh;
     min-height: 0;
