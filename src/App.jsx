@@ -2454,7 +2454,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         <div className="admin-sidebar-header p-3.5 border-b border-slate-800 space-y-2.5">
           <div className="flex items-center justify-between">
             {!sidebarCollapsed && (
-              <div className="flex items-center space-x-2 min-w-0">
+              <div className="admin-route-standard-brand flex items-center space-x-2 min-w-0">
                 <img
                   src={currentOrgLogo}
                   alt={`${currentUser.orgName || 'Fleet'} logo`}
@@ -2475,11 +2475,22 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               <img
                 src={currentOrgLogo}
                 alt={`${currentUser.orgName || 'Fleet'} logo`}
-                className={`h-6 w-8 shrink-0 object-contain ${currentOrgLogo === BRAND_LOGO_URL ? 'brand-logo-image' : ''}`}
+                className={`admin-route-collapsed-logo h-6 w-8 shrink-0 object-contain ${currentOrgLogo === BRAND_LOGO_URL ? 'brand-logo-image' : ''}`}
               />
             )}
 
+            {currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES' && (
+              <div className="admin-route-mobile-greeting">
+                <img src={currentOrgLogo} alt="" />
+                <div>
+                  <strong>Good</strong>
+                  <p><User aria-hidden="true" />{currentUser.name} (ADMIN)</p>
+                </div>
+              </div>
+            )}
+
             <button
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
               className="p-1.5 rounded-lg border bg-slate-800 border-slate-700 text-slate-300 hover:text-white"
             >
