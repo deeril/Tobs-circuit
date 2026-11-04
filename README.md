@@ -2,6 +2,14 @@
 
 A React and Vite fleet-dispatch dashboard with admin-owned driver accounts, email invitations, route assignment, live location updates, and proof of delivery.
 
+## Admin dashboard
+
+The admin workspace opens to an overview of recorded deliveries, performance trends, mapped delivery destinations, driver availability, and timestamped activity. Deliveries can be searched, filtered, paginated, and reviewed from the dashboard. The sidebar links to the existing Route Planner and Live Tracking views; Customers, Fleet Management, Payments, and Settings are navigation placeholders for later phases. Driver map markers are shown only for fresh GPS updates shared by drivers. The map uses saved delivery coordinates when available; the restricted Google Maps browser key enables interactive Google Maps.
+
+## Super Admin portal UI
+
+The Super Admin UI design is retained in `src/SuperAdminPreview.jsx` and `src/SuperAdminPreview.css` for the future separate, secured portal. It is not mounted or accessible from the business application. Do not expose it until separate Super Admin authentication, backend authorization, and platform APIs are implemented.
+
 ## Run locally
 
 1. Use Node.js 22.12 or newer.

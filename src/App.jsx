@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import brandLogo from './assets/tobs-circuit-logo-purple.png';
+import AdminDashboard from './AdminDashboard.jsx';
+import { ADMIN_NAV_ITEMS } from './adminNavigation.js';
 import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, Users, UserPlus, Shield, PenTool,
- Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown, Menu,
+ Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown,
  BellRing, Eye, EyeOff, Maximize2, Minimize2
 } from 'lucide-react';
 
@@ -366,16 +368,18 @@ function detachGoogleMapMarker(marker) {
   marker.map = null;
 }
 
-function GoogleFleetMap({ center, drivers, now, fallbackUrl, onReadyChange, onDriverSelect }) {
+function GoogleFleetMap({ center, drivers, stops = [], now, fallbackUrl, onReadyChange, onDriverSelect }) {
   const mapElementRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(new Map());
+  const deliveryMarkersRef = useRef(new Map());
   const markerConstructorRef = useRef(null);
   const [mapStatus, setMapStatus] = useState(GOOGLE_MAPS_API_KEY ? 'loading' : 'fallback');
 
   useEffect(() => {
     let cancelled = false;
     const markers = markersRef.current;
+    const deliveryMarkers = deliveryMarkersRef.current;
     if (!GOOGLE_MAPS_API_KEY) {
       onReadyChange(false);
       return undefined;
@@ -413,6 +417,8 @@ function GoogleFleetMap({ center, drivers, now, fallbackUrl, onReadyChange, onDr
       cancelled = true;
       for (const marker of markers.values()) detachGoogleMapMarker(marker);
       markers.clear();
+      for (const marker of deliveryMarkers.values()) detachGoogleMapMarker(marker);
+      deliveryMarkers.clear();
     };
   }, [onReadyChange]);
 
@@ -469,11 +475,86 @@ function GoogleFleetMap({ center, drivers, now, fallbackUrl, onReadyChange, onDr
         Number(driver.speed) > 0
       );
     }
-  }, [center, drivers, mapStatus, now, onDriverSelect]);
+
+    const mappedStops = stops.filter(stop =>
+      Number.isFinite(stop.lat) && Number.isFinite(stop.lng)
+    );
+    const stopIds = new Set(mappedStops.map(stop => stop.id));
+    for (const [stopId, marker] of deliveryMarkersRef.current) {
+      if (!stopIds.has(stopId)) {
+        detachGoogleMapMarker(marker);
+        deliveryMarkersRef.current.delete(stopId);
+      }
+    }
+
+    for (const stop of mappedStops) {
+      let marker = deliveryMarkersRef.current.get(stop.id);
+      if (!marker) {
+        const markerContent = document.createElement('div');
+        markerContent.className = 'google-delivery-marker';
+        markerContent.setAttribute('aria-hidden', 'true');
+        marker = new markerConstructorRef.current({
+          map: mapRef.current,
+          position: { lat: stop.lat, lng: stop.lng },
+          title: `${stop.customerName || stop.name || 'Delivery'} · ${stop.status || 'PENDING'}`,
+          content: markerContent
+        });
+        deliveryMarkersRef.current.set(stop.id, marker);
+      }
+      marker.position = { lat: stop.lat, lng: stop.lng };
+      marker.title = `${stop.customerName || stop.name || 'Delivery'} · ${stop.status || 'PENDING'}`;
+    }
+  }, [center, drivers, mapStatus, now, onDriverSelect, stops]);
 
   return (
     <div className="google-fleet-map absolute inset-0">
       <div ref={mapElementRef} className={mapStatus === 'ready' ? 'h-full w-full' : 'hidden'} />
+      {mapStatus !== 'ready' && stops.map(stop => {
+        if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return null;
+        const offset = getMapPixelOffset({ lat: stop.lat, lng: stop.lng }, center, MAP_ZOOM);
+        return (
+          <span
+            key={`delivery-${stop.id}`}
+            className="google-delivery-fallback-marker"
+            title={`${stop.customerName || stop.name || 'Delivery'} · ${stop.status || 'PENDING'}`}
+            style={{
+              left: `calc(50% + ${offset.x}px)`,
+              top: `calc(50% + ${offset.y}px)`
+            }}
+          />
+        );
+      })}
+      {mapStatus !== 'ready' && drivers.map(driver => {
+        const locationIsFresh = driver.isTracking
+          && driver.locationUpdatedAt
+          && now - new Date(driver.locationUpdatedAt).getTime() < 90_000
+          && Number.isFinite(driver.lat)
+          && Number.isFinite(driver.lng);
+        if (!locationIsFresh) return null;
+        const offset = getMapPixelOffset({ lat: driver.lat, lng: driver.lng }, center, MAP_ZOOM);
+        return (
+          <button
+            key={`driver-${driver.id}`}
+            type="button"
+            aria-label={`Live location for ${driver.name}, ${driver.speed ?? 0} kilometers per hour`}
+            title={`${driver.name} · ${driver.speed ?? 0} km/h`}
+            onClick={() => onDriverSelect(driver.id)}
+            className="bike-rider-marker absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+            style={{
+              left: `calc(50% + ${offset.x}px)`,
+              top: `calc(50% + ${offset.y}px)`
+            }}
+          >
+            <span className="bike-rider-speed">{driver.speed ?? 0} km/h</span>
+            <img
+              src={BIKE_ICON_URL}
+              alt=""
+              className={`bike-rider-icon ${Number(driver.speed) > 0 ? 'bike-rider-icon-moving' : ''}`}
+            />
+            <span className="bike-rider-name">{driver.name}</span>
+          </button>
+        );
+      })}
       {mapStatus !== 'ready' && (
         <>
           <iframe
@@ -487,7 +568,7 @@ function GoogleFleetMap({ center, drivers, now, fallbackUrl, onReadyChange, onDr
           <div className="google-map-fallback-notice absolute bottom-3 left-3 z-10 max-w-[min(26rem,calc(100%-1.5rem))] rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-[10px] font-semibold text-slate-700 shadow-lg">
             {GOOGLE_MAPS_API_KEY
               ? 'Interactive Google Maps could not load. Check the key, billing, and Maps JavaScript API settings.'
-              : 'Showing the standard map. Add a restricted VITE_GOOGLE_MAPS_API_KEY to enable interactive driver pins.'}
+              : 'Showing the standard map. Add a restricted VITE_GOOGLE_MAPS_API_KEY to enable interactive Google Maps.'}
           </div>
         </>
       )}
@@ -558,7 +639,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(ORG_LOGOS_STORAGE_KEY, JSON.stringify(orgLogoStore));
   }, [orgLogoStore]);
-  const [activeAdminView, setActiveAdminView] = useState('ROUTES');
+  const [activeAdminView, setActiveAdminView] = useState('OVERVIEW');
 const [registerForm, setRegisterForm] = useState(() => ({
   name: '',
   email: '',
@@ -669,13 +750,15 @@ const [authError, setAuthError] = useState('');
 
   // --- APP DASHBOARD STATES ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
-  const [googleMapReady, setGoogleMapReady] = useState(false);
+  const [, setGoogleMapReady] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef(null);
   const [activeDriverId, setActiveDriverId] = useState('');
   const [selectedStopId, setSelectedStopId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [dashboardSearchQuery, setDashboardSearchQuery] = useState('');
 
   useEffect(() => {
     if (!profileMenuOpen) return undefined;
@@ -715,27 +798,6 @@ const [authError, setAuthError] = useState('');
     const timerId = window.setInterval(() => setClockNow(Date.now()), 15_000);
     return () => window.clearInterval(timerId);
   }, []);
-
-  useEffect(() => {
-    if (!isPreviewSession || currentUser?.role !== 'ADMIN') return undefined;
-    const previewRider = PREVIEW_DRIVERS[0];
-    const updatePreviewLocation = () => {
-      const phase = Date.now() / 15_900;
-      const location = {
-        lat: previewRider.lat + Math.sin(phase) * 0.0015,
-        lng: previewRider.lng + Math.cos(phase) * 0.0015,
-        speed: 38,
-        isTracking: true,
-        locationUpdatedAt: new Date().toISOString()
-      };
-      setUsers(previous => previous.map(user =>
-        user.id === previewRider.id ? { ...user, ...location } : user
-      ));
-    };
-    updatePreviewLocation();
-    const timerId = window.setInterval(updatePreviewLocation, 1_200);
-    return () => window.clearInterval(timerId);
-  }, [isPreviewSession, currentUser?.role]);
 
   // Modals
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -858,6 +920,31 @@ const [authError, setAuthError] = useState('');
   const googleMapsEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapSearchQuery)}&z=${MAP_ZOOM}&output=embed`;
   const googleMapsSearchUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapSearchQuery)}`;
   const liveMapDrivers = currentUser?.role === 'ADMIN' ? driversList : currentUser?.role === 'DRIVER' ? [currentUser] : [];
+  const dashboardMappedStops = stops.filter(stop =>
+    Number.isFinite(stop.lat) && Number.isFinite(stop.lng)
+  );
+  const dashboardMappedDrivers = isPreviewSession
+    ? []
+    : liveMapDrivers.filter(driver =>
+      driver.isTracking &&
+      driver.locationUpdatedAt &&
+      clockNow - new Date(driver.locationUpdatedAt).getTime() < 90_000 &&
+      Number.isFinite(driver.lat) &&
+      Number.isFinite(driver.lng)
+    );
+  const dashboardMapCenter = dashboardMappedStops.length
+    ? {
+      lat: dashboardMappedStops.reduce((total, stop) => total + stop.lat, 0) / dashboardMappedStops.length,
+      lng: dashboardMappedStops.reduce((total, stop) => total + stop.lng, 0) / dashboardMappedStops.length
+    }
+    : dashboardMappedDrivers.length
+      ? {
+        lat: dashboardMappedDrivers.reduce((total, driver) => total + driver.lat, 0) / dashboardMappedDrivers.length,
+        lng: dashboardMappedDrivers.reduce((total, driver) => total + driver.lng, 0) / dashboardMappedDrivers.length
+      }
+      : mapCenter;
+  const dashboardMapSearchQuery = `${dashboardMapCenter.lat},${dashboardMapCenter.lng}`;
+  const dashboardGoogleMapsEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(dashboardMapSearchQuery)}&z=${MAP_ZOOM}&output=embed`;
 
   const saveOrganizationLogo = (orgName, email, logoData) => {
     const orgKey = orgName.trim().toLowerCase();
@@ -1045,7 +1132,9 @@ const [authError, setAuthError] = useState('');
         title={hasPendingDriverRoute ? 'New route awaiting acceptance' : 'Menu'}
         className="profile-menu-trigger relative ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-violet-200 bg-white text-violet-900 shadow-sm transition-colors hover:bg-violet-50"
       >
-        <Menu className="h-5 w-5" aria-hidden="true" />
+        <span className="profile-menu-initials" aria-hidden="true">
+          {String(currentUser.name || 'Admin').split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
+        </span>
         {hasPendingDriverRoute && (
           <span className="profile-menu-notification-dot" aria-hidden="true" />
         )}
@@ -1113,7 +1202,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 className="profile-menu-item"
               >
                 <Truck className="h-4 w-4" />
-                <span>Route dashboard</span>
+                <span>Route planner</span>
               </button>
               <button
                 type="button"
@@ -1138,6 +1227,18 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               >
                 <UserPlus className="h-4 w-4" />
                 <span>Invite drivers</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setActiveAdminView('SETTINGS');
+                  setProfileMenuOpen(false);
+                }}
+                className="profile-menu-item"
+              >
+                <User className="h-4 w-4" />
+                <span>Profile settings</span>
               </button>
             </>
           )}
@@ -2254,10 +2355,18 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   return (
     <>
     {brandSplash}
-    <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} ${activeAdminView === 'ANALYTICS' ? 'analytics-fullscreen' : ''} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden`}>
+    <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden`}>
+      {currentUser.role === 'ADMIN' && mobileSidebarOpen && (
+        <button
+          type="button"
+          className="admin-sidebar-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
 
       {/* --- SIDEBAR PANEL (~25% WIDTH) --- */}
-      <div className={`admin-dashboard-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''} z-20 flex max-h-[55dvh] w-full shrink-0 flex-col border-b border-slate-800 bg-slate-900 shadow-2xl transition-all duration-300 md:h-full md:max-h-none md:border-b-0 md:border-r ${
+      <div className={`admin-dashboard-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''} ${mobileSidebarOpen ? 'is-mobile-open' : ''} z-20 flex max-h-[55dvh] w-full shrink-0 flex-col border-b border-slate-800 bg-slate-900 shadow-2xl transition-all duration-300 md:h-full md:max-h-none md:border-b-0 md:border-r ${
         sidebarCollapsed ? 'md:w-16' : 'md:w-80 md:max-w-[24rem]'
       }`}>
 
@@ -2273,11 +2382,11 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 />
                 <div className="truncate">
                   <h1 className="font-black text-sm tracking-tight text-emerald-400 truncate">
-                    {currentUser.orgName || 'Lagos Circuit'}
+                    Tobs Circuit
                   </h1>
                   <p className="text-[10px] font-bold text-slate-400 flex items-center space-x-1">
                     <User className="w-3 h-3 text-blue-400" />
-                    <span>{currentUser.name} ({currentUser.role})</span>
+                    <span>{currentUser.orgName || 'Fleet workspace'}</span>
                   </p>
                 </div>
               </div>
@@ -2300,8 +2409,29 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
         </div>
 
+        {currentUser.role === 'ADMIN' && (
+          <nav className="admin-sidebar-nav" aria-label="Admin navigation">
+            {ADMIN_NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                aria-current={activeAdminView === id ? 'page' : undefined}
+                aria-label={sidebarCollapsed ? label : undefined}
+                title={sidebarCollapsed ? label : undefined}
+                onClick={() => {
+                  setActiveAdminView(id);
+                  setMobileSidebarOpen(false);
+                }}
+              >
+                <Icon aria-hidden="true" />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+
         {/* SIDEBAR MAIN CONTROLS */}
-        {!sidebarCollapsed && (
+        {!sidebarCollapsed && (currentUser.role !== 'ADMIN' || activeAdminView === 'ROUTES') && (
           <div className="admin-sidebar-controls flex-1 overflow-y-auto p-3.5 space-y-3">
             {isPreviewSession && (
               <p className="rounded-xl border border-amber-300 bg-amber-50 p-2 text-[9px] leading-relaxed text-amber-950">
@@ -2760,7 +2890,37 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
       </div>
 
-      {currentUser.role === 'ADMIN' && activeAdminView === 'ANALYTICS' ? (
+      {currentUser.role === 'ADMIN' && activeAdminView !== 'ROUTES' ? (
+        <AdminDashboard
+          page={activeAdminView}
+          currentUser={currentUser}
+          stops={stops}
+          drivers={driversList}
+          now={clockNow}
+          mapContent={(
+            <GoogleFleetMap
+              center={dashboardMapCenter}
+              drivers={isPreviewSession ? [] : liveMapDrivers}
+              stops={stops}
+              now={clockNow}
+              fallbackUrl={dashboardGoogleMapsEmbedUrl}
+              onReadyChange={setGoogleMapReady}
+              onDriverSelect={driverId => setActiveDriverId(driverId)}
+            />
+          )}
+          profileMenu={profileMenu}
+          search={dashboardSearchQuery}
+          onSearchChange={setDashboardSearchQuery}
+          onNavigate={view => {
+            setActiveAdminView(view);
+            setMobileSidebarOpen(false);
+          }}
+          onOpenMenu={() => {
+            setSidebarCollapsed(false);
+            setMobileSidebarOpen(true);
+          }}
+        />
+      ) : currentUser.role === 'ADMIN' && activeAdminView === 'LEGACY_ANALYTICS' ? (
       <main className="flex min-h-[42dvh] flex-1 flex-col overflow-y-auto bg-violet-50 p-4 text-slate-950 sm:p-6 md:min-h-0 md:p-8">
         <div className="mx-auto w-full max-w-6xl space-y-5">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -2915,6 +3075,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           <GoogleFleetMap
             center={mapCenter}
             drivers={liveMapDrivers}
+            stops={stops}
             now={clockNow}
             fallbackUrl={googleMapsEmbedUrl}
             onReadyChange={setGoogleMapReady}
@@ -2922,45 +3083,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               if (currentUser.role === 'ADMIN') setActiveDriverId(driverId);
             }}
           />
-
-          {!googleMapReady && liveMapDrivers.map(driver => {
-            const locationIsFresh = driver.isTracking
-              && driver.locationUpdatedAt
-              && clockNow - new Date(driver.locationUpdatedAt).getTime() < 90_000;
-            if (!locationIsFresh || !Number.isFinite(driver.lat) || !Number.isFinite(driver.lng)) return null;
-
-            const offset = getMapPixelOffset(
-              { lat: driver.lat, lng: driver.lng },
-              mapCenter,
-              MAP_ZOOM
-            );
-            return (
-              <button
-                key={driver.id}
-                type="button"
-                aria-label={`${isPreviewSession ? 'Simulated preview location' : 'Live location'} for ${driver.name}, ${driver.speed ?? 0} kilometers per hour`}
-                title={`${driver.name} · ${isPreviewSession ? 'Preview movement' : `${driver.speed ?? 0} km/h`}`}
-                onClick={() => {
-                  if (currentUser.role === 'ADMIN') setActiveDriverId(driver.id);
-                }}
-                className="bike-rider-marker absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
-                style={{
-                  left: `calc(50% + ${offset.x}px)`,
-                  top: `calc(50% + ${offset.y}px)`
-                }}
-              >
-                <span className={`bike-rider-speed ${isPreviewSession ? 'bike-rider-preview' : ''}`}>
-                  {isPreviewSession ? 'Preview movement' : `${driver.speed ?? 0} km/h`}
-                </span>
-                <img
-                  src={BIKE_ICON_URL}
-                  alt=""
-                  className={`bike-rider-icon ${Number(driver.speed) > 0 ? 'bike-rider-icon-moving' : ''}`}
-                />
-                <span className="bike-rider-name">{driver.name}</span>
-              </button>
-            );
-          })}
 
         </div>
 
