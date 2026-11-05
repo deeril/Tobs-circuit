@@ -19,6 +19,7 @@ const databasePool = usesDatabase && databaseUrl
   ? new pg.Pool({ connectionString: databaseUrl, max: 1, idleTimeoutMillis: 10_000 })
   : null;
 const sessionCookie = 'tobs_session';
+const superAdminEmail = 'ayodeletobs@gmail.com';
 const sessions = new Map();
 const rateLimits = new Map();
 const frontendOrigin = process.env.FRONTEND_ORIGIN || 'https://deeril.github.io';
@@ -30,14 +31,16 @@ let databaseRequestClient = null;
 let databaseStoreDirty = false;
 
 function readStore() {
-  if (!fs.existsSync(dataFile)) return { users: [], invitations: [], passwordResets: [], stops: [], sessions: [] };
+  if (!fs.existsSync(dataFile)) return { users: [], invitations: [], passwordResets: [], stops: [], sessions: [], supportThreads: [], superAdminChallenges: [] };
   const parsed = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
   return {
     users: Array.isArray(parsed.users) ? parsed.users : [],
     invitations: Array.isArray(parsed.invitations) ? parsed.invitations : [],
     passwordResets: Array.isArray(parsed.passwordResets) ? parsed.passwordResets : [],
     stops: Array.isArray(parsed.stops) ? parsed.stops : [],
-    sessions: Array.isArray(parsed.sessions) ? parsed.sessions : []
+    sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+    supportThreads: Array.isArray(parsed.supportThreads) ? parsed.supportThreads : [],
+    superAdminChallenges: Array.isArray(parsed.superAdminChallenges) ? parsed.superAdminChallenges : []
   };
 }
 
@@ -59,7 +62,8 @@ function restoreStoredSessions() {
   for (const session of store.sessions) {
     if (session.expiresAt > Date.now()) sessions.set(session.token, {
       userId: session.userId,
-      expiresAt: session.expiresAt
+      expiresAt: session.expiresAt,
+      superAdminVerified: session.superAdminVerified === true
     });
   }
   store.sessions = store.sessions.filter(session => session.expiresAt > Date.now());
@@ -95,7 +99,9 @@ async function loadDatabaseStore(client) {
     invitations: Array.isArray(state.invitations) ? state.invitations : [],
     passwordResets: Array.isArray(state.passwordResets) ? state.passwordResets : [],
     stops: Array.isArray(state.stops) ? state.stops : [],
-    sessions: Array.isArray(state.sessions) ? state.sessions : []
+    sessions: Array.isArray(state.sessions) ? state.sessions : [],
+    supportThreads: Array.isArray(state.supportThreads) ? state.supportThreads : [],
+    superAdminChallenges: Array.isArray(state.superAdminChallenges) ? state.superAdminChallenges : []
   };
   restoreStoredSessions();
 }
@@ -217,18 +223,24 @@ function requireAdmin(request, response, next) {
   return next();
 }
 
+function requireSupportAccess(request, response, next) {
+  if (!request.user || !['ADMIN', 'DRIVER', 'CUSTOMER_CARE'].includes(request.user.role)) {
+    return response.status(403).json({ error: 'This account is not authorized to access support.' });
+  }
+  return next();
+}
+
 function isSuperAdmin(user) {
-  const ownerEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
-  return Boolean(ownerEmail && user?.role === 'ADMIN' && user.email?.toLowerCase() === ownerEmail);
+  return user?.role === 'ADMIN' && user.email?.trim().toLowerCase() === superAdminEmail;
 }
 
 function requireSuperAdmin(request, response, next) {
-  const ownerEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
-  if (!ownerEmail) {
-    return response.status(503).json({ error: 'Owner access is not configured. Set SUPER_ADMIN_EMAIL on the API server.' });
-  }
   if (!isSuperAdmin(request.user)) {
     return response.status(403).json({ error: 'This account is not authorized to access platform administration.' });
+  }
+  const session = sessions.get(request.cookies?.[sessionCookie]);
+  if (!session?.superAdminVerified) {
+    return response.status(401).json({ error: 'Owner email verification is required. Sign in again to request a code.' });
   }
   return next();
 }
@@ -256,13 +268,67 @@ function validEmail(value) {
     && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function classifySupportIssue(message) {
+  const normalized = message.toLowerCase();
+  if (/(bank|account|identity|passport|documents|private|invoice|payment|sensitive|customer data|address|phone number|otp|pin)/i.test(normalized)) {
+    return 'SENSITIVE';
+  }
+  if (/(login|log in|sign in|password|forgot password|reset password|locked out|access)/i.test(normalized)) {
+    return 'LOGIN';
+  }
+  if (/(track|tracking|location|where is|live location|driver location|route status)/i.test(normalized)) {
+    return 'TRACKING';
+  }
+  if (/(route|delivery|stop|late|missed|order|address)/i.test(normalized)) {
+    return 'DELIVERY';
+  }
+  return 'GENERAL';
+}
+
+function buildSupportBotReply(message) {
+  const issueType = classifySupportIssue(message);
+
+  if (issueType === 'LOGIN') {
+    return {
+      text: 'Your sign-in issue is usually solved by resetting your password from the login screen. If you still cannot access your account, reply with the email address on the account and a Customer Care agent will take over.',
+      escalated: false
+    };
+  }
+
+  if (issueType === 'TRACKING') {
+    return {
+      text: 'Check the live route list and map in the app first. If a driver is not sharing their location, ask them to enable live location sharing from their app screen. If the issue continues, I will escalate this to Customer Care.',
+      escalated: false
+    };
+  }
+
+  if (issueType === 'DELIVERY') {
+    return {
+      text: 'Please confirm the stop name or delivery address in your message so we can review the route. If this is a late delivery, missed stop, or wrong stop assignment, I have opened a case for Customer Care to review.',
+      escalated: true
+    };
+  }
+
+  if (issueType === 'SENSITIVE') {
+    return {
+      text: 'This looks like a private account or customer data issue, so I have escalated it to Customer Care immediately. Do not share passwords, OTP codes, or sensitive delivery details in the chat.',
+      escalated: true
+    };
+  }
+
+  return {
+    text: 'I have logged this issue and a Customer Care agent will review it. Please add the exact stop, route, email, or account detail so the team can resolve it quickly.',
+    escalated: true
+  };
+}
+
 function cleanText(value, maxLength) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
 }
 
-function issueSession(response, user, remember = true) {
+function issueSession(response, user, remember = true, superAdminVerified = false) {
   const token = crypto.randomBytes(32).toString('base64url');
-  const session = { userId: user.id, expiresAt: Date.now() + 12 * 60 * 60 * 1000 };
+  const session = { userId: user.id, expiresAt: Date.now() + 12 * 60 * 60 * 1000, superAdminVerified };
   sessions.set(token, session);
   store.sessions = [...store.sessions.filter(item => item.token !== token), { token, ...session }];
   writeStore();
@@ -391,6 +457,16 @@ app.get('/api/auth/session', (request, response) => {
   return response.json({ user });
 });
 
+app.get('/api/super-admin/session', (request, response) => {
+  const user = sessionUser(request);
+  if (!user) return response.json({ status: 'signed-out' });
+  if (!isSuperAdmin(user)) return response.json({ status: 'denied', user });
+
+  const session = sessions.get(request.cookies?.[sessionCookie]);
+  if (!session?.superAdminVerified) return response.json({ status: 'needs-verification', user });
+  return response.json({ status: 'ready', user });
+});
+
 app.get('/api/super-admin/overview', requireUser, requireSuperAdmin, (request, response) => {
   const admins = store.users.filter(user => user.role === 'ADMIN');
   const drivers = store.users.filter(user => user.role === 'DRIVER');
@@ -450,6 +526,21 @@ app.get('/api/super-admin/overview', requireUser, requireSuperAdmin, (request, r
     drivers: safeDrivers,
     deliveries,
     invitations,
+    supportThreads: store.supportThreads
+      .slice()
+      .sort((left, right) => new Date(right.updatedAt || right.createdAt).getTime() - new Date(left.updatedAt || left.createdAt).getTime())
+      .map(thread => ({
+        id: thread.id,
+        userId: thread.userId,
+        userName: thread.userName,
+        userRole: thread.userRole,
+        caseId: thread.caseId,
+        status: thread.status,
+        assignedTo: thread.assignedTo || 'CUSTOMER_CARE',
+        escalatedAt: thread.escalatedAt || null,
+        updatedAt: thread.updatedAt || thread.createdAt,
+        messages: (thread.messages || []).slice(-2)
+      })),
     health: {
       status: 'OPERATIONAL',
       storage: usesDatabase ? 'PostgreSQL' : 'Local JSON',
@@ -607,6 +698,113 @@ app.get('/api/users', requireUser, (request, response) => {
     user.id === ownerAdminId || user.ownerAdminId === ownerAdminId
   );
   return response.json({ users: users.map(publicUser) });
+});
+
+app.get('/api/support/threads', requireUser, requireSupportAccess, (request, response) => {
+  const visibleThreads = store.supportThreads.filter(thread => {
+    if (request.user.role === 'CUSTOMER_CARE' || isSuperAdmin(request.user)) return true;
+    return thread.userId === request.user.id;
+  }).sort((left, right) => new Date(right.updatedAt || right.createdAt).getTime() - new Date(left.updatedAt || left.createdAt).getTime());
+
+  response.json({
+    threads: visibleThreads.map(thread => ({
+      ...thread,
+      messages: Array.isArray(thread.messages) ? thread.messages.slice(-12) : []
+    }))
+  });
+});
+
+app.post('/api/support/chat', requireUser, requireSupportAccess, (request, response) => {
+  const message = cleanText(request.body.message, 2000);
+  if (!message) return response.status(400).json({ error: 'Type a question or issue before sending.' });
+
+  const threadId = cleanText(request.body.threadId, 128);
+  let thread = threadId
+    ? store.supportThreads.find(item => item.id === threadId && item.userId === request.user.id)
+    : null;
+
+  if (!thread) {
+    thread = {
+      id: `support-${crypto.randomUUID()}`,
+      userId: request.user.id,
+      userName: request.user.name,
+      userRole: request.user.role,
+      caseId: `CASE-${Date.now().toString().slice(-6)}`,
+      status: 'OPEN',
+      assignedTo: 'CUSTOMER_CARE',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      messages: []
+    };
+    store.supportThreads.unshift(thread);
+  }
+
+  const userMessage = {
+    id: crypto.randomUUID(),
+    sender: 'USER',
+    text: message,
+    createdAt: new Date().toISOString()
+  };
+  thread.messages = [...(thread.messages || []), userMessage];
+
+  const reply = buildSupportBotReply(message);
+  if (reply.escalated || thread.status === 'ESCALATED') {
+    thread.status = 'ESCALATED';
+    thread.assignedTo = 'CUSTOMER_CARE';
+    thread.escalatedAt = new Date().toISOString();
+  }
+
+  const botMessage = {
+    id: crypto.randomUUID(),
+    sender: 'BOT',
+    text: reply.text,
+    createdAt: new Date().toISOString(),
+    escalated: reply.escalated
+  };
+
+  thread.messages = [...(thread.messages || []), botMessage];
+  thread.updatedAt = new Date().toISOString();
+  writeStore();
+
+  return response.json({
+    thread: {
+      ...thread,
+      messages: thread.messages.slice(-12)
+    },
+    reply: botMessage
+  });
+});
+
+app.post('/api/super-admin/customer-care', requireUser, requireSuperAdmin, rateLimit({ limit: 8 }), (request, response) => {
+  const name = cleanText(request.body.name, 100) || 'Customer Care';
+  const email = cleanText(request.body.email, 254).toLowerCase();
+  const password = request.body.password;
+
+  if (!validEmail(email)) {
+    return response.status(400).json({ error: 'Enter a valid email address for the Customer Care account.' });
+  }
+  if (typeof password !== 'string' || password.length < 8) {
+    return response.status(400).json({ error: 'Choose a temporary password with at least 8 characters.' });
+  }
+  if (store.users.some(user => user.email === email)) {
+    return response.status(409).json({ error: 'An account already exists for that email.' });
+  }
+
+  const user = {
+    id: crypto.randomUUID(),
+    name,
+    email,
+    ...passwordHash(password),
+    role: 'CUSTOMER_CARE',
+    orgName: 'Customer Care',
+    ownerAdminId: request.user.id,
+    status: 'ACTIVE',
+    createdAt: new Date().toISOString()
+  };
+
+  store.users.push(user);
+  writeStore();
+  return response.status(201).json({ user: publicUser(user) });
 });
 
 app.get('/api/stops', requireUser, (request, response) => {

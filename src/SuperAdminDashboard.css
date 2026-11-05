@@ -806,6 +806,17 @@
   opacity: 0.65;
 }
 
+.sa-access-card > .sa-secondary-action {
+  min-height: 34px;
+  border: 1px solid var(--sa-border);
+  background: white;
+  color: #374151;
+}
+
+.sa-access-card > .sa-secondary-action:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
 .sa-access-card > a {
   color: #6b7280;
   font-size: 10px;
@@ -833,6 +844,109 @@
 
 .sa-access-message > p {
   overflow-wrap: anywhere;
+}
+
+.sa-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sa-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #374151;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.sa-form-grid input {
+  min-height: 38px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: white;
+  color: #111827;
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+  padding: 0 10px;
+}
+
+.sa-form-grid input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+}
+
+.sa-form-grid label:last-of-type {
+  grid-column: 1 / -1;
+}
+
+.sa-form-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  grid-column: 1 / -1;
+}
+
+.sa-form-actions button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: #1d4ed8;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 750;
+  padding: 0 14px;
+}
+
+.sa-success-message {
+  margin-top: 10px;
+  color: #166534 !important;
+  font-size: 10px !important;
+  font-weight: 700;
+}
+
+.sa-support-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.sa-support-item {
+  border: 1px solid var(--sa-border);
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.sa-support-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.sa-support-item strong {
+  color: #111827;
+  font-size: 10px;
+}
+
+.sa-support-item small {
+  display: block;
+  color: #6b7280;
+  font-size: 8px;
+}
+
+.sa-support-item p {
+  margin: 7px 0 0;
+  color: #374151;
+  font-size: 9px;
+  line-height: 1.5;
 }
 
 @media (max-width: 900px) {

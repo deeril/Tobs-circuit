@@ -9,6 +9,7 @@ import {
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, Users, UserPlus, Shield, PenTool,
  Send, ArrowDownUp, Copy, LogOut, User, Phone, ArrowUp, ArrowDown,
+ MessageSquare,
  BellRing, Eye, EyeOff, Maximize2, Minimize2
 } from 'lucide-react';
 
@@ -757,6 +758,12 @@ const [authError, setAuthError] = useState('');
   const [, setGoogleMapReady] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef(null);
+  const [supportChatOpen, setSupportChatOpen] = useState(false);
+  const [supportThreads, setSupportThreads] = useState([]);
+  const [supportThreadId, setSupportThreadId] = useState('');
+  const [supportDraft, setSupportDraft] = useState('');
+  const [supportBusy, setSupportBusy] = useState(false);
+  const [supportError, setSupportError] = useState('');
   const [activeDriverId, setActiveDriverId] = useState('');
   const [selectedStopId, setSelectedStopId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -788,6 +795,24 @@ const [authError, setAuthError] = useState('');
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [profileMenuOpen]);
+
+  useEffect(() => {
+    if (!currentUser || !['ADMIN', 'DRIVER'].includes(currentUser.role)) return undefined;
+
+    let cancelled = false;
+    apiRequest('/api/support/threads')
+      .then(({ threads = [] }) => {
+        if (cancelled) return;
+        setSupportThreads(threads);
+      })
+      .catch(() => {
+        if (!cancelled) setSupportThreads([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser]);
   // GPS State
   const [isGpsActive, setIsGpsActive] = useState(false);
   const [gpsPos, setGpsPos] = useState(null);
@@ -1137,11 +1162,51 @@ const [authError, setAuthError] = useState('');
     setCurrentUser(null);
     setUsers([]);
     setInvites([]);
+    setSupportThreads([]);
+    setSupportThreadId('');
     setRouteDataReady(false);
     setIsPreviewSession(false);
     setAuthTab('LOGIN');
     setAuthRole('ADMIN');
   };
+
+  const sendSupportMessage = async (event) => {
+    event.preventDefault();
+    if (!currentUser || !['ADMIN', 'DRIVER'].includes(currentUser.role)) return;
+    const trimmed = supportDraft.trim();
+    if (!trimmed) {
+      setSupportError('Type a question or issue before sending.');
+      return;
+    }
+
+    setSupportBusy(true);
+    setSupportError('');
+    try {
+      const { thread, reply } = await apiRequest('/api/support/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          threadId: supportThreadId || activeSupportThread?.id || undefined,
+          message: trimmed
+        })
+      });
+
+      setSupportThreadId(thread.id);
+      setSupportThreads(prev => {
+        const next = prev.filter(item => item.id !== thread.id);
+        return [thread, ...next];
+      });
+      setSupportDraft('');
+      if (reply?.text) {
+        setSupportError('');
+      }
+    } catch (error) {
+      setSupportError(error.message);
+    } finally {
+      setSupportBusy(false);
+    }
+  };
+
+  const activeSupportThread = supportThreads.find(thread => thread.id === supportThreadId) || supportThreads[0] || null;
 
   const profileMenu = currentUser && (
     <div className="relative flex items-center space-x-2" ref={profileMenuRef}>
@@ -1214,6 +1279,18 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 />
                 {logoUploadError && <span role="alert" className="mt-1 block text-[9px] text-rose-700">{logoUploadError}</span>}
               </label>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setSupportChatOpen(true);
+                  setProfileMenuOpen(false);
+                }}
+                className="profile-menu-item"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>Customer Care chat</span>
+              </button>
               <button
                 type="button"
                 role="menuitem"
@@ -1603,6 +1680,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
       );
     }
+
   };
 
   // --- GOOGLE MAPS DIRECT NAVIGATION ---
@@ -3516,6 +3594,76 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
           </div>
         </div>
+      )}
+
+      {currentUser && ['ADMIN', 'DRIVER'].includes(currentUser.role) && supportChatOpen && createPortal(
+        <div className="fixed inset-0 z-[100000] flex items-end justify-end bg-slate-950/35 p-3 sm:items-center sm:justify-center sm:p-6" onClick={() => setSupportChatOpen(false)}>
+          <div
+            className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 bg-violet-700 px-4 py-3 text-white">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-100">Support</p>
+                <h3 className="text-base font-extrabold">Customer Care bot</h3>
+              </div>
+              <button type="button" onClick={() => setSupportChatOpen(false)} className="rounded-full border border-white/30 p-1.5 hover:bg-white/10" aria-label="Close support chat">
+                <XCircle className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] space-y-3 overflow-y-auto bg-slate-50 p-4">
+              {(activeSupportThread?.messages || []).map(message => (
+                <div
+                  key={message.id}
+                  className={`flex ${message.sender === 'USER' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                      message.sender === 'USER'
+                        ? 'bg-violet-700 text-white'
+                        : 'border border-slate-200 bg-white text-slate-700'
+                    }`}
+                  >
+                    {message.text}
+                  </div>
+                </div>
+              ))}
+
+              {(!activeSupportThread || !activeSupportThread.messages?.length) && (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-3 text-[11px] text-slate-500">
+                  Ask about login, route, tracking, or delivery issues. Every chat creates a Customer Care case automatically.
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={sendSupportMessage} className="border-t border-slate-200 bg-white p-3">
+              {supportError && <p className="mb-2 text-[10px] font-semibold text-rose-700">{supportError}</p>}
+              <label htmlFor="support-chat-message" className="sr-only">Support message</label>
+              <textarea
+                id="support-chat-message"
+                rows={3}
+                value={supportDraft}
+                onChange={event => setSupportDraft(event.target.value)}
+                placeholder="Describe your issue..."
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-800 outline-none focus:border-violet-500"
+              />
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <span className="text-[10px] text-slate-500">
+                  {activeSupportThread?.caseId ? `Case ${activeSupportThread.caseId}` : 'New case'}
+                </span>
+                <button
+                  type="submit"
+                  disabled={supportBusy}
+                  className="rounded-xl bg-violet-700 px-3.5 py-2 text-[11px] font-extrabold text-white hover:bg-violet-800 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {supportBusy ? 'Sending...' : 'Send'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* --- MODAL 3: DELIVERY CONFIRMATION --- */}

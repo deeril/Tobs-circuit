@@ -136,40 +136,82 @@ function UnavailableSection({ title, children }) {
   );
 }
 
-function OwnerSignIn({ onSubmit, busy, error }) {
-  const [email, setEmail] = useState('');
+function OwnerSignIn({ onRequestCode, onVerifyCode, busy, error }) {
+  const email = 'ayodeletobs@gmail.com';
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+
+  const requestCode = async () => {
+    try {
+      const challenge = await onRequestCode(email, password);
+      setChallengeId(challenge.challengeId);
+      setCode('');
+    } catch {
+      return;
+    }
+  };
+
+  const handleSubmit = async event => {
+    event.preventDefault();
+    if (challengeId) {
+      await onVerifyCode(challengeId, code);
+      return;
+    }
+    await requestCode();
+  };
 
   return (
     <main className="sa-access-page">
-      <form className="sa-access-card" onSubmit={event => onSubmit(event, email, password)}>
+      <form className="sa-access-card" onSubmit={handleSubmit}>
         <img src={brandLogo} alt="" />
         <span className="sa-eyebrow">PRIVATE PLATFORM ACCESS</span>
-        <h1>Owner sign in</h1>
-        <p>Sign in with your existing Tobs Circuit administrator account.</p>
-        <label>
-          Email address
-          <input
-            type="email"
-            autoComplete="username"
-            required
-            value={email}
-            onChange={event => setEmail(event.target.value)}
-          />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={event => setPassword(event.target.value)}
-          />
-        </label>
+        <h1>{challengeId ? 'Verify your email' : 'Owner sign in'}</h1>
+        <p>{challengeId
+          ? 'Enter the one-time code sent to ayodeletobs@gmail.com. The code expires in 10 minutes.'
+          : 'A one-time code will be sent to the registered owner email after your password is verified.'}</p>
+        {!challengeId ? (
+          <>
+            <label>
+              Registered owner email
+              <input type="email" autoComplete="username" value={email} readOnly />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={event => setPassword(event.target.value)}
+              />
+            </label>
+          </>
+        ) : (
+          <label>
+            Six-digit sign-in code
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              required
+              value={code}
+              onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+            />
+          </label>
+        )}
         {error && <p className="sa-access-error" role="alert">{error}</p>}
-        <button type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in securely'}</button>
-        <span className="sa-access-footnote"><Shield size={13} /> Access is checked again by the server.</span>
+        <button type="submit" disabled={busy}>{busy
+          ? challengeId ? 'Verifying…' : 'Sending code…'
+          : challengeId ? 'Verify and sign in' : 'Email me a sign-in code'}</button>
+        {challengeId && (
+          <button type="button" className="sa-secondary-action" disabled={busy} onClick={requestCode}>
+            Send a new code
+          </button>
+        )}
+        <span className="sa-access-footnote"><Shield size={13} /> Owner access requires a password and a one-time email code.</span>
       </form>
     </main>
   );
@@ -201,9 +243,17 @@ export default function SuperAdminDashboard() {
   const [accessError, setAccessError] = useState('');
   const [refreshError, setRefreshError] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [customerCareForm, setCustomerCareForm] = useState({
+    name: 'Customer Care',
+    email: '',
+    password: ''
+  });
+  const [customerCareBusy, setCustomerCareBusy] = useState(false);
+  const [customerCareError, setCustomerCareError] = useState('');
+  const [customerCareNotice, setCustomerCareNotice] = useState('');
 
   const updateAccessError = error => {
-    setAccessError(error.message);
+    setAccessError(error.status === 401 && error.message === 'No active session.' ? '' : error.message);
     setAccessState(error.status === 401
       ? 'signed-out'
       : error.status === 403
@@ -223,9 +273,24 @@ export default function SuperAdminDashboard() {
     let cancelled = false;
     const restoreOwnerAccess = async () => {
       try {
-        const { user: sessionUser } = await superAdminRequest('/api/auth/session');
+        const sessionData = await superAdminRequest('/api/super-admin/session');
         if (cancelled) return;
-        setUser(sessionUser);
+        if (sessionData.status === 'signed-out') {
+          setAccessState('signed-out');
+          return;
+        }
+        if (sessionData.status === 'denied') {
+          setUser(sessionData.user);
+          setAccessState('denied');
+          return;
+        }
+        if (sessionData.status === 'needs-verification') {
+          setUser(sessionData.user);
+          setAccessError('Your owner session needs email verification. Sign in again to request a code.');
+          setAccessState('signed-out');
+          return;
+        }
+        setUser(sessionData.user);
         const data = await superAdminRequest('/api/super-admin/overview');
         if (cancelled) return;
         setOverview(data);
@@ -264,20 +329,35 @@ export default function SuperAdminDashboard() {
     };
   }, [overview, search]);
 
-  const signIn = async (event, email, password) => {
-    event.preventDefault();
+  const requestSignInCode = async (email, password) => {
     setIsSigningIn(true);
     setAccessError('');
     try {
-      const { user: signedInUser } = await superAdminRequest('/api/auth/login', {
+      return await superAdminRequest('/api/super-admin/login/request-code', {
         method: 'POST',
         body: { email, password, remember: true }
+      });
+    } catch (error) {
+      setAccessError(error.message);
+      throw error;
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const verifySignInCode = async (challengeId, code) => {
+    setIsSigningIn(true);
+    setAccessError('');
+    try {
+      const { user: signedInUser } = await superAdminRequest('/api/super-admin/login/verify-code', {
+        method: 'POST',
+        body: { challengeId, code }
       });
       setUser(signedInUser);
       await loadOverview();
       setAccessState('ready');
     } catch (error) {
-      updateAccessError(error);
+      setAccessError(error.message);
     } finally {
       setIsSigningIn(false);
     }
@@ -301,11 +381,41 @@ export default function SuperAdminDashboard() {
     setSearch('');
   };
 
+  const createCustomerCareAccount = async (event) => {
+    event.preventDefault();
+    setCustomerCareError('');
+    setCustomerCareNotice('');
+
+    if (!customerCareForm.email || !customerCareForm.password) {
+      setCustomerCareError('Enter the Customer Care email address and a temporary password.');
+      return;
+    }
+
+    setCustomerCareBusy(true);
+    try {
+      const { user } = await superAdminRequest('/api/super-admin/customer-care', {
+        method: 'POST',
+        body: {
+          name: customerCareForm.name || 'Customer Care',
+          email: customerCareForm.email,
+          password: customerCareForm.password
+        }
+      });
+      setCustomerCareNotice(`Customer Care account created for ${user.email}.`);
+      setCustomerCareForm({ name: 'Customer Care', email: '', password: '' });
+      await loadOverview();
+    } catch (error) {
+      setCustomerCareError(error.message);
+    } finally {
+      setCustomerCareBusy(false);
+    }
+  };
+
   if (accessState === 'loading') {
     return <AccessMessage title="Checking owner access" message="Verifying your signed-in account with the platform API…" />;
   }
   if (accessState === 'signed-out') {
-    return <OwnerSignIn onSubmit={signIn} busy={isSigningIn} error={accessError} />;
+    return <OwnerSignIn onRequestCode={requestSignInCode} onVerifyCode={verifySignInCode} busy={isSigningIn} error={accessError} />;
   }
   if (accessState === 'denied') {
     return (
@@ -501,7 +611,64 @@ export default function SuperAdminDashboard() {
             </>
           )}
           {activePage === 'FINANCIAL' && <UnavailableSection title="Financial Management">Subscriptions, invoices, and payment transactions are not currently stored or connected to a billing provider.</UnavailableSection>}
-          {activePage === 'SUPPORT' && <UnavailableSection title="Support & Disputes">A support channel was not selected for this release. No support tickets, disputes, or live chat records are stored in the app yet.</UnavailableSection>}
+          {activePage === 'SUPPORT' && (
+            <section className="sa-card">
+              <CardHeading title="Support & Disputes" detail="Protected support queue and Customer Care account management" />
+              <Notice tone="info">Only the configured platform owner email can create the Customer Care mini-admin account. The temporary password is entered once by the owner and the account is created immediately.</Notice>
+
+              <form className="sa-form-grid" onSubmit={createCustomerCareAccount}>
+                <label>
+                  Customer Care name
+                  <input
+                    type="text"
+                    value={customerCareForm.name}
+                    onChange={event => setCustomerCareForm(prev => ({ ...prev, name: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Email address
+                  <input
+                    type="email"
+                    value={customerCareForm.email}
+                    onChange={event => setCustomerCareForm(prev => ({ ...prev, email: event.target.value }))}
+                    placeholder="support@example.com"
+                  />
+                </label>
+                <label>
+                  Temporary password
+                  <input
+                    type="password"
+                    value={customerCareForm.password}
+                    onChange={event => setCustomerCareForm(prev => ({ ...prev, password: event.target.value }))}
+                    placeholder="At least 8 characters"
+                  />
+                </label>
+                <div className="sa-form-actions">
+                  <button type="submit" disabled={customerCareBusy}>{customerCareBusy ? 'Creating…' : 'Create Customer Care account'}</button>
+                </div>
+              </form>
+
+              {customerCareError && <p className="sa-access-error" role="alert">{customerCareError}</p>}
+              {customerCareNotice && <p className="sa-success-message" role="status">{customerCareNotice}</p>}
+
+              <div className="sa-support-list">
+                {overview.supportThreads?.length ? (
+                  overview.supportThreads.map(thread => (
+                    <div key={thread.id} className="sa-support-item">
+                      <div className="sa-support-header">
+                        <strong>{thread.userName}</strong>
+                        <StatusBadge value={thread.status} />
+                      </div>
+                      <small>{thread.caseId} · {thread.assignedTo}</small>
+                      <p>{(thread.messages?.[thread.messages.length - 1]?.text) || 'No message recorded yet.'}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="sa-empty-note">No support chats or escalations have been created yet.</p>
+                )}
+              </div>
+            </section>
+          )}
           {activePage === 'NOTIFICATIONS' && <UnavailableSection title="Notifications">The app can send invitation and password emails, but it does not keep a platform-wide notification or delivery log.</UnavailableSection>}
           {activePage === 'PERMISSIONS' && (
             <section className="sa-card">
