@@ -457,6 +457,93 @@ app.get('/api/auth/session', (request, response) => {
   return response.json({ user });
 });
 
+app.post('/api/super-admin/login/request-code', rateLimit({ limit: 5 }), async (request, response) => {
+  const email = cleanText(request.body.email, 254).toLowerCase();
+  const password = request.body.password;
+  const user = store.users.find(item =>
+    item.role === 'ADMIN' && item.email?.toLowerCase() === superAdminEmail
+  );
+
+  if (email !== superAdminEmail || !user || typeof password !== 'string' || !verifyPassword(password, user)) {
+    return response.status(401).json({ error: 'The owner email or password is incorrect.' });
+  }
+
+  let transporter;
+  try {
+    transporter = createTransport();
+  } catch (error) {
+    logEmailFailure('Super Admin verification code could not be sent:', error);
+    return response.status(503).json({ error: 'Owner sign-in email is not configured. Contact the platform administrator.' });
+  }
+
+  const code = crypto.randomInt(100_000, 1_000_000).toString();
+  const { passwordHash: codeHash, passwordSalt: codeSalt } = passwordHash(code);
+  const challenge = {
+    id: crypto.randomBytes(32).toString('base64url'),
+    userId: user.id,
+    email: superAdminEmail,
+    codeHash,
+    codeSalt,
+    attempts: 0,
+    expiresAt: Date.now() + 10 * 60 * 1000
+  };
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM,
+      to: superAdminEmail,
+      subject: 'Your Tobs Circuit Super Admin sign-in code',
+      text: `Your one-time Super Admin sign-in code is ${code}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
+      html: `<p>Your one-time Super Admin sign-in code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>It expires in 10 minutes. If you did not request this code, you can ignore this email.</p>`
+    });
+  } catch (error) {
+    logEmailFailure('Super Admin verification code could not be sent:', error);
+    return response.status(503).json({ error: emailFailureMessage(error) });
+  }
+
+  store.superAdminChallenges = [
+    ...store.superAdminChallenges.filter(item => item.expiresAt > Date.now() && item.userId !== user.id),
+    challenge
+  ];
+  writeStore();
+  return response.json({
+    challengeId: challenge.id,
+    message: `A one-time code was sent to ${superAdminEmail}.`
+  });
+});
+
+app.post('/api/super-admin/login/verify-code', rateLimit({ limit: 10 }), (request, response) => {
+  const challengeId = cleanText(request.body.challengeId, 128);
+  const code = cleanText(request.body.code, 6);
+  const challenge = store.superAdminChallenges.find(item => item.id === challengeId);
+
+  if (!challenge || challenge.expiresAt <= Date.now() || !/^\d{6}$/.test(code)) {
+    return response.status(401).json({ error: 'The sign-in code is invalid or expired. Request a new code.' });
+  }
+
+  challenge.attempts += 1;
+  if (!verifyPassword(code, { passwordSalt: challenge.codeSalt, passwordHash: challenge.codeHash })) {
+    if (challenge.attempts >= 5) {
+      store.superAdminChallenges = store.superAdminChallenges.filter(item => item.id !== challenge.id);
+    }
+    writeStore();
+    return response.status(401).json({ error: challenge.attempts >= 5
+      ? 'Too many incorrect codes. Request a new sign-in code.'
+      : 'The sign-in code is incorrect.' });
+  }
+
+  const user = store.users.find(item =>
+    item.id === challenge.userId && item.role === 'ADMIN' && item.email?.toLowerCase() === superAdminEmail
+  );
+  store.superAdminChallenges = store.superAdminChallenges.filter(item => item.id !== challenge.id);
+  if (!user) {
+    writeStore();
+    return response.status(401).json({ error: 'The owner account is no longer available.' });
+  }
+
+  return response.json({ user: issueSession(response, user, true, true) });
+});
+
 app.get('/api/super-admin/session', (request, response) => {
   const user = sessionUser(request);
   if (!user) return response.json({ status: 'signed-out' });
