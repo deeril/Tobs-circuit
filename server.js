@@ -230,13 +230,6 @@ function requireSupportAccess(request, response, next) {
   return next();
 }
 
-function requireCustomerCare(request, response, next) {
-  if (request.user?.role !== 'CUSTOMER_CARE') {
-    return response.status(403).json({ error: 'Only Customer Care accounts can reply to support cases.' });
-  }
-  return next();
-}
-
 function isSuperAdmin(user) {
   return user?.role === 'ADMIN' && user.email?.trim().toLowerCase() === superAdminEmail;
 }
@@ -913,16 +906,22 @@ app.post('/api/support/chat', requireUser, requireSupportAccess, (request, respo
 });
 
 app.get('/api/super-admin/customer-care', requireUser, requireSupportAccess, (request, response) => {
-  const visibleThreads = store.supportThreads.filter(thread =>
-    request.user.role === 'CUSTOMER_CARE' || isSuperAdmin(request.user) || thread.userId === request.user.id
-  ).sort((left, right) => new Date(right.updatedAt || right.createdAt).getTime() - new Date(left.updatedAt || left.createdAt).getTime());
+  const sendThreads = () => {
+    const visibleThreads = store.supportThreads.filter(thread =>
+      request.user.role === 'CUSTOMER_CARE' || isSuperAdmin(request.user) || thread.userId === request.user.id
+    ).sort((left, right) => new Date(right.updatedAt || right.createdAt).getTime() - new Date(left.updatedAt || left.createdAt).getTime());
 
-  return response.json({
-    threads: visibleThreads.map(thread => ({
-      ...thread,
-      messages: Array.isArray(thread.messages) ? thread.messages.slice(-12) : []
-    }))
-  });
+    return response.json({
+      threads: visibleThreads.map(thread => ({
+        ...thread,
+        messages: Array.isArray(thread.messages) ? thread.messages.slice(-12) : []
+      }))
+    });
+  };
+
+  return isSuperAdmin(request.user)
+    ? requireSuperAdmin(request, response, sendThreads)
+    : sendThreads();
 });
 
 app.post('/api/super-admin/customer-care', requireUser, rateLimit({ limit: 30 }), (request, response, next) => {
@@ -985,49 +984,59 @@ app.post('/api/super-admin/customer-care', requireUser, rateLimit({ limit: 30 })
   }
 
   if (action === 'reply') {
-    if (request.user.role !== 'CUSTOMER_CARE') {
-      return response.status(403).json({ error: 'Only Customer Care accounts can reply to support cases.' });
-    }
-    const text = cleanText(request.body.text, 2000);
-    if (!text) return response.status(400).json({ error: 'Write a reply before sending.' });
-    const threadId = cleanText(request.body.threadId, 128);
-    const thread = store.supportThreads.find(item => item.id === threadId);
-    if (!thread) return response.status(404).json({ error: 'Support case not found.' });
+    const sendReply = () => {
+      const text = cleanText(request.body.text, 2000);
+      if (!text) return response.status(400).json({ error: 'Write a reply before sending.' });
+      const threadId = cleanText(request.body.threadId, 128);
+      const thread = store.supportThreads.find(item => item.id === threadId);
+      if (!thread) return response.status(404).json({ error: 'Support case not found.' });
 
-    const reply = {
-      id: crypto.randomUUID(),
-      sender: 'CUSTOMER_CARE',
-      senderName: request.user.name,
-      text,
-      createdAt: new Date().toISOString()
+      const isOwnerReply = isSuperAdmin(request.user);
+      const reply = {
+        id: crypto.randomUUID(),
+        sender: isOwnerReply ? 'SUPER_ADMIN' : 'CUSTOMER_CARE',
+        senderName: isOwnerReply ? 'Super Admin' : request.user.name,
+        text,
+        createdAt: new Date().toISOString()
+      };
+      thread.messages = [...(thread.messages || []), reply];
+      thread.status = 'IN_PROGRESS';
+      thread.assignedTo = isOwnerReply ? 'SUPER_ADMIN' : request.user.email;
+      thread.updatedAt = reply.createdAt;
+      delete thread.resolvedAt;
+      writeStore();
+      return response.json({ thread: { ...thread, messages: thread.messages.slice(-12) } });
     };
-    thread.messages = [...(thread.messages || []), reply];
-    thread.status = 'IN_PROGRESS';
-    thread.assignedTo = request.user.email;
-    thread.updatedAt = reply.createdAt;
-    delete thread.resolvedAt;
-    writeStore();
-    return response.json({ thread: { ...thread, messages: thread.messages.slice(-12) } });
+
+    if (request.user.role === 'CUSTOMER_CARE') return sendReply();
+    if (isSuperAdmin(request.user)) return requireSuperAdmin(request, response, sendReply);
+    return response.status(403).json({ error: 'Only Customer Care or a verified Super Admin can reply to support cases.' });
   }
 
   return next();
 });
 
-app.patch('/api/super-admin/customer-care', requireUser, requireCustomerCare, (request, response) => {
-  const threadId = cleanText(request.body.threadId, 128);
-  const status = cleanText(request.body.status, 20);
-  if (!['OPEN', 'IN_PROGRESS', 'RESOLVED'].includes(status)) {
-    return response.status(400).json({ error: 'The support case status is invalid.' });
-  }
-  const thread = store.supportThreads.find(item => item.id === threadId);
-  if (!thread) return response.status(404).json({ error: 'Support case not found.' });
+app.patch('/api/super-admin/customer-care', requireUser, (request, response) => {
+  const updateStatus = () => {
+    const threadId = cleanText(request.body.threadId, 128);
+    const status = cleanText(request.body.status, 20);
+    if (!['OPEN', 'IN_PROGRESS', 'RESOLVED'].includes(status)) {
+      return response.status(400).json({ error: 'The support case status is invalid.' });
+    }
+    const thread = store.supportThreads.find(item => item.id === threadId);
+    if (!thread) return response.status(404).json({ error: 'Support case not found.' });
 
-  thread.status = status;
-  thread.updatedAt = new Date().toISOString();
-  if (status === 'RESOLVED') thread.resolvedAt = thread.updatedAt;
-  else delete thread.resolvedAt;
-  writeStore();
-  return response.json({ thread: { ...thread, messages: (thread.messages || []).slice(-12) } });
+    thread.status = status;
+    thread.updatedAt = new Date().toISOString();
+    if (status === 'RESOLVED') thread.resolvedAt = thread.updatedAt;
+    else delete thread.resolvedAt;
+    writeStore();
+    return response.json({ thread: { ...thread, messages: (thread.messages || []).slice(-12) } });
+  };
+
+  if (request.user.role === 'CUSTOMER_CARE') return updateStatus();
+  if (isSuperAdmin(request.user)) return requireSuperAdmin(request, response, updateStatus);
+  return response.status(403).json({ error: 'Only Customer Care or a verified Super Admin can update support cases.' });
 });
 
 app.post('/api/super-admin/customer-care', requireUser, requireSuperAdmin, rateLimit({ limit: 8 }), (request, response) => {

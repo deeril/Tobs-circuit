@@ -229,11 +229,12 @@ export default function CustomerCareDashboard({ currentUser, onLogout, request }
                 </div>
                 {(selectedThread.messages || []).map(message => {
                   const isAgent = message.sender === 'CUSTOMER_CARE';
+                  const isOwner = message.sender === 'SUPER_ADMIN';
                   const isUser = message.sender === 'USER';
                   return (
                     <div className={`cc-message-row ${isUser ? 'from-user' : 'from-team'}`} key={message.id}>
-                      <div className={`cc-message ${isUser ? 'is-user' : isAgent ? 'is-agent' : 'is-bot'}`}>
-                        <span className="cc-message-sender">{isUser ? selectedThread.userName : isAgent ? message.senderName || 'Customer Care' : 'Support bot'}</span>
+                      <div className={`cc-message ${isUser ? 'is-user' : isOwner ? 'is-owner' : isAgent ? 'is-agent' : 'is-bot'}`}>
+                        <span className="cc-message-sender">{isUser ? selectedThread.userName : isOwner ? message.senderName || 'Super Admin' : isAgent ? message.senderName || 'Customer Care' : 'Support bot'}</span>
                         <p>{message.text}</p>
                         <time>{formatTime(message.createdAt)}</time>
                       </div>

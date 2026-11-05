@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   Bell,
   Building2,
+  CheckCheck,
   CheckCircle2,
   ChevronDown,
   ClipboardList,
@@ -21,6 +22,7 @@ import {
   Package,
   Search,
   Settings,
+  Send,
   Shield,
   ShieldAlert,
   Truck,
@@ -251,6 +253,11 @@ export default function SuperAdminDashboard() {
   const [customerCareBusy, setCustomerCareBusy] = useState(false);
   const [customerCareError, setCustomerCareError] = useState('');
   const [customerCareNotice, setCustomerCareNotice] = useState('');
+  const [supportThreads, setSupportThreads] = useState([]);
+  const [selectedSupportThreadId, setSelectedSupportThreadId] = useState('');
+  const [supportReplyDraft, setSupportReplyDraft] = useState('');
+  const [supportReplyBusy, setSupportReplyBusy] = useState(false);
+  const [supportThreadError, setSupportThreadError] = useState('');
 
   const updateAccessError = error => {
     setAccessError(error.status === 401 && error.message === 'No active session.' ? '' : error.message);
@@ -314,6 +321,30 @@ export default function SuperAdminDashboard() {
     return () => window.clearInterval(timerId);
   }, [accessState]);
 
+  useEffect(() => {
+    if (accessState !== 'ready' || activePage !== 'SUPPORT') return undefined;
+    let cancelled = false;
+    const loadSupportThreads = async () => {
+      try {
+        const { threads = [] } = await superAdminRequest('/api/super-admin/customer-care?view=threads');
+        if (cancelled) return;
+        setSupportThreads(threads);
+        setSelectedSupportThreadId(previous => previous && threads.some(thread => thread.id === previous)
+          ? previous
+          : threads[0]?.id || '');
+        setSupportThreadError('');
+      } catch (error) {
+        if (!cancelled) setSupportThreadError(error.message);
+      }
+    };
+    loadSupportThreads();
+    const timerId = window.setInterval(loadSupportThreads, REFRESH_INTERVAL);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+    };
+  }, [accessState, activePage]);
+
   const filtered = useMemo(() => {
     if (!overview) return { businesses: [], drivers: [], deliveries: [], invitations: [] };
     const query = search.trim().toLowerCase();
@@ -328,6 +359,8 @@ export default function SuperAdminDashboard() {
       invitations: overview.invitations.filter(includesQuery)
     };
   }, [overview, search]);
+
+  const selectedSupportThread = supportThreads.find(thread => thread.id === selectedSupportThreadId) || null;
 
   const requestSignInCode = async (email, password) => {
     setIsSigningIn(true);
@@ -408,6 +441,46 @@ export default function SuperAdminDashboard() {
       setCustomerCareError(error.message);
     } finally {
       setCustomerCareBusy(false);
+    }
+  };
+
+  const updateOwnerSupportThread = thread => {
+    setSupportThreads(previous => [thread, ...previous.filter(item => item.id !== thread.id)]
+      .sort((left, right) => new Date(right.updatedAt || right.createdAt) - new Date(left.updatedAt || left.createdAt)));
+  };
+
+  const sendOwnerSupportReply = async event => {
+    event.preventDefault();
+    const text = supportReplyDraft.trim();
+    if (!selectedSupportThread || !text || supportReplyBusy) return;
+
+    setSupportReplyBusy(true);
+    setSupportThreadError('');
+    try {
+      const { thread } = await superAdminRequest('/api/super-admin/customer-care', {
+        method: 'POST',
+        body: { action: 'reply', threadId: selectedSupportThread.id, text }
+      });
+      updateOwnerSupportThread(thread);
+      setSupportReplyDraft('');
+    } catch (error) {
+      setSupportThreadError(error.message);
+    } finally {
+      setSupportReplyBusy(false);
+    }
+  };
+
+  const setOwnerSupportStatus = async status => {
+    if (!selectedSupportThread) return;
+    setSupportThreadError('');
+    try {
+      const { thread } = await superAdminRequest('/api/super-admin/customer-care', {
+        method: 'PATCH',
+        body: { threadId: selectedSupportThread.id, status }
+      });
+      updateOwnerSupportThread(thread);
+    } catch (error) {
+      setSupportThreadError(error.message);
     }
   };
 
@@ -614,7 +687,7 @@ export default function SuperAdminDashboard() {
           {activePage === 'SUPPORT' && (
             <section className="sa-card">
               <CardHeading title="Support & Disputes" detail="Protected support queue and Customer Care account management" />
-              <Notice tone="info">Only the configured platform owner email can create the Customer Care mini-admin account. The temporary password is entered once by the owner and the account is created immediately.</Notice>
+              <Notice tone="info">Customer Care agents and the verified platform owner can reply to support cases. Owner replies are labeled separately in the conversation.</Notice>
 
               <form className="sa-form-grid" onSubmit={createCustomerCareAccount}>
                 <label>
@@ -651,21 +724,95 @@ export default function SuperAdminDashboard() {
               {customerCareError && <p className="sa-access-error" role="alert">{customerCareError}</p>}
               {customerCareNotice && <p className="sa-success-message" role="status">{customerCareNotice}</p>}
 
-              <div className="sa-support-list">
-                {overview.supportThreads?.length ? (
-                  overview.supportThreads.map(thread => (
-                    <div key={thread.id} className="sa-support-item">
-                      <div className="sa-support-header">
-                        <strong>{thread.userName}</strong>
-                        <StatusBadge value={thread.status} />
+              <div className="sa-support-workspace">
+                <div className="sa-support-list">
+                  <div className="sa-support-list-heading">
+                    <strong>Cases</strong>
+                    <span>{supportThreads.length}</span>
+                  </div>
+                  {supportThreads.length ? supportThreads.map(thread => {
+                    const lastMessage = thread.messages?.[thread.messages.length - 1];
+                    return (
+                      <button
+                        key={thread.id}
+                        type="button"
+                        className={`sa-support-row ${selectedSupportThreadId === thread.id ? 'is-selected' : ''}`}
+                        onClick={() => setSelectedSupportThreadId(thread.id)}
+                      >
+                        <span className="sa-support-header">
+                          <strong>{thread.userName || 'App user'}</strong>
+                          <StatusBadge value={thread.status} />
+                        </span>
+                        <small>{thread.caseId} · {thread.userRole} · {thread.assignedTo}</small>
+                        <span className="sa-support-preview">{lastMessage?.text || 'No messages yet'}</span>
+                      </button>
+                    );
+                  }) : (
+                    <p className="sa-empty-note">{supportThreadError || 'No support chats or escalations have been created yet.'}</p>
+                  )}
+                </div>
+
+                <section className="sa-support-conversation" aria-label="Selected support conversation">
+                  {selectedSupportThread ? (
+                    <>
+                      <header className="sa-support-conversation-header">
+                        <div>
+                          <strong>{selectedSupportThread.userName || 'App user'}</strong>
+                          <small>{selectedSupportThread.caseId} · {selectedSupportThread.userRole} · Assigned to {selectedSupportThread.assignedTo}</small>
+                        </div>
+                        <button
+                          type="button"
+                          className="sa-support-resolve"
+                          onClick={() => setOwnerSupportStatus(selectedSupportThread.status === 'RESOLVED' ? 'IN_PROGRESS' : 'RESOLVED')}
+                        >
+                          <CheckCheck size={15} />
+                          {selectedSupportThread.status === 'RESOLVED' ? 'Reopen' : 'Resolve'}
+                        </button>
+                      </header>
+                      <div className="sa-support-messages">
+                        {selectedSupportThread.messages?.map(message => {
+                          const isUser = message.sender === 'USER';
+                          const senderLabel = message.sender === 'SUPER_ADMIN'
+                            ? 'Super Admin'
+                            : message.sender === 'CUSTOMER_CARE'
+                              ? message.senderName || 'Customer Care'
+                              : message.sender === 'BOT'
+                                ? 'Support bot'
+                                : selectedSupportThread.userName || 'App user';
+                          return (
+                            <div key={message.id} className={`sa-support-message-row ${isUser ? 'from-user' : 'from-team'}`}>
+                              <div className={`sa-support-message ${message.sender === 'SUPER_ADMIN' ? 'is-owner' : message.sender === 'CUSTOMER_CARE' ? 'is-agent' : isUser ? 'is-user' : 'is-bot'}`}>
+                                <span>{senderLabel}</span>
+                                <p>{message.text}</p>
+                                <small>{formatDate(message.createdAt)}</small>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <small>{thread.caseId} · {thread.assignedTo}</small>
-                      <p>{(thread.messages?.[thread.messages.length - 1]?.text) || 'No message recorded yet.'}</p>
+                      {supportThreadError && <p className="sa-access-error" role="alert">{supportThreadError}</p>}
+                      <form className="sa-support-reply" onSubmit={sendOwnerSupportReply}>
+                        <label htmlFor="owner-support-reply" className="sa-visually-hidden">Reply as Super Admin</label>
+                        <textarea
+                          id="owner-support-reply"
+                          rows={2}
+                          maxLength={2000}
+                          value={supportReplyDraft}
+                          onChange={event => setSupportReplyDraft(event.target.value)}
+                          placeholder="Reply as Super Admin…"
+                        />
+                        <button type="submit" disabled={!supportReplyDraft.trim() || supportReplyBusy} aria-label="Send Super Admin reply" title="Send reply">
+                          <Send size={16} />
+                        </button>
+                      </form>
+                    </>
+                  ) : (
+                    <div className="sa-support-no-selection">
+                      <MessageSquare size={22} />
+                      <strong>{supportThreadError || 'Select a case to read and reply.'}</strong>
                     </div>
-                  ))
-                ) : (
-                  <p className="sa-empty-note">No support chats or escalations have been created yet.</p>
-                )}
+                  )}
+                </section>
               </div>
             </section>
           )}
