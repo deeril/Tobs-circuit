@@ -230,6 +230,13 @@ function requireSupportAccess(request, response, next) {
   return next();
 }
 
+function requireCustomerCare(request, response, next) {
+  if (request.user?.role !== 'CUSTOMER_CARE') {
+    return response.status(403).json({ error: 'Only Customer Care accounts can reply to support cases.' });
+  }
+  return next();
+}
+
 function isSuperAdmin(user) {
   return user?.role === 'ADMIN' && user.email?.trim().toLowerCase() === superAdminEmail;
 }
