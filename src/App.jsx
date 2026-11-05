@@ -7,7 +7,7 @@ import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, Users, UserPlus, Shield, PenTool,
- Send, ArrowDownUp, Copy, LogOut, User, ArrowUp, ArrowDown,
+ Send, ArrowDownUp, Copy, LogOut, User, Phone, ArrowUp, ArrowDown,
  BellRing, Eye, EyeOff, Maximize2, Minimize2
 } from 'lucide-react';
 
@@ -825,6 +825,7 @@ const [authError, setAuthError] = useState('');
   const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [newStopForm, setNewStopForm] = useState({
     name: '',
+    receiverPhone: '',
     address: '',
     lat: null,
     lng: null,
@@ -2857,6 +2858,16 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                           </div>
 
                           <p className="text-[10px] text-slate-400 truncate mt-0.5">{stop.address}</p>
+                          {stop.receiverPhone && (
+                            <a
+                              href={`tel:${stop.receiverPhone}`}
+                              onClick={event => event.stopPropagation()}
+                              className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-300 hover:text-emerald-200"
+                            >
+                              <Phone className="h-3 w-3" />
+                              <span>{stop.receiverPhone}</span>
+                            </a>
+                          )}
                           {showStopDistances && (
                             <p className="mt-1 text-[10px] font-semibold text-emerald-300">
                               {stopDistance === null
@@ -3317,12 +3328,24 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
             <div className="space-y-3">
               <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Stop Name</label>
+                <label className="block text-slate-400 mb-1 font-semibold">Receiver Name</label>
                 <input
                   type="text"
                   value={newStopForm.name}
                   onChange={(e) => setNewStopForm(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="e.g. Island Business Plaza"
+                  placeholder="e.g. Jane Doe"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Receiver Phone Number</label>
+                <input
+                  type="tel"
+                  autoComplete="tel"
+                  value={newStopForm.receiverPhone}
+                  onChange={(e) => setNewStopForm(prev => ({ ...prev, receiverPhone: e.target.value }))}
+                  placeholder="e.g. +234 801 234 5678"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -3444,6 +3467,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     const stopPayload = {
                       id: `l_${Date.now()}`,
                       name: newStopForm.name.trim() || address,
+                      receiverPhone: newStopForm.receiverPhone.trim(),
                       address,
                       lat: newStopForm.lat,
                       lng: newStopForm.lng,
@@ -3456,7 +3480,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
                     setStops(prev => [...prev, stopPayload]);
                     setNewStopForm({
-                      name: '', address: '', lat: null, lng: null,
+                      name: '', receiverPhone: '', address: '', lat: null, lng: null,
                       assignedDriverId: '',
                       priority: 'NORMAL', timeWindow: '10:00 - 13:00', packages: 1
                     });
