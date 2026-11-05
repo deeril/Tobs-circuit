@@ -184,7 +184,7 @@ function AccessMessage({ title, message, action, onAction }) {
         <h1>{title}</h1>
         <p role="status">{message}</p>
         {action && <button type="button" onClick={onAction}>{action}</button>}
-        <a href="/Tobs-circuit/">Return to Tobs Circuit</a>
+        <a href={window.location.pathname}>Return to Tobs Circuit</a>
       </section>
     </main>
   );
