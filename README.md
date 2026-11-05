@@ -8,9 +8,11 @@ The admin workspace opens to an overview of recorded deliveries, performance tre
 
 Drivers opt in with **Share live location** or **Start journey**. Location is read from the device only while sharing is enabled, and requires a secure HTTPS page plus browser permission. The app syncs fresh coordinates and heartbeats while open; admins can view recent driver locations on the Live Tracking map and focus a driver from their profile. Stopping sharing clears the saved coordinates. Browser backgrounding or closing the app can interrupt updates, so the map automatically stops treating locations older than 90 seconds as live.
 
-## Super Admin portal UI
+## Super Admin and Customer Care
 
-The Super Admin UI design is retained in `src/SuperAdminPreview.jsx` and `src/SuperAdminPreview.css` for the future separate, secured portal. It is not mounted or accessible from the business application. Do not expose it until separate Super Admin authentication, backend authorization, and platform APIs are implemented.
+The Super Admin dashboard is available at `https://tobs-circuit.vercel.app/#/super-admin`. Access is limited to the existing Admin account `ayodeletobs@gmail.com`; after the password is verified, a six-digit one-time code is emailed to that address. The code expires after 10 minutes. Production requires the configured PostgreSQL database and SMTP settings.
+
+Admin and Driver users can open Customer Care chat from the profile menu. Chats create support cases; sensitive and unresolved requests are escalated. Customer Care mini-admin users can sign in to the protected support inbox, reply to conversations, and resolve or reopen cases. Super Admin can review case summaries in Support & Disputes.
 
 ## Run locally
 

@@ -230,6 +230,13 @@ function requireSupportAccess(request, response, next) {
   return next();
 }
 
+function requireCustomerCare(request, response, next) {
+  if (request.user?.role !== 'CUSTOMER_CARE') {
+    return response.status(403).json({ error: 'Only Customer Care accounts can reply to support cases.' });
+  }
+  return next();
+}
+
 function isSuperAdmin(user) {
   return user?.role === 'ADMIN' && user.email?.trim().toLowerCase() === superAdminEmail;
 }
@@ -801,6 +808,48 @@ app.get('/api/support/threads', requireUser, requireSupportAccess, (request, res
   });
 });
 
+app.post('/api/customer-care/threads/:id/reply', requireUser, requireCustomerCare, (request, response) => {
+  const text = cleanText(request.body.text, 2000);
+  if (!text) return response.status(400).json({ error: 'Write a reply before sending.' });
+
+  const thread = store.supportThreads.find(item => item.id === request.params.id);
+  if (!thread) return response.status(404).json({ error: 'Support case not found.' });
+
+  const message = {
+    id: crypto.randomUUID(),
+    sender: 'CUSTOMER_CARE',
+    senderName: request.user.name,
+    text,
+    createdAt: new Date().toISOString()
+  };
+  thread.messages = [...(thread.messages || []), message];
+  thread.status = 'IN_PROGRESS';
+  thread.assignedTo = request.user.email;
+  thread.updatedAt = message.createdAt;
+  delete thread.resolvedAt;
+  writeStore();
+
+  return response.json({ thread: { ...thread, messages: thread.messages.slice(-12) } });
+});
+
+app.patch('/api/customer-care/threads/:id', requireUser, requireCustomerCare, (request, response) => {
+  const status = cleanText(request.body.status, 20);
+  if (!['OPEN', 'IN_PROGRESS', 'RESOLVED'].includes(status)) {
+    return response.status(400).json({ error: 'The support case status is invalid.' });
+  }
+
+  const thread = store.supportThreads.find(item => item.id === request.params.id);
+  if (!thread) return response.status(404).json({ error: 'Support case not found.' });
+
+  thread.status = status;
+  thread.updatedAt = new Date().toISOString();
+  if (status === 'RESOLVED') thread.resolvedAt = thread.updatedAt;
+  else delete thread.resolvedAt;
+  writeStore();
+
+  return response.json({ thread: { ...thread, messages: (thread.messages || []).slice(-12) } });
+});
+
 app.post('/api/support/chat', requireUser, requireSupportAccess, (request, response) => {
   const message = cleanText(request.body.message, 2000);
   if (!message) return response.status(400).json({ error: 'Type a question or issue before sending.' });
@@ -832,6 +881,7 @@ app.post('/api/support/chat', requireUser, requireSupportAccess, (request, respo
     text: message,
     createdAt: new Date().toISOString()
   };
+  if (thread.status === 'RESOLVED') thread.status = 'OPEN';
   thread.messages = [...(thread.messages || []), userMessage];
 
   const reply = buildSupportBotReply(message);

@@ -4,6 +4,7 @@ import brandLogo from './assets/tobs-circuit-logo-purple.png';
 import AdminDashboard from './AdminDashboard.jsx';
 import { ADMIN_NAV_ITEMS } from './adminNavigation.js';
 import SuperAdminDashboard from './SuperAdminDashboard.jsx';
+const CustomerCareDashboard = React.lazy(() => import('./CustomerCareDashboard.jsx'));
 import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
@@ -685,7 +686,7 @@ const [authError, setAuthError] = useState('');
   }, []);
 
   useEffect(() => {
-    if (!currentUser?.id || isPreviewSession) return undefined;
+    if (!currentUser?.id || isPreviewSession || currentUser.role === 'CUSTOMER_CARE') return undefined;
     let cancelled = false;
     const refreshAccountData = async () => {
       try {
@@ -718,7 +719,7 @@ const [authError, setAuthError] = useState('');
   }, [currentUser?.id, currentUser?.role, isPreviewSession]);
 
   useEffect(() => {
-    if (!currentUser?.id || !routeDataReady || isPreviewSession) return undefined;
+    if (!currentUser?.id || !routeDataReady || isPreviewSession || currentUser.role === 'CUSTOMER_CARE') return undefined;
     const timerId = window.setTimeout(() => {
       apiRequest('/api/stops', {
         method: 'PUT',
@@ -731,7 +732,7 @@ const [authError, setAuthError] = useState('');
       });
     }, 250);
     return () => window.clearTimeout(timerId);
-  }, [stops, routeDataReady, currentUser?.id, isPreviewSession]);
+  }, [stops, routeDataReady, currentUser?.id, currentUser?.role, isPreviewSession]);
 
   useEffect(() => {
     if (!invitationToken) return undefined;
@@ -1261,6 +1262,18 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               </button>
             </div>
           )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setSupportChatOpen(true);
+              setProfileMenuOpen(false);
+            }}
+            className="profile-menu-item"
+          >
+            <MessageSquare className="h-4 w-4" />
+            <span>Customer Care chat</span>
+          </button>
           {currentUser.role === 'ADMIN' && (
             <>
               <label className="profile-menu-logo block cursor-pointer border-b border-violet-100 px-3 py-3 text-[10px] font-bold text-violet-950">
@@ -1279,18 +1292,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 />
                 {logoUploadError && <span role="alert" className="mt-1 block text-[9px] text-rose-700">{logoUploadError}</span>}
               </label>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setSupportChatOpen(true);
-                  setProfileMenuOpen(false);
-                }}
-                className="profile-menu-item"
-              >
-                <MessageSquare className="h-4 w-4" />
-                <span>Customer Care chat</span>
-              </button>
               <button
                 type="button"
                 role="menuitem"
@@ -2506,6 +2507,14 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         </div>
       </div>
       </>
+    );
+  }
+
+  if (currentUser.role === 'CUSTOMER_CARE') {
+    return (
+      <React.Suspense fallback={<main className="cc-loading" role="status">Loading Customer Care…</main>}>
+        <CustomerCareDashboard currentUser={currentUser} onLogout={handleLogout} request={apiRequest} />
+      </React.Suspense>
     );
   }
 
