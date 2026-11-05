@@ -912,6 +912,124 @@ app.post('/api/support/chat', requireUser, requireSupportAccess, (request, respo
   });
 });
 
+app.get('/api/super-admin/customer-care', requireUser, requireSupportAccess, (request, response) => {
+  const visibleThreads = store.supportThreads.filter(thread =>
+    request.user.role === 'CUSTOMER_CARE' || isSuperAdmin(request.user) || thread.userId === request.user.id
+  ).sort((left, right) => new Date(right.updatedAt || right.createdAt).getTime() - new Date(left.updatedAt || left.createdAt).getTime());
+
+  return response.json({
+    threads: visibleThreads.map(thread => ({
+      ...thread,
+      messages: Array.isArray(thread.messages) ? thread.messages.slice(-12) : []
+    }))
+  });
+});
+
+app.post('/api/super-admin/customer-care', requireUser, rateLimit({ limit: 30 }), (request, response, next) => {
+  const action = cleanText(request.body.action, 20);
+
+  if (action === 'chat') {
+    if (!['ADMIN', 'DRIVER'].includes(request.user.role)) {
+      return response.status(403).json({ error: 'This account cannot start a Customer Care chat.' });
+    }
+    const message = cleanText(request.body.message, 2000);
+    if (!message) return response.status(400).json({ error: 'Type a question or issue before sending.' });
+
+    const threadId = cleanText(request.body.threadId, 128);
+    let thread = threadId
+      ? store.supportThreads.find(item => item.id === threadId && item.userId === request.user.id)
+      : null;
+    if (!thread) {
+      thread = {
+        id: `support-${crypto.randomUUID()}`,
+        userId: request.user.id,
+        userName: request.user.name,
+        userRole: request.user.role,
+        caseId: `CASE-${Date.now().toString().slice(-6)}`,
+        status: 'OPEN',
+        assignedTo: 'CUSTOMER_CARE',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        messages: []
+      };
+      store.supportThreads.unshift(thread);
+    }
+
+    const userMessage = {
+      id: crypto.randomUUID(),
+      sender: 'USER',
+      text: message,
+      createdAt: new Date().toISOString()
+    };
+    if (thread.status === 'RESOLVED') thread.status = 'OPEN';
+    thread.messages = [...(thread.messages || []), userMessage];
+
+    const reply = buildSupportBotReply(message);
+    if (reply.escalated || thread.status === 'ESCALATED') {
+      thread.status = 'ESCALATED';
+      thread.assignedTo = 'CUSTOMER_CARE';
+      thread.escalatedAt = new Date().toISOString();
+    }
+    const botMessage = {
+      id: crypto.randomUUID(),
+      sender: 'BOT',
+      text: reply.text,
+      createdAt: new Date().toISOString(),
+      escalated: reply.escalated
+    };
+    thread.messages = [...thread.messages, botMessage];
+    thread.updatedAt = botMessage.createdAt;
+    writeStore();
+
+    return response.json({ thread: { ...thread, messages: thread.messages.slice(-12) }, reply: botMessage });
+  }
+
+  if (action === 'reply') {
+    if (request.user.role !== 'CUSTOMER_CARE') {
+      return response.status(403).json({ error: 'Only Customer Care accounts can reply to support cases.' });
+    }
+    const text = cleanText(request.body.text, 2000);
+    if (!text) return response.status(400).json({ error: 'Write a reply before sending.' });
+    const threadId = cleanText(request.body.threadId, 128);
+    const thread = store.supportThreads.find(item => item.id === threadId);
+    if (!thread) return response.status(404).json({ error: 'Support case not found.' });
+
+    const reply = {
+      id: crypto.randomUUID(),
+      sender: 'CUSTOMER_CARE',
+      senderName: request.user.name,
+      text,
+      createdAt: new Date().toISOString()
+    };
+    thread.messages = [...(thread.messages || []), reply];
+    thread.status = 'IN_PROGRESS';
+    thread.assignedTo = request.user.email;
+    thread.updatedAt = reply.createdAt;
+    delete thread.resolvedAt;
+    writeStore();
+    return response.json({ thread: { ...thread, messages: thread.messages.slice(-12) } });
+  }
+
+  return next();
+});
+
+app.patch('/api/super-admin/customer-care', requireUser, requireCustomerCare, (request, response) => {
+  const threadId = cleanText(request.body.threadId, 128);
+  const status = cleanText(request.body.status, 20);
+  if (!['OPEN', 'IN_PROGRESS', 'RESOLVED'].includes(status)) {
+    return response.status(400).json({ error: 'The support case status is invalid.' });
+  }
+  const thread = store.supportThreads.find(item => item.id === threadId);
+  if (!thread) return response.status(404).json({ error: 'Support case not found.' });
+
+  thread.status = status;
+  thread.updatedAt = new Date().toISOString();
+  if (status === 'RESOLVED') thread.resolvedAt = thread.updatedAt;
+  else delete thread.resolvedAt;
+  writeStore();
+  return response.json({ thread: { ...thread, messages: (thread.messages || []).slice(-12) } });
+});
+
 app.post('/api/super-admin/customer-care', requireUser, requireSuperAdmin, rateLimit({ limit: 8 }), (request, response) => {
   const name = cleanText(request.body.name, 100) || 'Customer Care';
   const email = cleanText(request.body.email, 254).toLowerCase();

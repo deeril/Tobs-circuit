@@ -801,7 +801,7 @@ const [authError, setAuthError] = useState('');
     if (!currentUser || !['ADMIN', 'DRIVER'].includes(currentUser.role)) return undefined;
 
     let cancelled = false;
-    apiRequest('/api/support/threads')
+    apiRequest('/api/super-admin/customer-care?view=threads')
       .then(({ threads = [] }) => {
         if (cancelled) return;
         setSupportThreads(threads);
@@ -1183,9 +1183,10 @@ const [authError, setAuthError] = useState('');
     setSupportBusy(true);
     setSupportError('');
     try {
-      const { thread, reply } = await apiRequest('/api/support/chat', {
+      const { thread, reply } = await apiRequest('/api/super-admin/customer-care', {
         method: 'POST',
         body: JSON.stringify({
+          action: 'chat',
           threadId: supportThreadId || activeSupportThread?.id || undefined,
           message: trimmed
         })

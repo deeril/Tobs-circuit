@@ -48,7 +48,7 @@ export default function CustomerCareDashboard({ currentUser, onLogout, request }
     const loadThreads = async (background = false) => {
       if (background && !cancelled) setRefreshing(true);
       try {
-        const { threads: nextThreads = [] } = await request('/api/support/threads');
+        const { threads: nextThreads = [] } = await request('/api/super-admin/customer-care?view=threads');
         if (cancelled) return;
         setThreads(nextThreads);
         setSelectedId(previous => previous && nextThreads.some(thread => thread.id === previous)
@@ -102,9 +102,9 @@ export default function CustomerCareDashboard({ currentUser, onLogout, request }
     setSending(true);
     setError('');
     try {
-      const { thread } = await request(`/api/customer-care/threads/${encodeURIComponent(selectedThread.id)}/reply`, {
+      const { thread } = await request('/api/super-admin/customer-care', {
         method: 'POST',
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ action: 'reply', threadId: selectedThread.id, text })
       });
       updateThread(thread);
       setDraft('');
@@ -119,9 +119,9 @@ export default function CustomerCareDashboard({ currentUser, onLogout, request }
     if (!selectedThread) return;
     setError('');
     try {
-      const { thread } = await request(`/api/customer-care/threads/${encodeURIComponent(selectedThread.id)}`, {
+      const { thread } = await request('/api/super-admin/customer-care', {
         method: 'PATCH',
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ action: 'status', threadId: selectedThread.id, status })
       });
       updateThread(thread);
     } catch (statusError) {
