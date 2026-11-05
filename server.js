@@ -217,6 +217,22 @@ function requireAdmin(request, response, next) {
   return next();
 }
 
+function isSuperAdmin(user) {
+  const ownerEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+  return Boolean(ownerEmail && user?.role === 'ADMIN' && user.email?.toLowerCase() === ownerEmail);
+}
+
+function requireSuperAdmin(request, response, next) {
+  const ownerEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+  if (!ownerEmail) {
+    return response.status(503).json({ error: 'Owner access is not configured. Set SUPER_ADMIN_EMAIL on the API server.' });
+  }
+  if (!isSuperAdmin(request.user)) {
+    return response.status(403).json({ error: 'This account is not authorized to access platform administration.' });
+  }
+  return next();
+}
+
 function rateLimit({ windowMs = 15 * 60 * 1000, limit = 30 } = {}) {
   return (request, response, next) => {
     const key = `${request.ip}:${request.path}`;
@@ -373,6 +389,73 @@ app.get('/api/auth/session', (request, response) => {
   const user = sessionUser(request);
   if (!user) return response.status(401).json({ error: 'No active session.' });
   return response.json({ user });
+});
+
+app.get('/api/super-admin/overview', requireUser, requireSuperAdmin, (request, response) => {
+  const admins = store.users.filter(user => user.role === 'ADMIN');
+  const drivers = store.users.filter(user => user.role === 'DRIVER');
+  const adminById = new Map(admins.map(admin => [admin.id, admin]));
+  const driverById = new Map(drivers.map(driver => [driver.id, driver]));
+
+  const businesses = admins.map(admin => ({
+    id: admin.id,
+    name: admin.orgName || admin.name,
+    administrator: admin.name,
+    email: admin.email,
+    status: admin.status || 'ACTIVE',
+    createdAt: admin.createdAt || null,
+    driverCount: drivers.filter(driver => driver.ownerAdminId === admin.id).length,
+    deliveryCount: store.stops.filter(stop => stop.ownerAdminId === admin.id).length
+  }));
+  const safeDrivers = drivers.map(driver => ({
+    id: driver.id,
+    name: driver.name,
+    email: driver.email,
+    phone: driver.phone || '',
+    businessName: driver.orgName || adminById.get(driver.ownerAdminId)?.orgName || 'Unknown business',
+    status: driver.status || 'ACTIVE',
+    routeStatus: driver.routeStatus || 'IDLE',
+    isTracking: Boolean(driver.isTracking),
+    lat: Number.isFinite(driver.lat) ? driver.lat : null,
+    lng: Number.isFinite(driver.lng) ? driver.lng : null,
+    locationUpdatedAt: driver.locationUpdatedAt || null,
+    zone: driver.zone || '',
+    vehicle: driver.vehicle || ''
+  }));
+  const deliveries = store.stops.map(stop => ({
+    id: stop.id,
+    name: stop.name,
+    address: stop.address,
+    businessName: adminById.get(stop.ownerAdminId)?.orgName || 'Unknown business',
+    driverName: driverById.get(stop.assignedDriverId)?.name || 'Unassigned',
+    status: stop.status || 'PENDING',
+    priority: stop.priority || 'NORMAL',
+    packages: Number.isFinite(stop.packages) ? stop.packages : 0,
+    lat: Number.isFinite(stop.lat) ? stop.lat : null,
+    lng: Number.isFinite(stop.lng) ? stop.lng : null,
+    deliveredAt: stop.deliveredAt || null
+  }));
+  const invitations = store.invitations.map(invite => ({
+    id: invite.id,
+    email: invite.email || '',
+    businessName: adminById.get(invite.ownerAdminId)?.orgName || invite.orgName || 'Unknown business',
+    status: invite.status || 'PENDING',
+    createdAt: invite.createdAt || null,
+    registeredAt: invite.registeredAt || null
+  }));
+
+  return response.json({
+    generatedAt: new Date().toISOString(),
+    businesses,
+    drivers: safeDrivers,
+    deliveries,
+    invitations,
+    health: {
+      status: 'OPERATIONAL',
+      storage: usesDatabase ? 'PostgreSQL' : 'Local JSON',
+      uptimeSeconds: Math.floor(process.uptime())
+    }
+  });
 });
 
 app.post('/api/auth/logout', (request, response) => {

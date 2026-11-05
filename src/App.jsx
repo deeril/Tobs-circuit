@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import brandLogo from './assets/tobs-circuit-logo-purple.png';
 import AdminDashboard from './AdminDashboard.jsx';
 import { ADMIN_NAV_ITEMS } from './adminNavigation.js';
+import SuperAdminDashboard from './SuperAdminDashboard.jsx';
 import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
@@ -576,7 +577,7 @@ function GoogleFleetMap({ center, drivers, stops = [], now, fallbackUrl, onReady
   );
 }
 
-export default function App() {
+function RoutePlannerApp() {
   // --- AUTH & PERSISTENCE STATES ---
   const invitationParams = new URLSearchParams(window.location.search);
   const invitationToken = invitationParams.get('invite') || '';
@@ -3636,4 +3637,18 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     </div>
     </>
   );
+}
+
+export default function App() {
+  const [route, setRoute] = useState(window.location.hash);
+
+  useEffect(() => {
+    const updateRoute = () => setRoute(window.location.hash);
+    window.addEventListener('hashchange', updateRoute);
+    return () => window.removeEventListener('hashchange', updateRoute);
+  }, []);
+
+  return route === '#/super-admin'
+    ? <SuperAdminDashboard />
+    : <RoutePlannerApp />;
 }
