@@ -3278,11 +3278,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         {/* SIDEBAR MAIN CONTROLS */}
         {(!sidebarCollapsed || (currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES')) && (
           <div className="admin-sidebar-controls flex-1 overflow-y-auto p-3.5 space-y-3">
-            {isPreviewSession && (
-              <p className="rounded-xl border border-amber-300 bg-amber-50 p-2 text-[9px] leading-relaxed text-amber-950">
-                Static preview: changes stay in this browser. Email, password reset and cross-device live tracking are disabled.
-              </p>
-            )}
             <section className="rounded-xl border border-slate-800 bg-slate-950 p-3">
               <h2 className="mb-2 truncate text-xs font-extrabold text-slate-200">
                 {currentUser.role === 'ADMIN' ? selectedDriver?.name || 'Select a driver' : currentUser.name}
