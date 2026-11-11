@@ -14,7 +14,7 @@ import {
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, Users, UserPlus, Shield, PenTool,
  Send, ArrowDownUp, Copy, LogOut, User, Phone, ArrowUp, ArrowDown,
- MessageSquare,
+ MessageSquare, CarFront, Motorbike, Bike,
  BellRing, Eye, EyeOff, Maximize2, Minimize2
 } from 'lucide-react';
 
@@ -541,6 +541,7 @@ const [registerForm, setRegisterForm] = useState(() => ({
   inviteToken: invitationToken,
   zone: '',
   vehicle: '',
+  vehicleType: '',
   phone: ''
 }));
 
@@ -742,7 +743,6 @@ const [authError, setAuthError] = useState('');
   useEffect(() => {
     if (currentUser?.role !== 'ADMIN' || isPreviewSession) {
       setDispatchMapRiders([]);
-      setDispatchMapError('');
       return undefined;
     }
 
@@ -755,10 +755,8 @@ const [authError, setAuthError] = useState('');
         const { riders } = await apiRequest('/api/dispatch/map-riders');
         if (cancelled) return;
         setDispatchMapRiders(Array.isArray(riders) ? riders : []);
-        setDispatchMapError('');
       } catch (error) {
         console.error('Could not refresh authorized rider map locations:', error);
-        if (!cancelled) setDispatchMapError('Rider locations could not be refreshed. Showing the last known positions.');
       } finally {
         refreshing = false;
       }
@@ -903,7 +901,6 @@ const [authError, setAuthError] = useState('');
   const [creatingDelivery, setCreatingDelivery] = useState(false);
   const [deliveryOffers, setDeliveryOffers] = useState([]);
   const [dispatchMapRiders, setDispatchMapRiders] = useState([]);
-  const [dispatchMapError, setDispatchMapError] = useState('');
   const [deliveryEstimate, setDeliveryEstimate] = useState(null);
   const [deliveryEstimateError, setDeliveryEstimateError] = useState('');
   const estimateRequestKeyRef = useRef('');
@@ -1021,6 +1018,7 @@ const [authError, setAuthError] = useState('');
     const saved = localStorage.getItem('lagos_circuit_route_origin_coordinates');
     return saved ? JSON.parse(saved) : {};
   });
+  const [currentLocation, setCurrentLocation] = useState(null);
   const routeOriginLookupRef = useRef(0);
   const routeOriginAddress = currentUser ? routeOrigins[currentUser.id] || '' : '';
   const [customerName, setCustomerName] = useState('');
@@ -1332,6 +1330,10 @@ const [authError, setAuthError] = useState('');
     setAuthError('Passwords do not match. Please check and try again.');
     return;
   }
+  if (authRole === 'DRIVER' && !registerForm.vehicleType) {
+    setAuthError('Choose your vehicle type before continuing.');
+    return;
+  }
 
   if (!credentialsReady) {
     setAuthError('Connecting to the account service. Please try again in a moment.');
@@ -1356,6 +1358,7 @@ const [authError, setAuthError] = useState('');
           inviteToken: registerForm.inviteToken,
           zone: registerForm.zone,
           vehicle: registerForm.vehicle,
+          vehicleType: registerForm.vehicleType,
           phone: registerForm.phone
         };
       const { user } = await apiRequest(endpoint, {
@@ -2359,6 +2362,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   const updateRouteOriginAddress = (address) => {
     if (!currentUser) return;
     routeOriginLookupRef.current += 1;
+    setCurrentLocation(null);
     setRouteOrigins(prev => ({ ...prev, [currentUser.id]: address }));
     setRouteOriginCoordinates(prev => {
       if (!prev[currentUser.id]) return prev;
@@ -2380,8 +2384,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         const lookupId = ++routeOriginLookupRef.current;
         const userId = currentUser.id;
         const location = { lat: coords.latitude, lng: coords.longitude };
-        const fallbackAddress = `${location.lat},${location.lng}`;
-        setRouteOrigins(prev => ({ ...prev, [userId]: fallbackAddress }));
+        setCurrentLocation(location);
+        setRouteOrigins(prev => ({ ...prev, [userId]: 'Finding street address...' }));
         setRouteOriginCoordinates(prev => ({ ...prev, [userId]: location }));
 
         try {
@@ -2390,16 +2394,19 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           const properties = data.features?.[0]?.properties;
           if (!properties) throw new Error('No address was found for the current coordinates.');
 
-          const address = [
-            properties.name,
-            properties.housenumber,
-            properties.street,
-            properties.district,
-            properties.city,
-            properties.county,
+          const street = [properties.housenumber, properties.street || properties.name]
+            .filter(Boolean)
+            .join(' ');
+          const area = properties.district || properties.suburb || properties.neighbourhood;
+          const locality = properties.city || properties.town || properties.village
+            || properties.municipality || properties.county;
+          const address = [...new Set([
+            street,
+            area,
+            locality,
             properties.state,
             properties.country
-          ].filter((part, index, parts) => part && parts.indexOf(part) === index).join(', ');
+          ].filter(Boolean))].join(', ');
           if (!address) throw new Error('The address lookup returned no readable address.');
           if (routeOriginLookupRef.current === lookupId) {
             setRouteOrigins(prev => ({ ...prev, [userId]: address }));
@@ -2407,7 +2414,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         } catch (error) {
           if (routeOriginLookupRef.current !== lookupId) return;
           console.error('Unable to find an address for the current location:', error);
-          alert('Your current location was found, but its street address could not be looked up. Coordinates are shown instead.');
+          setRouteOrigins(prev => ({ ...prev, [userId]: 'Address unavailable - enter manually' }));
         }
       },
       (error) => {
@@ -3126,6 +3133,29 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   <p className="rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-900">
                     Complete your driver profile. An email tied to this link is locked; otherwise enter the email you use for your account.
                   </p>
+                  <div className="space-y-1">
+                    <label className="block text-slate-400 font-semibold">Vehicle type</label>
+                    <div className="grid grid-cols-3 gap-2" role="group" aria-label="Vehicle type">
+                      {[
+                        { value: 'car', label: 'Car', Icon: CarFront },
+                        { value: 'motorcycle', label: 'Motorcycle', Icon: Motorbike },
+                        { value: 'bicycle', label: 'Bicycle', Icon: Bike }
+                      ].map(({ value, label, Icon }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={registerForm.vehicleType === value}
+                          onClick={() => setRegisterForm({ ...registerForm, vehicleType: value })}
+                          className={`flex min-h-20 flex-col items-center justify-center gap-1 rounded-xl border p-2.5 text-[10px] font-bold transition-colors ${registerForm.vehicleType === value
+                            ? 'border-violet-300 bg-violet-50 text-violet-800'
+                            : 'border-slate-200 bg-slate-100 text-slate-600 hover:border-slate-300'}`}
+                        >
+                          <Icon className="h-5 w-5" aria-hidden="true" />
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       type="text"
@@ -4054,11 +4084,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 selectedDriverId={activeDriverId}
                 onDriverSelect={driverId => setActiveDriverId(driverId)}
               />
-              {dispatchMapError && (
-                <p role="status" className="absolute left-3 top-3 z-20 rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-[10px] font-semibold text-amber-950 shadow">
-                  {dispatchMapError}
-                </p>
-              )}
             </div>
           )}
           profileMenu={profileMenu}
@@ -4234,6 +4259,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         <div className="admin-map-canvas flex-1 relative w-full h-full">
           <FleetMap
             center={mapCenter}
+            currentLocation={currentLocation}
             drivers={mapDisplayDrivers}
             stops={mapVisibleStops}
             now={clockNow}
@@ -4242,12 +4268,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               if (currentUser.role === 'ADMIN') setActiveDriverId(driverId);
             }}
           />
-          {dispatchMapError && currentUser.role === 'ADMIN' && (
-            <p role="status" className="absolute left-3 top-3 z-20 rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-[10px] font-semibold text-amber-950 shadow">
-              {dispatchMapError}
-            </p>
-          )}
-
         </div>
 
       </div>

@@ -1450,8 +1450,10 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
   }
   const zone = cleanText(request.body.zone, 100);
   const vehicle = cleanText(request.body.vehicle, 100);
-  if (!name || !validEmail(email) || typeof password !== 'string' || password.length < 12 || !zone || !vehicle) {
-    return response.status(400).json({ error: 'Enter your name, valid email, password (at least 12 characters), operating zone, and vehicle plate number.' });
+  const vehicleType = cleanText(request.body.vehicleType, 32).toLowerCase();
+  if (!name || !validEmail(email) || typeof password !== 'string' || password.length < 12 || !zone || !vehicle
+    || !['car', 'motorcycle', 'bicycle'].includes(vehicleType)) {
+    return response.status(400).json({ error: 'Enter your name, valid email, password (at least 12 characters), operating zone, vehicle type, and vehicle plate number.' });
   }
   if (store.users.some(user => user.email === email)) {
     return response.status(409).json({ error: 'An account already exists for this email.' });
@@ -1467,6 +1469,7 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
     ...(invite?.ownerAdminId ? { ownerAdminId: invite.ownerAdminId } : {}),
     zone,
     vehicle,
+    vehicleType,
     phone: cleanText(request.body.phone, 40),
     status: 'PENDING',
     verificationStatus: 'PENDING',
@@ -1996,7 +1999,7 @@ app.get('/api/geocode/search', requireUser, rateLimit({ limit: 30 }), async (req
   if ((lat !== undefined || lng !== undefined) && !validCoordinates(lat, lng)) {
     return response.status(400).json({ error: 'The address search location is invalid.' });
   }
-  const baseUrl = process.env.PHOTON_BASE_URL || (!isProduction ? 'https://photon.komoot.io' : '');
+  const baseUrl = process.env.PHOTON_BASE_URL || 'https://photon.komoot.io';
   try {
     const features = await searchPhoton({ baseUrl, query: q, lat, lng });
     response.setHeader('Cache-Control', 'private, no-store');
@@ -2017,7 +2020,7 @@ app.get('/api/geocode/reverse', requireUser, rateLimit({ limit: 20 }), async (re
   if (!validCoordinates(lat, lng)) {
     return response.status(400).json({ error: 'The reverse-geocoding coordinates are invalid.' });
   }
-  const baseUrl = process.env.PHOTON_BASE_URL || (!isProduction ? 'https://photon.komoot.io' : '');
+  const baseUrl = process.env.PHOTON_BASE_URL || 'https://photon.komoot.io';
   try {
     const features = await searchPhoton({ baseUrl, lat, lng, reverse: true });
     response.setHeader('Cache-Control', 'private, no-store');

@@ -46,6 +46,7 @@ export default function MapLibreFleetMap({
   styleUrl,
   apiBaseUrl = '',
   center,
+  currentLocation,
   drivers,
   stops = [],
   now,
@@ -86,7 +87,7 @@ export default function MapLibreFleetMap({
       style: styleUrl,
       center: [initialCenterRef.current.lng, initialCenterRef.current.lat],
       zoom: 10,
-      cooperativeGestures: true,
+      cooperativeGestures: false,
       attributionControl: true
     });
     map.addControl(new NavigationControl({ visualizePitch: false }), 'top-right');
@@ -220,8 +221,27 @@ export default function MapLibreFleetMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !mapLoaded || !isValidMapLocation(currentLocation?.lat, currentLocation?.lng)) return;
+    map.flyTo({
+      center: [currentLocation.lng, currentLocation.lat],
+      zoom: 16,
+      duration: 900,
+      essential: true
+    });
+  }, [currentLocation?.lat, currentLocation?.lng, mapLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !mapLoaded) return;
     const desiredMarkers = new Map();
+    if (isValidMapLocation(currentLocation?.lat, currentLocation?.lng)) {
+      desiredMarkers.set('current-location', {
+        point: toMapLibrePoint(currentLocation.lat, currentLocation.lng),
+        title: 'Your current location',
+        className: 'maplibre-current-location-marker',
+        text: 'Me'
+      });
+    }
     const activeRiderIds = new Set(stops
       .filter(stop => ACTIVE_DELIVERY_STATUSES.includes(stop.dispatchStatus))
       .map(stop => stop.assignedDriverId)
@@ -273,7 +293,7 @@ export default function MapLibreFleetMap({
           .setLngLat(details.point)
           .addTo(map);
       });
-  }, [drivers, mapLoaded, now, selectedDriverId, stops]);
+  }, [currentLocation?.lat, currentLocation?.lng, drivers, mapLoaded, now, selectedDriverId, stops]);
 
   useEffect(() => {
     const map = mapRef.current;
