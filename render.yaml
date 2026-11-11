@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: tobs-route-circuit-api
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: APP_BASE_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: PHOTON_BASE_URL
+        sync: false
+      - key: VALHALLA_BASE_URL
+        sync: false
+      - key: VALHALLA_PROFILE
+        value: auto
+      - key: VITE_API_BASE_URL
+        value: ""
+      - key: VITE_SOCKET_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: DATA_DIRECTORY
+        value: ./data

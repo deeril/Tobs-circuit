@@ -1,0 +1,15 @@
+services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v26.11.0
+    command:
+      - osrm-routed
+      - --algorithm
+      - mld
+      - --max-table-size
+      - "1000"
+      - /data/nigeria-latest.osrm
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ./data:/data:ro
+    restart: unless-stopped

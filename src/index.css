@@ -293,6 +293,66 @@ button {
   }
 }
 
+.maplibre-fleet-map .maplibre-rider-marker,
+.maplibre-fleet-map .maplibre-rider-stale-marker,
+.maplibre-fleet-map .maplibre-rider-preview-marker,
+.maplibre-fleet-map .maplibre-pickup-marker,
+.maplibre-fleet-map .maplibre-destination-marker {
+  max-width: 128px;
+  padding: 5px 8px;
+  overflow: hidden;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  color: #fff;
+  font: 700 10px/1.2 Inter, 'Segoe UI', sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 35%);
+}
+
+.maplibre-fleet-map .maplibre-rider-marker {
+  background: #6f35b5;
+}
+
+.maplibre-fleet-map .maplibre-rider-preview-marker {
+  background: #334155;
+  border-style: dashed;
+}
+
+.maplibre-fleet-map .maplibre-rider-marker-selected {
+  z-index: 2;
+  border-color: #facc15;
+  box-shadow: 0 0 0 3px rgb(250 204 21 / 60%), 0 4px 12px rgb(15 23 42 / 45%);
+  transform: scale(1.12);
+}
+
+.maplibre-fleet-map .maplibre-rider-stale-marker {
+  background: #6b7280;
+  border-style: dashed;
+}
+
+.maplibre-fleet-map .maplibre-pickup-marker {
+  background: #d97706;
+}
+
+.maplibre-fleet-map .maplibre-destination-marker {
+  background: #0f766e;
+}
+
+.maplibre-fleet-map .maplibregl-ctrl-group {
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.bike-rider-marker-stale .bike-rider-speed {
+  background: #64748b !important;
+}
+
+.bike-rider-marker-stale .bike-rider-icon {
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+
 #root .admin-dashboard {
   --dispatch-ink: #111111;
   --dispatch-muted: #727272;
@@ -738,19 +798,6 @@ button {
   width: 52px;
   height: 52px;
   object-fit: contain;
-}
-
-#root .app-shell .google-bike-marker {
-  display: flex;
-  min-width: 64px;
-  flex-direction: column;
-  align-items: center;
-  filter: drop-shadow(0 2px 5px rgb(22 10 36 / 40%));
-  cursor: pointer;
-}
-
-#root .app-shell .google-map-fallback-notice {
-  color: #333 !important;
 }
 
 #root .app-shell .bike-rider-icon-moving {

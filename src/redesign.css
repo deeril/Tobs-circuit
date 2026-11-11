@@ -1,0 +1,853 @@
+:root {
+  --tc-ink: #111;
+  --tc-muted: #717171;
+  --tc-line: #e7e7e7;
+  --tc-paper: #fff;
+  --tc-canvas: #f5f5f5;
+  --tc-brand: #6f35b5;
+  --tc-brand-soft: #f3ecfb;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--tc-brand);
+  outline-offset: 2px;
+}
+
+#root > .auth-screen {
+  width: 100%;
+  max-width: 100vw;
+  min-height: 100svh;
+  overflow: auto;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgb(111 53 181 / 7%), transparent 48%),
+    var(--tc-canvas) !important;
+  color: var(--tc-ink);
+  padding: clamp(16px, 4vw, 36px);
+}
+
+#root .auth-screen > div {
+  width: min(100%, 460px);
+  max-height: none;
+  overflow: visible;
+  border: 1px solid var(--tc-line);
+  border-radius: 24px;
+  background: var(--tc-paper);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 8%);
+  padding: clamp(22px, 5vw, 36px);
+}
+
+#root .auth-screen h1 {
+  color: var(--tc-ink) !important;
+  font-size: clamp(22px, 4vw, 29px);
+  letter-spacing: -0.045em;
+  line-height: 1.15;
+}
+
+#root .auth-screen input,
+#root .auth-screen select,
+#root .auth-screen textarea {
+  min-height: 44px;
+  border-color: #dedede !important;
+  border-radius: 12px !important;
+  background: #fff !important;
+  color: var(--tc-ink) !important;
+  font-size: 14px !important;
+}
+
+#root .auth-screen input::placeholder,
+#root .auth-screen textarea::placeholder {
+  color: #858585 !important;
+}
+
+#root .auth-screen button[type="submit"] {
+  min-height: 48px;
+  border-radius: 12px !important;
+  background: var(--tc-ink) !important;
+  color: #fff !important;
+  font-size: 14px !important;
+  font-weight: 750 !important;
+  box-shadow: none !important;
+}
+
+#root .auth-screen button[type="submit"]:hover {
+  background: #303030 !important;
+}
+
+#root .auth-screen form > button:not([type="submit"]) {
+  min-height: 40px;
+  background: transparent !important;
+  color: var(--tc-brand) !important;
+}
+
+#root .auth-screen [class*="bg-slate-950"] {
+  background: #f5f5f5 !important;
+}
+
+#root .auth-screen [class*="border-slate-800"] {
+  border-color: var(--tc-line) !important;
+}
+
+#root .auth-screen [class*="text-slate-400"],
+#root .auth-screen [class*="text-slate-500"] {
+  color: var(--tc-muted) !important;
+}
+
+#root .auth-screen [class*="bg-emerald-500"] {
+  background: var(--tc-ink) !important;
+  color: #fff !important;
+}
+
+.app-shell {
+  color: var(--tc-ink);
+  background: var(--tc-canvas) !important;
+}
+
+.app-shell input,
+.app-shell textarea,
+.app-shell select {
+  font-size: max(16px, 1em);
+}
+
+.app-shell .admin-map-panel,
+.app-shell .admin-map-canvas {
+  background: #ecebe8 !important;
+}
+
+.app-shell .admin-map-toolbar {
+  min-height: 56px;
+  border-color: var(--tc-line) !important;
+  background: rgb(255 255 255 / 96%) !important;
+  color: var(--tc-ink) !important;
+}
+
+.app-shell .admin-map-toolbar button {
+  min-height: 40px;
+  border-radius: 12px;
+}
+
+.app-shell .admin-map-panel .maplibregl-ctrl-group,
+.admin-map-frame .maplibregl-ctrl-group {
+  border: 1px solid rgb(0 0 0 / 10%);
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 12%);
+}
+
+.driver-dashboard .admin-dashboard-sidebar {
+  background: var(--tc-paper) !important;
+  color: var(--tc-ink) !important;
+}
+
+.driver-dashboard .admin-sidebar-header {
+  background: var(--tc-paper) !important;
+}
+
+.driver-dashboard .admin-sidebar-header h1,
+.driver-dashboard .admin-sidebar-controls h2 {
+  color: var(--tc-ink) !important;
+}
+
+.driver-dashboard .admin-sidebar-controls {
+  background: var(--tc-canvas) !important;
+}
+
+.driver-dashboard .admin-sidebar-controls > section,
+.driver-dashboard .admin-sidebar-controls > div {
+  border-color: var(--tc-line) !important;
+  border-radius: 16px !important;
+  background-color: var(--tc-paper) !important;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 4%);
+}
+
+.driver-dashboard .admin-sidebar-controls button {
+  min-height: 40px;
+}
+
+.driver-dashboard .admin-stop-list > div:not(:first-child) {
+  border-radius: 14px !important;
+  background-color: var(--tc-paper) !important;
+}
+
+.driver-dashboard .admin-map-panel {
+  z-index: 1;
+}
+
+.tobs-admin-dashboard {
+  --dashboard-blue: #111;
+  --dashboard-green: #27864a;
+  --dashboard-red: #c23b3b;
+  --dashboard-purple: var(--tc-brand);
+  --dashboard-amber: #a76c06;
+  background: var(--tc-canvas);
+  color: var(--tc-ink);
+}
+
+.tobs-admin-dashboard .admin-topbar {
+  min-height: 88px;
+  border-color: var(--tc-line);
+  padding: 18px clamp(18px, 3vw, 36px);
+}
+
+.tobs-admin-dashboard .admin-topbar-heading h1 {
+  font-size: clamp(20px, 2vw, 26px);
+  letter-spacing: -0.045em;
+}
+
+.tobs-admin-dashboard .admin-page-content {
+  gap: 18px;
+  padding: 22px clamp(16px, 3vw, 36px) 36px;
+}
+
+.tobs-admin-dashboard .admin-panel,
+.tobs-admin-dashboard .admin-stat-card {
+  border-color: var(--tc-line);
+  border-radius: 16px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 3%);
+}
+
+.tobs-admin-dashboard .admin-panel {
+  padding: clamp(16px, 2vw, 22px);
+}
+
+.tobs-admin-dashboard .admin-panel-heading h2 {
+  color: var(--tc-ink);
+  font-size: 15px;
+  letter-spacing: -0.025em;
+}
+
+.tobs-admin-dashboard .admin-panel-heading p {
+  color: var(--tc-muted);
+}
+
+.tobs-admin-dashboard .admin-primary-button,
+.tobs-admin-dashboard .admin-view-button {
+  background-color: var(--tc-ink);
+}
+
+.tobs-admin-dashboard .admin-icon-button,
+.tobs-admin-dashboard .admin-global-search,
+.tobs-admin-dashboard .admin-table-search,
+.tobs-admin-dashboard .admin-filter-select {
+  border-radius: 12px;
+}
+
+.tobs-admin-dashboard .admin-global-search {
+  height: 42px;
+  background: #f7f7f7;
+}
+
+.tobs-admin-dashboard .admin-dialog-backdrop {
+  padding: 16px;
+}
+
+.sa-shell {
+  --sa-navy: #111;
+  --sa-text: #111;
+  --sa-muted: #717171;
+  --sa-border: #e7e7e7;
+  background: var(--tc-canvas);
+}
+
+.sa-sidebar {
+  border-color: #292929;
+  background: #111;
+}
+
+.sa-nav button[aria-current="page"] {
+  background: #2a2035;
+  color: #fff;
+}
+
+.sa-nav button[aria-current="page"]::before {
+  background: #b98be8;
+}
+
+.sa-avatar {
+  background: var(--tc-brand);
+}
+
+.sa-topbar {
+  min-height: 82px;
+  padding-right: clamp(18px, 3vw, 34px);
+  padding-left: clamp(18px, 3vw, 34px);
+}
+
+.sa-topbar h1 {
+  font-size: 20px;
+  letter-spacing: -0.04em;
+}
+
+.sa-content {
+  padding: clamp(16px, 2.5vw, 30px) clamp(16px, 3vw, 36px) 36px;
+}
+
+.sa-update-line > span:first-child {
+  color: var(--tc-brand);
+}
+
+.sa-metric,
+.sa-card {
+  border-radius: 16px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 3%);
+}
+
+.sa-metric-icon {
+  background: var(--tc-brand-soft);
+  color: var(--tc-brand);
+}
+
+.sa-metric-violet .sa-metric-icon,
+.sa-metric-green .sa-metric-icon,
+.sa-metric-cyan .sa-metric-icon,
+.sa-metric-amber .sa-metric-icon {
+  background: #f5f4f6;
+  color: var(--tc-brand);
+}
+
+.sa-access-page {
+  min-height: 100svh;
+  padding: 20px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgb(111 53 181 / 7%), transparent 48%),
+    var(--tc-canvas);
+}
+
+.sa-access-card {
+  border-color: var(--tc-line);
+  border-radius: 22px;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 8%);
+}
+
+.sa-access-card input {
+  min-height: 46px;
+  border-radius: 12px;
+}
+
+.sa-access-card > button[type="submit"],
+.sa-access-card.sa-access-message > button {
+  min-height: 46px;
+  border-radius: 12px;
+  background: var(--tc-ink);
+}
+
+@media (max-width: 767px) {
+  #root > .auth-screen {
+    align-items: flex-start;
+    padding: max(16px, env(safe-area-inset-top)) 14px max(16px, env(safe-area-inset-bottom));
+  }
+
+  #root .auth-screen > div {
+    border-radius: 20px;
+    padding: 22px 18px;
+  }
+
+  #root .auth-screen input,
+  #root .auth-screen select,
+  #root .auth-screen textarea {
+    font-size: 16px !important;
+  }
+
+  .app-shell.driver-dashboard {
+    display: flex !important;
+    height: 100dvh;
+    flex-direction: column;
+    overflow: hidden !important;
+  }
+
+  .app-shell.driver-dashboard > .admin-map-panel {
+    order: 1;
+    width: 100%;
+    height: 54dvh;
+    min-height: 0;
+    flex: 0 0 54dvh;
+  }
+
+  .app-shell.driver-dashboard > .admin-dashboard-sidebar {
+    order: 2;
+    width: 100%;
+    height: 46dvh;
+    max-height: 46dvh;
+    min-height: 0;
+    flex: 0 0 46dvh;
+    overflow: hidden;
+    border: 0 !important;
+    border-top: 1px solid var(--tc-line) !important;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -12px 32px rgb(0 0 0 / 9%) !important;
+  }
+
+  .app-shell.driver-dashboard .admin-sidebar-header {
+    position: relative;
+    min-height: 66px;
+    padding: 16px 16px 10px !important;
+  }
+
+  .app-shell.driver-dashboard .admin-sidebar-header::before {
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    width: 34px;
+    height: 4px;
+    border-radius: 8px;
+    background: #d3d3d3;
+    content: "";
+    transform: translateX(-50%);
+  }
+
+  .app-shell.driver-dashboard .admin-sidebar-controls {
+    padding: 12px 14px max(20px, env(safe-area-inset-bottom)) !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+
+  .app-shell.driver-dashboard .admin-map-toolbar {
+    min-height: 52px;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .app-shell.driver-dashboard .admin-map-panel.is-expanded {
+    position: fixed !important;
+    z-index: 60;
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    flex: none;
+  }
+
+  .tobs-admin-dashboard .admin-topbar {
+    min-height: 70px;
+    padding: 11px 14px;
+  }
+
+  .tobs-admin-dashboard .admin-page-content {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 12px max(24px, env(safe-area-inset-bottom));
+  }
+
+  .tobs-admin-dashboard .admin-live-map-panel {
+    order: -2;
+  }
+
+  .tobs-admin-dashboard .admin-stats-grid {
+    order: -1;
+  }
+
+  .tobs-admin-dashboard .admin-map-frame {
+    height: min(36dvh, 320px);
+    min-height: 240px;
+  }
+
+  .tobs-admin-dashboard .admin-stat-card {
+    min-height: 96px;
+    border-radius: 14px;
+  }
+
+  .tobs-admin-dashboard .admin-panel {
+    padding: 15px 13px;
+  }
+
+  .tobs-admin-dashboard .admin-deliveries-table {
+    min-width: 640px;
+  }
+
+  .sa-topbar {
+    min-height: 70px;
+  }
+
+  .sa-topbar h1 {
+    font-size: 17px;
+  }
+
+  .sa-content {
+    padding: 13px 12px max(24px, env(safe-area-inset-bottom));
+  }
+
+  .sa-metrics {
+    gap: 8px;
+  }
+
+  .sa-metric,
+  .sa-card {
+    border-radius: 14px;
+  }
+
+  .sa-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 390px) {
+  #root   #root .auth-screen h1 {
+    font-size: 21px;
+  }
+
+  .sa-content {
+    padding-right: 9px;
+    padding-left: 9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+#root .app-shell.is-route-planner,
+#root .app-shell.driver-dashboard {
+  --tc-brand: #b4d83d;
+  --tc-brand-soft: #f2f7dc;
+  --tc-line: #e3e6dc;
+  color: #171915;
+  background: #eef0e9 !important;
+}
+
+#root .app-shell.is-route-planner > .admin-dashboard-sidebar,
+#root .app-shell.driver-dashboard > .admin-dashboard-sidebar {
+  border-color: var(--tc-line) !important;
+  background: #fff !important;
+  color: #171915 !important;
+  box-shadow: 0 14px 42px rgb(22 26 15 / 9%) !important;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-header,
+#root .app-shell.driver-dashboard .admin-sidebar-header {
+  border-color: var(--tc-line) !important;
+  background: #fff !important;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-header h1,
+#root .app-shell.driver-dashboard .admin-sidebar-header h1 {
+  color: #171915 !important;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-nav button[aria-current="page"] {
+  background: #171915 !important;
+  color: #fff !important;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-nav button[aria-current="page"]::before {
+  background: #c9ef54;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-controls,
+#root .app-shell.driver-dashboard .admin-sidebar-controls {
+  background: #f6f7f2 !important;
+  color: #171915 !important;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-controls > section,
+#root .app-shell.is-route-planner .admin-fleet-card,
+#root .app-shell.driver-dashboard .admin-sidebar-controls > section,
+#root .app-shell.driver-dashboard .admin-sidebar-controls > div {
+  border-color: var(--tc-line) !important;
+  border-radius: 16px !important;
+  background: #fff !important;
+  color: #171915 !important;
+  box-shadow: 0 3px 12px rgb(22 26 15 / 4%);
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-controls h2,
+#root .app-shell.driver-dashboard .admin-sidebar-controls h2,
+#root .app-shell.driver-dashboard .admin-sidebar-controls h3 {
+  color: #171915 !important;
+}
+
+#root .app-shell.is-route-planner .admin-route-actions > div:first-child button:first-child,
+#root .app-shell.driver-dashboard .admin-sidebar-controls button[class*="bg-violet-700"],
+#root .app-shell.driver-dashboard .admin-sidebar-controls button[class*="bg-emerald-600"] {
+  border-color: #b4d83d !important;
+  border-radius: 14px !important;
+  background: #c9ef54 !important;
+  color: #171915 !important;
+  box-shadow: none !important;
+}
+
+#root .app-shell.is-route-planner .admin-route-actions > div:first-child button:last-child {
+  border-color: var(--tc-line) !important;
+  border-radius: 14px !important;
+  background: #fff !important;
+  color: #25271f !important;
+  box-shadow: none !important;
+}
+
+#root .app-shell.is-route-planner .admin-map-panel,
+#root .app-shell.driver-dashboard .admin-map-panel {
+  overflow: hidden;
+  border: 1px solid var(--tc-line);
+  border-radius: 20px;
+  background: #e7e9e1 !important;
+  box-shadow: 0 12px 36px rgb(22 26 15 / 8%);
+}
+
+#root .app-shell.is-route-planner .admin-map-toolbar,
+#root .app-shell.driver-dashboard .admin-map-toolbar {
+  border-color: var(--tc-line) !important;
+  background: rgb(255 255 255 / 94%) !important;
+  color: #171915 !important;
+}
+
+#root .app-shell.is-route-planner .admin-map-toolbar svg,
+#root .app-shell.driver-dashboard .admin-map-toolbar svg {
+  color: #171915 !important;
+}
+
+#root .app-shell.is-route-planner .admin-map-toolbar > button,
+#root .app-shell.driver-dashboard .admin-map-toolbar > button {
+  min-height: 42px;
+  border-color: var(--tc-line) !important;
+  border-radius: 14px !important;
+  background: #fff !important;
+  color: #171915 !important;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-controls [class*="bg-violet-50"],
+#root .app-shell.driver-dashboard .admin-sidebar-controls [class*="bg-violet-50"] {
+  border-color: var(--tc-line) !important;
+  background: #f5f7ed !important;
+  color: #25271f !important;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-controls [class*="text-violet-"],
+#root .app-shell.driver-dashboard .admin-sidebar-controls [class*="text-violet-"] {
+  color: #414438 !important;
+}
+
+#root .app-shell.driver-dashboard .admin-sidebar-controls button[aria-pressed="true"] {
+  border: 1px solid #b4d83d !important;
+  background: #c9ef54 !important;
+  color: #171915 !important;
+}
+
+#root .app-shell.driver-dashboard .admin-sidebar-controls button[aria-pressed="false"] {
+  border: 1px solid #171915 !important;
+  background: #171915 !important;
+  color: #fff !important;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-controls [class*="text-[9px]"],
+#root .app-shell.driver-dashboard .admin-sidebar-controls [class*="text-[9px]"] {
+  font-size: 10px !important;
+  line-height: 1.4;
+}
+
+#root .app-shell.is-route-planner .admin-sidebar-controls [class*="text-[10px]"],
+#root .app-shell.driver-dashboard .admin-sidebar-controls [class*="text-[10px]"] {
+  font-size: 11px !important;
+  line-height: 1.4;
+}
+
+@media (min-width: 768px) {
+  #root .app-shell.is-route-planner {
+    display: flex !important;
+    position: relative;
+    flex-direction: row !important;
+    overflow: hidden !important;
+  }
+
+  #root .app-shell.is-route-planner > .admin-dashboard-sidebar {
+    position: absolute !important;
+    inset: 12px auto 12px 12px !important;
+    z-index: 20;
+    width: 368px !important;
+    max-width: 368px !important;
+    height: auto;
+    max-height: none !important;
+    margin: 0;
+    flex: 0 0 368px !important;
+    border: 1px solid var(--tc-line) !important;
+    border-radius: 20px;
+  }
+
+  #root .app-shell.is-route-planner > .admin-map-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 58dvh;
+    min-height: 0;
+    margin: 0;
+    flex: 0 0 100%;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  #root .app-shell.is-route-planner .admin-map-toolbar {
+    position: absolute;
+    inset: 16px 16px auto auto;
+    z-index: 12 !important;
+    min-height: 48px;
+    border: 1px solid rgb(20 24 13 / 8%) !important;
+    border-radius: 16px;
+    box-shadow: 0 4px 16px rgb(20 24 13 / 10%);
+  }
+
+  #root .app-shell.is-route-planner > .admin-dashboard-sidebar,
+  #root .app-shell.driver-dashboard > .admin-dashboard-sidebar {
+    width: 368px !important;
+    max-width: 368px !important;
+    height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px) !important;
+    margin: 12px;
+    flex: 0 0 368px !important;
+    border: 1px solid var(--tc-line) !important;
+    border-radius: 20px;
+  }
+
+  #root .app-shell.is-route-planner > .admin-map-panel,
+  #root .app-shell.driver-dashboard > .admin-map-panel {
+    min-width: 0;
+    height: calc(100dvh - 24px);
+    min-height: 0;
+    margin: 12px 12px 12px 0;
+  }
+
+  #root .app-shell.is-route-planner > .admin-dashboard-sidebar {
+    position: absolute !important;
+    inset: 12px auto 12px 12px !important;
+    z-index: 20;
+    width: 368px !important;
+    max-width: 368px !important;
+    height: auto;
+    max-height: none !important;
+    margin: 0;
+    flex: 0 0 368px !important;
+    border-radius: 20px;
+  }
+
+  #root .app-shell.is-route-planner > .admin-map-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    margin: 0;
+    flex: 0 0 100%;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 767px) {
+  #root .app-shell.is-route-planner,
+  #root .app-shell.driver-dashboard {
+    position: relative;
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden !important;
+  }
+
+  #root .app-shell.admin-dashboard.is-route-planner > .admin-dashboard-sidebar,
+  #root .app-shell.driver-dashboard > .admin-dashboard-sidebar,
+  #root .app-shell.admin-dashboard.is-route-planner > .admin-dashboard-sidebar.is-collapsed {
+    position: absolute !important;
+    inset: auto 10px max(8px, env(safe-area-inset-bottom)) 10px !important;
+    z-index: 20;
+    width: auto !important;
+    max-width: none !important;
+    height: min(62dvh, 580px) !important;
+    max-height: min(62dvh, 580px) !important;
+    min-height: 0;
+    margin: 0;
+    flex: 0 0 auto !important;
+    overflow: hidden;
+    border: 1px solid var(--tc-line) !important;
+    border-radius: 22px;
+    box-shadow: 0 -12px 42px rgb(20 24 13 / 16%) !important;
+    transform: none !important;
+  }
+
+  #root .app-shell.admin-dashboard.is-route-planner > .admin-map-panel:not(.is-expanded),
+  #root .app-shell.driver-dashboard > .admin-map-panel:not(.is-expanded) {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    order: 0;
+    width: 100%;
+    height: 100dvh;
+    min-height: 0;
+    margin: 0;
+    flex: 0 0 100%;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  #root .app-shell.is-route-planner .admin-map-toolbar,
+  #root .app-shell.driver-dashboard .admin-map-toolbar {
+    position: absolute;
+    inset: max(12px, env(safe-area-inset-top)) 10px auto;
+    z-index: 12 !important;
+    min-height: 48px;
+    padding: 4px 8px;
+    border: 1px solid rgb(20 24 13 / 8%) !important;
+    border-radius: 16px;
+    box-shadow: 0 4px 16px rgb(20 24 13 / 10%);
+  }
+
+  #root .app-shell.is-route-planner .admin-map-canvas,
+  #root .app-shell.driver-dashboard .admin-map-canvas {
+    height: 100%;
+    min-height: 100%;
+  }
+
+  #root .app-shell.is-route-planner .admin-sidebar-header,
+  #root .app-shell.driver-dashboard .admin-sidebar-header {
+    position: relative;
+    min-height: 62px;
+    padding: 16px 16px 10px !important;
+  }
+
+  #root .app-shell.is-route-planner .admin-sidebar-header::before,
+  #root .app-shell.driver-dashboard .admin-sidebar-header::before {
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    border-radius: 4px;
+    background: #c7cbc0;
+    content: "";
+    transform: translateX(-50%);
+  }
+
+  #root .app-shell.is-route-planner .admin-sidebar-controls,
+  #root .app-shell.driver-dashboard .admin-sidebar-controls {
+    min-height: 0;
+    padding: 12px 14px calc(20px + env(safe-area-inset-bottom)) !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #root .app-shell.is-route-planner > .admin-map-panel.is-expanded,
+  #root .app-shell.driver-dashboard > .admin-map-panel.is-expanded {
+    position: fixed !important;
+    inset: 0;
+    z-index: 60;
+    width: 100%;
+    height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+  }
+}

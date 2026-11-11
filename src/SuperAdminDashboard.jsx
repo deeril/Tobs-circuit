@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import brandLogo from './assets/tobs-circuit-logo-purple.png';
+import DispatchCallControls from './DispatchCallControls.jsx';
 import {
   Activity,
   BadgeCheck,
@@ -33,6 +34,8 @@ import './SuperAdminDashboard.css';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const REFRESH_INTERVAL = 15_000;
+let ownerCsrfTokenCache = '';
+let ownerCsrfTokenRequest = null;
 
 const PLATFORM_NAV = [
   { id: 'DASHBOARD', label: 'Dashboard', icon: LayoutDashboard },
@@ -54,13 +57,39 @@ const PLATFORM_NAV = [
 
 async function superAdminRequest(path, { method = 'GET', body } = {}) {
   let response;
+  const normalizedMethod = method.toUpperCase();
+  const publicAuthEndpoint = [
+    '/api/super-admin/login/request-code',
+    '/api/super-admin/login/verify-code'
+  ].includes(path);
   try {
+    let csrfToken = '';
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(normalizedMethod) && !publicAuthEndpoint) {
+      if (!ownerCsrfTokenRequest && !ownerCsrfTokenCache) {
+        ownerCsrfTokenRequest = fetch(`${API_BASE_URL}/api/auth/csrf`, {
+          credentials: API_BASE_URL ? 'include' : 'same-origin'
+        }).then(async tokenResponse => {
+          const payload = await tokenResponse.json();
+          if (!tokenResponse.ok) throw new Error(payload.error || 'Could not verify this session.');
+          ownerCsrfTokenCache = payload.csrfToken;
+        }).finally(() => {
+          ownerCsrfTokenRequest = null;
+        });
+      }
+      if (ownerCsrfTokenRequest) await ownerCsrfTokenRequest;
+      csrfToken = ownerCsrfTokenCache;
+    }
     response = await fetch(`${API_BASE_URL}${path}`, {
-      method,
+      method: normalizedMethod,
       credentials: API_BASE_URL ? 'include' : 'same-origin',
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+      },
       body: body ? JSON.stringify(body) : undefined
     });
+    if (path === '/api/super-admin/login/verify-code' && response.ok) ownerCsrfTokenCache = '';
+    if (path === '/api/auth/logout' && response.ok) ownerCsrfTokenCache = '';
   } catch (error) {
     throw new Error(`Could not reach the platform API. Check the connection and deployment. ${error.message}`);
   }
@@ -76,6 +105,11 @@ async function superAdminRequest(path, { method = 'GET', body } = {}) {
     throw new Error('The platform API returned an unexpected response.');
   }
   return payload;
+}
+
+function dispatchCallRequest(path, options = {}) {
+  const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+  return superAdminRequest(path, { ...options, body });
 }
 
 function formatDate(value) {
@@ -663,7 +697,7 @@ export default function SuperAdminDashboard() {
               <RecordsTable
                 columns={[
                   { label: 'Driver', render: row => <span><strong>{row.name}</strong><small>{row.businessName}</small></span> },
-                  { label: 'Location', render: row => Number.isFinite(row.lat) && Number.isFinite(row.lng) ? <a className="sa-map-link" href={`https://www.google.com/maps/search/?api=1&query=${row.lat},${row.lng}`} target="_blank" rel="noreferrer">{row.lat.toFixed(5)}, {row.lng.toFixed(5)}</a> : 'No location shared' },
+                  { label: 'Location', render: row => Number.isFinite(row.lat) && Number.isFinite(row.lng) ? <a className="sa-map-link" href={`https://www.openstreetmap.org/?mlat=${row.lat}&mlon=${row.lng}#map=15/${row.lat}/${row.lng}`} target="_blank" rel="noreferrer">{row.lat.toFixed(5)}, {row.lng.toFixed(5)}</a> : 'No location shared' },
                   { label: 'Updated', render: row => formatDate(row.locationUpdatedAt) },
                   { label: 'Tracking', render: row => <StatusBadge value={row.isTracking ? 'ACTIVE' : 'IDLE'} /> }
                 ]}
@@ -769,6 +803,11 @@ export default function SuperAdminDashboard() {
                           {selectedSupportThread.status === 'RESOLVED' ? 'Reopen' : 'Resolve'}
                         </button>
                       </header>
+                      <DispatchCallControls
+                        supportThreadId={selectedSupportThread.id}
+                        currentUserId={user.id}
+                        request={dispatchCallRequest}
+                      />
                       <div className="sa-support-messages">
                         {selectedSupportThread.messages?.map(message => {
                           const isUser = message.sender === 'USER';

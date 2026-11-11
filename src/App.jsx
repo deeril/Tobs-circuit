@@ -1,10 +1,14 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { io as createSocketClient } from 'socket.io-client';
 import brandLogo from './assets/tobs-circuit-logo-purple.png';
 import AdminDashboard from './AdminDashboard.jsx';
 import { ADMIN_NAV_ITEMS } from './adminNavigation.js';
 import SuperAdminDashboard from './SuperAdminDashboard.jsx';
-const CustomerCareDashboard = React.lazy(() => import('./CustomerCareDashboard.jsx'));
+const CustomerCareDashboard = lazy(() => import('./CustomerCareDashboard.jsx'));
+import DeliveryChatPanel from './DeliveryChatPanel.jsx';
+import DispatchCallControls from './DispatchCallControls.jsx';
+import { applyBusinessRiderLocation } from './dispatch-map-state.js';
 import {
   MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
@@ -15,20 +19,8 @@ import {
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
-const BIKE_ICON_URL = 'https://res.cloudinary.com/djfkcfltf/image/upload/v1793287582/image-removebg-preview_1_l3xhbk.png';
-const MAP_ZOOM = 10;
-
-function getMapPixelOffset(location, center, zoom) {
-  const worldSize = 256 * (2 ** zoom);
-  const x = ((location.lng - center.lng) / 360) * worldSize;
-  const toMercatorY = latitude => {
-    const clampedLatitude = Math.max(-85.05112878, Math.min(85.05112878, latitude));
-    const radians = clampedLatitude * (Math.PI / 180);
-    return Math.log(Math.tan(Math.PI / 4 + radians / 2));
-  };
-  const y = ((toMercatorY(center.lat) - toMercatorY(location.lat)) / (2 * Math.PI)) * worldSize;
-  return { x, y };
-}
+let csrfTokenCache = '';
+let csrfTokenRequest = null;
 
 function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, id }) {
   const [suggestions, setSuggestions] = useState([]);
@@ -51,11 +43,10 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
           lat: '6.5244',
           lon: '3.3792'
         });
-        const response = await fetch(`https://photon.komoot.io/api/?${params}`, {
+        const data = await apiRequest(`/api/geocode/search?${params}`, {
+          method: 'GET',
           signal: controller.signal
         });
-        if (!response.ok) throw new Error(`Address lookup failed (${response.status}).`);
-        const data = await response.json();
         setSuggestions(data.features || []);
       } catch (lookupError) {
         if (!controller.signal.aborted) {
@@ -155,7 +146,11 @@ const DEMO_STOP_IDS = new Set(['l1', 'l2', 'l3', 'l4', 'l5', 'l6']);
 const BRAND_LOGO_URL = brandLogo;
 const ORG_LOGOS_STORAGE_KEY = 'tobs_circuit_org_logos';
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const IS_GITHUB_PAGES_DEMO = window.location.hostname === 'deeril.github.io' && !API_BASE_URL;
+const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL
+  || (import.meta.env.DEV ? API_BASE_URL || window.location.origin : '');
+const IS_GITHUB_PAGES_DEMO = (window.location.hostname === 'deeril.github.io'
+  || (import.meta.env.DEV && new URLSearchParams(window.location.search).has('preview')))
+  && !API_BASE_URL;
 const PREVIEW_ADMIN = {
   id: 'preview-admin',
   name: 'Demo Dispatcher',
@@ -179,7 +174,8 @@ const PREVIEW_DRIVERS = [
     lng: 3.3582,
     speed: 0,
     isTracking: false,
-    routeStatus: 'IN_PROGRESS'
+    routeStatus: 'IN_PROGRESS',
+    isPreviewFixture: true
   },
   {
     id: 'preview-driver-2',
@@ -195,7 +191,8 @@ const PREVIEW_DRIVERS = [
     lng: 3.3711,
     speed: 0,
     isTracking: false,
-    routeStatus: 'PENDING'
+    routeStatus: 'PENDING',
+    isPreviewFixture: true
   }
 ];
 
@@ -245,10 +242,14 @@ function createPreviewStops() {
     {
       id: 'preview-pending',
       name: 'Pending Preview Delivery',
+      pickupAddress: 'Ikeja Central Depot, Lagos',
+      pickupLat: 6.6018,
+      pickupLng: 3.3515,
       address: 'Victoria Island, Lagos',
       lat: 6.4261,
       lng: 3.4302,
       status: 'PENDING',
+      dispatchStatus: 'RIDER_ACCEPTED',
       assignedDriverId: PREVIEW_DRIVERS[0].id,
       priority: 'HIGH',
       packages: 1
@@ -290,15 +291,44 @@ function resizeLogoImage(file) {
 
 async function apiRequest(path, options = {}) {
   let response;
+  const method = String(options.method || 'GET').toUpperCase();
+  const publicMutation = [
+    '/api/auth/login',
+    '/api/auth/register-admin',
+    '/api/auth/register-driver',
+    '/api/auth/password-reset',
+    '/api/auth/password-reset/complete'
+  ].includes(path);
   try {
+    let csrfToken = '';
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !publicMutation) {
+      if (!csrfTokenRequest && !csrfTokenCache) {
+        csrfTokenRequest = fetch(`${API_BASE_URL}/api/auth/csrf`, {
+          credentials: API_BASE_URL ? 'include' : 'same-origin'
+        }).then(async tokenResponse => {
+          const payload = await tokenResponse.json();
+          if (!tokenResponse.ok) throw new Error(payload.error || 'Could not verify this session.');
+          csrfTokenCache = payload.csrfToken;
+        }).finally(() => {
+          csrfTokenRequest = null;
+        });
+      }
+      if (csrfTokenRequest) await csrfTokenRequest;
+      csrfToken = csrfTokenCache;
+    }
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
       credentials: API_BASE_URL ? 'include' : 'same-origin',
       headers: {
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-        ...options.headers
+        ...options.headers,
+        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
       }
     });
+    if (path === '/api/auth/login' || path === '/api/auth/register-admin' || path === '/api/auth/register-driver') {
+      csrfTokenCache = '';
+    }
+    if (path === '/api/auth/logout' && response.ok) csrfTokenCache = '';
   } catch (error) {
     throw new Error(`Could not reach the account API. Check the deployment and network connection. ${error.message}`);
   }
@@ -338,243 +368,103 @@ function getInviteApplicationUrl(invite) {
   return url.toString();
 }
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-const GOOGLE_MAP_ID = import.meta.env.VITE_GOOGLE_MAP_ID || 'DEMO_MAP_ID';
-const DEFAULT_MAP_CENTER = { lat: 6.6018, lng: 3.3515 };
-let googleMapsLoadPromise;
+const DEFAULT_MAPLIBRE_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+const MAPLIBRE_STYLE_URL = import.meta.env.VITE_MAPLIBRE_STYLE_URL || DEFAULT_MAPLIBRE_STYLE_URL;
+const MapLibreFleetMap = lazy(() => import('./MapLibreFleetMap.jsx'));
 
-function loadGoogleMapsApi() {
-  if (window.google?.maps?.importLibrary) return Promise.resolve(window.google.maps);
-  if (!GOOGLE_MAPS_API_KEY) return Promise.reject(new Error('Set VITE_GOOGLE_MAPS_API_KEY to enable interactive Google Maps.'));
-  if (!googleMapsLoadPromise) {
-    googleMapsLoadPromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      const params = new URLSearchParams({
-        key: GOOGLE_MAPS_API_KEY,
-        v: 'weekly',
-        loading: 'async'
-      });
-      script.src = `https://maps.googleapis.com/maps/api/js?${params}`;
-      script.async = true;
-      script.onload = () => {
-        if (window.google?.maps?.importLibrary) resolve(window.google.maps);
-        else reject(new Error('Google Maps loaded without the JavaScript API.'));
-      };
-      script.onerror = () => reject(new Error('Google Maps JavaScript API could not be loaded.'));
-      document.head.appendChild(script);
-    });
+function parseMapCoordinates(location) {
+  if (location && typeof location === 'object'
+    && Number.isFinite(location.lat) && Number.isFinite(location.lng)
+    && Math.abs(location.lat) <= 90 && Math.abs(location.lng) <= 180) {
+    return { lat: location.lat, lng: location.lng };
   }
-  return googleMapsLoadPromise;
+  const match = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(String(location || ''));
+  if (!match) return null;
+  const lat = Number(match[1]);
+  const lng = Number(match[2]);
+  return Number.isFinite(lat) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+    ? { lat, lng }
+    : null;
 }
 
-function detachGoogleMapMarker(marker) {
-  marker.map = null;
+function openStreetMapSearchUrl(query) {
+  const url = new URL('https://www.openstreetmap.org/search');
+  url.searchParams.set('query', String(query || ''));
+  return url.toString();
 }
 
-function GoogleFleetMap({ center, drivers, stops = [], now, fallbackUrl, onReadyChange, onDriverSelect }) {
-  const mapElementRef = useRef(null);
-  const mapRef = useRef(null);
-  const markersRef = useRef(new Map());
-  const deliveryMarkersRef = useRef(new Map());
-  const markerConstructorRef = useRef(null);
-  const [mapStatus, setMapStatus] = useState(GOOGLE_MAPS_API_KEY ? 'loading' : 'fallback');
+function openStreetMapDirectionsUrl(locations) {
+  const points = locations.map(parseMapCoordinates);
+  if (points.length >= 2 && points.every(Boolean)) {
+    const url = new URL('https://www.openstreetmap.org/directions');
+    url.searchParams.set('engine', 'fossgis_osrm_car');
+    url.searchParams.set('route', points.map(point => `${point.lat},${point.lng}`).join(';'));
+    return url.toString();
+  }
+  return openStreetMapSearchUrl(locations.at(-1));
+}
+
+function openStreetMapLocationUrl(location, zoom = 10) {
+  const point = parseMapCoordinates(location);
+  if (!point) return openStreetMapSearchUrl(location);
+  return `https://www.openstreetmap.org/?mlat=${point.lat}&mlon=${point.lng}#map=${zoom}/${point.lat}/${point.lng}`;
+}
+
+function FleetMap(props) {
+  return (
+    <Suspense fallback={<div className="absolute inset-0 grid place-items-center bg-slate-100 text-xs font-semibold text-slate-600">Loading interactive map...</div>}>
+      <MapLibreFleetMap
+        {...props}
+        styleUrl={MAPLIBRE_STYLE_URL}
+        apiBaseUrl={API_BASE_URL}
+      />
+    </Suspense>
+  );
+}
+
+function DeliveryRouteEstimate({ offer }) {
+  const [routeState, setRouteState] = useState(null);
+  const [errorState, setErrorState] = useState(null);
+  const stop = offer.stop;
+  const coordinatesValid = [stop.pickupLat, stop.pickupLng, stop.lat, stop.lng].every(Number.isFinite);
+  const coordinatesKey = [stop.id, stop.pickupLat, stop.pickupLng, stop.lat, stop.lng].join(':');
 
   useEffect(() => {
-    let cancelled = false;
-    const markers = markersRef.current;
-    const deliveryMarkers = deliveryMarkersRef.current;
-    if (!GOOGLE_MAPS_API_KEY) {
-      onReadyChange(false);
-      return undefined;
-    }
-
-    loadGoogleMapsApi()
-      .then(async maps => {
-        const [{ Map }, { AdvancedMarkerElement }] = await Promise.all([
-          maps.importLibrary('maps'),
-          maps.importLibrary('marker')
-        ]);
-        if (cancelled || !mapElementRef.current) return;
-        mapRef.current = new Map(mapElementRef.current, {
-          center: DEFAULT_MAP_CENTER,
-          zoom: MAP_ZOOM,
-          mapId: GOOGLE_MAP_ID,
-          gestureHandling: window.matchMedia('(pointer: coarse)').matches ? 'greedy' : 'cooperative',
-          streetViewControl: false,
-          mapTypeControl: false,
-          fullscreenControl: false
-        });
-        markerConstructorRef.current = AdvancedMarkerElement;
-        setMapStatus('ready');
-        onReadyChange(true);
+    if (!coordinatesValid) return undefined;
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      fromLat: String(stop.pickupLat),
+      fromLng: String(stop.pickupLng),
+      toLat: String(stop.lat),
+      toLng: String(stop.lng)
+    });
+    apiRequest(`/api/routing/route?${params}`, { signal: controller.signal })
+      .then(result => {
+        if (!controller.signal.aborted) {
+          setRouteState({ key: coordinatesKey, route: result });
+          setErrorState(null);
+        }
       })
-      .catch(error => {
-        console.error('Interactive Google Maps could not be initialized:', error);
-        if (!cancelled) {
-          setMapStatus('fallback');
-          onReadyChange(false);
+      .catch(lookupError => {
+        if (!controller.signal.aborted) {
+          console.error('Could not calculate the delivery route estimate:', lookupError);
+          setErrorState({ key: coordinatesKey, message: 'Road estimate unavailable.' });
         }
       });
+    return () => controller.abort();
+  }, [coordinatesKey, coordinatesValid, stop.lat, stop.lng, stop.pickupLat, stop.pickupLng]);
 
-    return () => {
-      cancelled = true;
-      for (const marker of markers.values()) detachGoogleMapMarker(marker);
-      markers.clear();
-      for (const marker of deliveryMarkers.values()) detachGoogleMapMarker(marker);
-      deliveryMarkers.clear();
-    };
-  }, [onReadyChange]);
-
-  useEffect(() => {
-    if (mapStatus !== 'ready' || !mapRef.current) return;
-    mapRef.current.setCenter({ lat: center.lat, lng: center.lng });
-    const activeDrivers = drivers.filter(driver =>
-      driver.isTracking &&
-      driver.locationUpdatedAt &&
-      now - new Date(driver.locationUpdatedAt).getTime() < 90_000 &&
-      Number.isFinite(driver.lat) &&
-      Number.isFinite(driver.lng)
-    );
-    const activeIds = new Set(activeDrivers.map(driver => driver.id));
-
-    for (const [driverId, marker] of markersRef.current) {
-      if (!activeIds.has(driverId)) {
-        detachGoogleMapMarker(marker);
-        markersRef.current.delete(driverId);
-      }
-    }
-
-    for (const driver of activeDrivers) {
-      let marker = markersRef.current.get(driver.id);
-      if (!marker) {
-        const markerContent = document.createElement('div');
-        markerContent.className = 'google-bike-marker';
-        const speedLabel = document.createElement('span');
-        speedLabel.className = 'bike-rider-speed';
-        const bike = document.createElement('img');
-        bike.src = BIKE_ICON_URL;
-        bike.alt = '';
-        bike.className = 'bike-rider-icon';
-        const driverLabel = document.createElement('span');
-        driverLabel.className = 'bike-rider-name';
-        markerContent.append(speedLabel, bike, driverLabel);
-        marker = new markerConstructorRef.current({
-          map: mapRef.current,
-          position: { lat: driver.lat, lng: driver.lng },
-          title: `${driver.name} live location`,
-          content: markerContent,
-          gmpClickable: true
-        });
-        marker.addListener('click', () => onDriverSelect(driver.id));
-        markersRef.current.set(driver.id, marker);
-      }
-      marker.position = { lat: driver.lat, lng: driver.lng };
-      marker.title = `${driver.name} · ${driver.speed ?? 0} km/h`;
-      const markerContent = marker.content;
-      markerContent.querySelector('.bike-rider-speed').textContent = `${driver.speed ?? 0} km/h`;
-      markerContent.querySelector('.bike-rider-name').textContent = driver.name;
-      markerContent.querySelector('.bike-rider-icon').classList.toggle(
-        'bike-rider-icon-moving',
-        Number(driver.speed) > 0
-      );
-    }
-
-    const mappedStops = stops.filter(stop =>
-      Number.isFinite(stop.lat) && Number.isFinite(stop.lng)
-    );
-    const stopIds = new Set(mappedStops.map(stop => stop.id));
-    for (const [stopId, marker] of deliveryMarkersRef.current) {
-      if (!stopIds.has(stopId)) {
-        detachGoogleMapMarker(marker);
-        deliveryMarkersRef.current.delete(stopId);
-      }
-    }
-
-    for (const stop of mappedStops) {
-      let marker = deliveryMarkersRef.current.get(stop.id);
-      if (!marker) {
-        const markerContent = document.createElement('div');
-        markerContent.className = 'google-delivery-marker';
-        markerContent.setAttribute('aria-hidden', 'true');
-        marker = new markerConstructorRef.current({
-          map: mapRef.current,
-          position: { lat: stop.lat, lng: stop.lng },
-          title: `${stop.customerName || stop.name || 'Delivery'} · ${stop.status || 'PENDING'}`,
-          content: markerContent
-        });
-        deliveryMarkersRef.current.set(stop.id, marker);
-      }
-      marker.position = { lat: stop.lat, lng: stop.lng };
-      marker.title = `${stop.customerName || stop.name || 'Delivery'} · ${stop.status || 'PENDING'}`;
-    }
-  }, [center, drivers, mapStatus, now, onDriverSelect, stops]);
-
+  if (!coordinatesValid) return <p className="text-slate-500">Road estimate unavailable because coordinates are missing.</p>;
+  if (errorState?.key === coordinatesKey) return <p className="text-slate-500">{errorState.message}</p>;
+  const route = routeState?.key === coordinatesKey ? routeState.route : null;
+  if (!route) return <p className="text-slate-500">Calculating delivery route...</p>;
   return (
-    <div className="google-fleet-map absolute inset-0">
-      <div ref={mapElementRef} className={mapStatus === 'ready' ? 'h-full w-full' : 'hidden'} />
-      {mapStatus !== 'ready' && stops.map(stop => {
-        if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return null;
-        const offset = getMapPixelOffset({ lat: stop.lat, lng: stop.lng }, center, MAP_ZOOM);
-        return (
-          <span
-            key={`delivery-${stop.id}`}
-            className="google-delivery-fallback-marker"
-            title={`${stop.customerName || stop.name || 'Delivery'} · ${stop.status || 'PENDING'}`}
-            style={{
-              left: `calc(50% + ${offset.x}px)`,
-              top: `calc(50% + ${offset.y}px)`
-            }}
-          />
-        );
-      })}
-      {mapStatus !== 'ready' && drivers.map(driver => {
-        const locationIsFresh = driver.isTracking
-          && driver.locationUpdatedAt
-          && now - new Date(driver.locationUpdatedAt).getTime() < 90_000
-          && Number.isFinite(driver.lat)
-          && Number.isFinite(driver.lng);
-        if (!locationIsFresh) return null;
-        const offset = getMapPixelOffset({ lat: driver.lat, lng: driver.lng }, center, MAP_ZOOM);
-        return (
-          <button
-            key={`driver-${driver.id}`}
-            type="button"
-            aria-label={`Live location for ${driver.name}, ${driver.speed ?? 0} kilometers per hour`}
-            title={`${driver.name} · ${driver.speed ?? 0} km/h`}
-            onClick={() => onDriverSelect(driver.id)}
-            className="bike-rider-marker absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
-            style={{
-              left: `calc(50% + ${offset.x}px)`,
-              top: `calc(50% + ${offset.y}px)`
-            }}
-          >
-            <span className="bike-rider-speed">{driver.speed ?? 0} km/h</span>
-            <img
-              src={BIKE_ICON_URL}
-              alt=""
-              className={`bike-rider-icon ${Number(driver.speed) > 0 ? 'bike-rider-icon-moving' : ''}`}
-            />
-            <span className="bike-rider-name">{driver.name}</span>
-          </button>
-        );
-      })}
-      {mapStatus !== 'ready' && (
-        <>
-          <iframe
-            title="Lagos, Nigeria map"
-            className="h-full w-full border-none"
-            src={fallbackUrl}
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            allowFullScreen
-          />
-          <div className="google-map-fallback-notice absolute bottom-3 left-3 z-10 max-w-[min(26rem,calc(100%-1.5rem))] rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-[10px] font-semibold text-slate-700 shadow-lg">
-            {GOOGLE_MAPS_API_KEY
-              ? 'Interactive Google Maps could not load. Check the key, billing, and Maps JavaScript API settings.'
-              : 'Showing the standard map. Add a restricted VITE_GOOGLE_MAPS_API_KEY to enable interactive Google Maps.'}
-          </div>
-        </>
-      )}
+    <div className="text-slate-500">
+      {route.distanceKm.toFixed(1)} km · about {route.durationMinutes} min
+      <span className="ml-1 text-[9px]">
+        {route.mode === 'road' ? 'road estimate' : 'straight-line fallback'}
+      </span>
+      {route.warning && <p className="mt-1 text-[9px] text-amber-700">{route.warning}</p>}
     </div>
   );
 }
@@ -719,6 +609,33 @@ const [authError, setAuthError] = useState('');
   }, [currentUser?.id, currentUser?.role, isPreviewSession]);
 
   useEffect(() => {
+    if (!currentUser?.id || !['ADMIN', 'DRIVER'].includes(currentUser.role) || isPreviewSession) {
+      setDispatchNotifications([]);
+      return undefined;
+    }
+    let active = true;
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const { notifications } = await apiRequest('/api/dispatch/notifications');
+        if (active) setDispatchNotifications(notifications);
+      } catch (error) {
+        console.error('Could not refresh dispatch notifications:', error);
+      } finally {
+        refreshing = false;
+      }
+    };
+    refresh();
+    const intervalId = window.setInterval(refresh, 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [currentUser?.id, currentUser?.role, isPreviewSession]);
+
+  useEffect(() => {
     if (!currentUser?.id || !routeDataReady || isPreviewSession || currentUser.role === 'CUSTOMER_CARE') return undefined;
     const timerId = window.setTimeout(() => {
       apiRequest('/api/stops', {
@@ -733,6 +650,146 @@ const [authError, setAuthError] = useState('');
     }, 250);
     return () => window.clearTimeout(timerId);
   }, [stops, routeDataReady, currentUser?.id, currentUser?.role, isPreviewSession]);
+
+  useEffect(() => {
+    if (!currentUser?.id || !['ADMIN', 'DRIVER'].includes(currentUser.role) || isPreviewSession) {
+      setDeliveryOffers([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const refreshDeliveryOffers = async () => {
+      try {
+        const { offers } = await apiRequest('/api/delivery-offers');
+        if (cancelled) return;
+        setDeliveryOffers(offers);
+        if (currentUser.role === 'ADMIN') {
+          const acceptedOffers = offers.filter(offer => offer.status === 'ACCEPTED');
+          if (acceptedOffers.length > 0) {
+            const assignedRiderId = acceptedOffers.find(offer => offer.rider?.id)?.rider.id;
+            if (assignedRiderId) setActiveDriverId(assignedRiderId);
+            const acceptedOffer = acceptedOffers.find(offer => offer.stop?.id);
+            if (acceptedOffer) {
+              const acceptedRiderName = acceptedOffer.rider?.name || 'The driver';
+              setDeliverySearchFeedback({
+                stopId: acceptedOffer.stop.id,
+                state: 'accepted',
+                message: `${acceptedRiderName} accepted the delivery. Their live approach to pickup is shown on the map while location sharing is active.`
+              });
+            }
+            setStops(previous => {
+              const acceptedByStop = new Map(acceptedOffers.map(offer => [offer.stop.id, offer.stop]));
+              return previous.map(stop => acceptedByStop.has(stop.id)
+                ? { ...stop, ...acceptedByStop.get(stop.id) }
+                : stop);
+            });
+            setUsers(previous => {
+              const ridersById = new Map(acceptedOffers
+                .filter(offer => offer.rider)
+                .map(offer => [offer.rider.id, offer.rider]));
+              return previous.map(user => ridersById.has(user.id)
+                ? { ...user, ...ridersById.get(user.id) }
+                : user);
+            });
+          }
+        }
+        setDeliveryOfferError('');
+      } catch (error) {
+        console.error('Could not refresh delivery offers:', error);
+        if (!cancelled) setDeliveryOfferError(`Delivery offers could not be refreshed: ${error.message}`);
+      }
+    };
+
+    refreshDeliveryOffers();
+    const refreshInterval = window.setInterval(refreshDeliveryOffers, 3_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshInterval);
+    };
+  }, [currentUser?.id, currentUser?.role, isPreviewSession]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'ADMIN' || isPreviewSession) return undefined;
+    let cancelled = false;
+    apiRequest('/api/dispatch/business-preferences')
+      .then(({ allowsCrossBusinessBatch }) => {
+        if (!cancelled) setBusinessBatchConsent(allowsCrossBusinessBatch === true);
+      })
+      .catch(error => {
+        console.error('Could not load cross-business batching consent:', error);
+        if (!cancelled) setDeliveryOfferError(`Dispatch preferences could not be loaded: ${error.message}`);
+      });
+    return () => { cancelled = true; };
+  }, [currentUser?.id, currentUser?.role, isPreviewSession]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'DRIVER') return;
+    setDispatchProfileForm({
+      maxPackageCount: currentUser.maxPackageCount ?? '',
+      maxPackageWeightKg: currentUser.maxPackageWeightKg ?? '',
+      maxPackageSize: currentUser.maxPackageSize ?? '',
+      acceptsCrossBusinessBatches: currentUser.acceptsCrossBusinessBatches === true
+    });
+  }, [
+    currentUser?.id,
+    currentUser?.maxPackageCount,
+    currentUser?.maxPackageWeightKg,
+    currentUser?.maxPackageSize,
+    currentUser?.acceptsCrossBusinessBatches,
+    currentUser?.role
+  ]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'ADMIN' || isPreviewSession) {
+      setDispatchMapRiders([]);
+      setDispatchMapError('');
+      return undefined;
+    }
+
+    let cancelled = false;
+    let refreshing = false;
+    const refreshMapRiders = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const { riders } = await apiRequest('/api/dispatch/map-riders');
+        if (cancelled) return;
+        setDispatchMapRiders(Array.isArray(riders) ? riders : []);
+        setDispatchMapError('');
+      } catch (error) {
+        console.error('Could not refresh authorized rider map locations:', error);
+        if (!cancelled) setDispatchMapError('Rider locations could not be refreshed. Showing the last known positions.');
+      } finally {
+        refreshing = false;
+      }
+    };
+
+    refreshMapRiders();
+    const refreshInterval = window.setInterval(refreshMapRiders, 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshInterval);
+    };
+  }, [currentUser?.id, currentUser?.role, isPreviewSession]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'ADMIN' || isPreviewSession || !SOCKET_BASE_URL) return undefined;
+    const socket = createSocketClient(SOCKET_BASE_URL, {
+      withCredentials: true,
+      transports: ['websocket']
+    });
+    const applyDriverLocation = event => {
+      setDispatchMapRiders(previous => applyBusinessRiderLocation(previous, event, currentUser.id));
+    };
+    socket.on('driver:location', applyDriverLocation);
+    socket.on('connect_error', error => {
+      console.warn('Live map updates are unavailable; continuing with periodic location refreshes.', error.message);
+    });
+    return () => {
+      socket.off('driver:location', applyDriverLocation);
+      socket.disconnect();
+    };
+  }, [currentUser?.id, currentUser?.role, isPreviewSession]);
 
   useEffect(() => {
     if (!invitationToken) return undefined;
@@ -756,7 +813,7 @@ const [authError, setAuthError] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
-  const [, setGoogleMapReady] = useState(false);
+  const [showCandidateMap, setShowCandidateMap] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef(null);
   const [supportChatOpen, setSupportChatOpen] = useState(false);
@@ -842,6 +899,42 @@ const [authError, setAuthError] = useState('');
   // Modals
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showAddStopModal, setShowAddStopModal] = useState(false);
+  const [deliveryOfferError, setDeliveryOfferError] = useState('');
+  const [creatingDelivery, setCreatingDelivery] = useState(false);
+  const [deliveryOffers, setDeliveryOffers] = useState([]);
+  const [dispatchMapRiders, setDispatchMapRiders] = useState([]);
+  const [dispatchMapError, setDispatchMapError] = useState('');
+  const [deliveryEstimate, setDeliveryEstimate] = useState(null);
+  const [deliveryEstimateError, setDeliveryEstimateError] = useState('');
+  const estimateRequestKeyRef = useRef('');
+  const [deliverySearchFeedback, setDeliverySearchFeedback] = useState(null);
+  const [respondingOfferId, setRespondingOfferId] = useState('');
+  const [dispatchNotifications, setDispatchNotifications] = useState([]);
+  const markDispatchNotificationRead = async notification => {
+    try {
+      await apiRequest(`/api/dispatch/notifications/${encodeURIComponent(notification.notification_id)}/read`, {
+        method: 'PATCH',
+        body: JSON.stringify({})
+      });
+      setDispatchNotifications(previous => previous.map(item =>
+        item.notification_id === notification.notification_id
+          ? { ...item, read_at: new Date().toISOString() }
+          : item
+      ));
+    } catch (error) {
+      console.error('Could not mark dispatch notification as read:', error);
+      setDeliveryOfferError(`Notification could not be marked read: ${error.message}`);
+    }
+  };
+  const [businessBatchConsent, setBusinessBatchConsent] = useState(false);
+  const [dispatchProfileSaving, setDispatchProfileSaving] = useState(false);
+  const [dispatchProfileError, setDispatchProfileError] = useState('');
+  const [dispatchProfileForm, setDispatchProfileForm] = useState({
+    maxPackageCount: currentUser?.maxPackageCount ?? '',
+    maxPackageWeightKg: currentUser?.maxPackageWeightKg ?? '',
+    maxPackageSize: currentUser?.maxPackageSize ?? '',
+    acceptsCrossBusinessBatches: currentUser?.acceptsCrossBusinessBatches === true
+  });
   const [podStop, setPodStop] = useState(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -853,16 +946,72 @@ const [authError, setAuthError] = useState('');
   const [newStopForm, setNewStopForm] = useState({
     name: '',
     receiverPhone: '',
+    pickupAddress: '',
+    pickupLat: null,
+    pickupLng: null,
     address: '',
     lat: null,
     lng: null,
     assignedDriverId: '',
     priority: 'NORMAL',
     timeWindow: '10:00 - 13:00',
-    packages: 1
+    packages: 1,
+    packageDescription: '',
+    packageWeightKg: '',
+    packageSize: '',
+    riderEarningsNgn: '',
+    deadlineAt: ''
   });
+  const estimateCoordinatesKey = [
+    newStopForm.pickupLat, newStopForm.pickupLng, newStopForm.lat, newStopForm.lng
+  ].join(':');
+
+  useEffect(() => {
+    if (!showAddStopModal || currentUser?.role !== 'ADMIN' || isPreviewSession
+      || ![newStopForm.pickupLat, newStopForm.pickupLng, newStopForm.lat, newStopForm.lng]
+        .every(Number.isFinite)) {
+      setDeliveryEstimate(null);
+      return undefined;
+    }
+    const requestKey = estimateCoordinatesKey;
+    estimateRequestKeyRef.current = requestKey;
+    let cancelled = false;
+    const timerId = window.setTimeout(async () => {
+      setDeliveryEstimateError('');
+      try {
+        const quote = await apiRequest('/api/pricing/estimate', {
+          method: 'POST',
+          body: JSON.stringify({
+            from: { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng },
+            to: { lat: newStopForm.lat, lng: newStopForm.lng }
+          })
+        });
+        if (cancelled || estimateRequestKeyRef.current !== requestKey) return;
+        setDeliveryEstimate({ ...quote, coordinatesKey: requestKey });
+      } catch (error) {
+        if (cancelled || estimateRequestKeyRef.current !== requestKey) return;
+        setDeliveryEstimate(null);
+        setDeliveryEstimateError(error.message);
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
+  }, [
+    currentUser?.role,
+    estimateCoordinatesKey,
+    isPreviewSession,
+    showAddStopModal,
+    newStopForm.lat,
+    newStopForm.lng,
+    newStopForm.pickupLat,
+    newStopForm.pickupLng
+  ]);
   const [driverNameQuery, setDriverNameQuery] = useState('');
   const [isDriverSuggestionOpen, setIsDriverSuggestionOpen] = useState(false);
+  const [riderDiscoveryZone, setRiderDiscoveryZone] = useState('ALL');
+  const [riderDistanceSort, setRiderDistanceSort] = useState('NEAREST');
   const [showStopDistances, setShowStopDistances] = useState(false);
   const [routeOrigins, setRouteOrigins] = useState(() => {
     const saved = localStorage.getItem('lagos_circuit_route_origins');
@@ -877,9 +1026,9 @@ const [authError, setAuthError] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhoto, setCustomerPhoto] = useState('');
   const [podError, setPodError] = useState('');
+  const [podSaving, setPodSaving] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const [signatureCaptured, setSignatureCaptured] = useState(false);
-  const DELIVERY_EMAIL = 'tobiayodele95@gmail.com';
 
   // Signature Pad Canvas
   const canvasRef = useRef(null);
@@ -901,6 +1050,66 @@ const [authError, setAuthError] = useState('');
       (driver.zone || '').toLowerCase().includes(query)
     );
   }, [driversList, driverNameQuery]);
+  const nearbyAvailableRiders = useMemo(() => {
+    const pickup = Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
+      ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
+      : routeOriginCoordinates[currentUser?.id];
+    if (!pickup) return [];
+    const unavailableStatuses = new Set(['DELIVERED', 'FAILED', 'UNDELIVERED', 'DELIVERY_FAILED', 'CANCELLED']);
+    const mapRidersById = new Map(dispatchMapRiders.map(rider => [rider.id, rider]));
+    const allDriversById = new Map(driversList.map(driver => [driver.id, driver]));
+    for (const mapRider of dispatchMapRiders) {
+      if (!allDriversById.has(mapRider.id)) {
+        allDriversById.set(mapRider.id, {
+          ...mapRider,
+          status: 'ACTIVE',
+          routeStatus: 'IDLE'
+        });
+      }
+    }
+    return [...allDriversById.values()]
+      .filter(driver => {
+        const mapRider = mapRidersById.get(driver.id);
+        const current = mapRider ? { ...driver, ...mapRider } : driver;
+        const locationTimestamp = new Date(current.locationUpdatedAt || '').getTime();
+        const locationIsFresh = current.isTracking
+          && Number.isFinite(locationTimestamp)
+          && clockNow - locationTimestamp < 90_000
+          && Number.isFinite(current.lat)
+          && Number.isFinite(current.lng);
+        const hasActiveDelivery = stops.some(stop =>
+          stop.assignedDriverId === driver.id
+          && !unavailableStatuses.has(String(stop.status || '').toUpperCase())
+        );
+        const zoneMatches = riderDiscoveryZone === 'ALL'
+          || String(current.zone || '').trim().toLowerCase() === riderDiscoveryZone.toLowerCase();
+        return (current.status === 'ACTIVE' || current.status === undefined)
+          && current.isAvailable === true
+          && driver.routeStatus === 'IDLE'
+          && locationIsFresh
+          && !hasActiveDelivery
+          && zoneMatches;
+      })
+      .map(driver => {
+        const current = mapRidersById.has(driver.id)
+          ? { ...driver, ...mapRidersById.get(driver.id) }
+          : driver;
+        const distanceKm = calcHaversineDistance(pickup.lat, pickup.lng, current.lat, current.lng);
+        return {
+          ...current,
+          status: driver.status,
+          routeStatus: driver.routeStatus,
+          distanceKm,
+          etaMinutes: Math.max(1, Math.ceil((distanceKm / 20) * 60))
+        };
+      })
+      .sort((left, right) => riderDistanceSort === 'FARTHEST'
+        ? right.distanceKm - left.distanceKm
+        : left.distanceKm - right.distanceKm);
+  }, [
+    clockNow, currentUser?.id, dispatchMapRiders, driversList, newStopForm.pickupLat,
+    newStopForm.pickupLng, riderDiscoveryZone, riderDistanceSort, routeOriginCoordinates, stops
+  ]);
 
   // Current Selected Driver Object
   const selectedDriver = useMemo(() => {
@@ -918,6 +1127,13 @@ const [authError, setAuthError] = useState('');
   const hasPendingDriverRoute = currentUser?.role === 'DRIVER'
     && driverRouteStatus === 'PENDING'
     && driverRouteStops.length > 0;
+  const activeChatStop = currentUser?.role === 'DRIVER'
+    ? driverRouteStops.find(stop => stop.assignedDriverId === currentUser.id
+      && !['DELIVERED', 'FAILED', 'CANCELLED'].includes(stop.dispatchStatus))
+    : stops.find(stop => stop.id === selectedStopId && stop.assignedDriverId
+      && !['DELIVERED', 'FAILED', 'CANCELLED'].includes(stop.dispatchStatus))
+      || stops.find(stop => stop.assignedDriverId === activeDriverId
+        && !['DELIVERED', 'FAILED', 'CANCELLED'].includes(stop.dispatchStatus));
 
   // Filtered Stops for Active Driver
   const activeDriverStops = useMemo(() => {
@@ -934,7 +1150,10 @@ const [authError, setAuthError] = useState('');
     || activeDriverStops.find(stop => stop.status !== 'DELIVERED')
     || activeDriverStops[0]
     || null;
-  const mapDriver = currentUser?.role === 'ADMIN' ? selectedDriver : currentUser;
+  const selectedMapRider = dispatchMapRiders.find(driver => driver.id === activeDriverId);
+  const mapDriver = currentUser?.role === 'ADMIN'
+    ? selectedMapRider ? { ...selectedDriver, ...selectedMapRider } : selectedDriver
+    : currentUser;
   const mapDriverIsLive = Boolean(
     mapDriver?.isTracking &&
     mapDriver.locationUpdatedAt &&
@@ -948,49 +1167,100 @@ const [authError, setAuthError] = useState('');
     ? [mapStop]
     : mapRouteStops.filter(stop => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
   const mapCenter = mapCenterStops.length > 0
-    ? {
+    ? (showAddStopModal || showCandidateMap)
+      && Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
+      ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
+      : {
       lat: mapCenterStops.reduce((total, stop) => total + stop.lat, 0) / mapCenterStops.length,
       lng: mapCenterStops.reduce((total, stop) => total + stop.lng, 0) / mapCenterStops.length
     }
-    : mapDriverIsLive && mapDriverHasCoordinates
+    : (showAddStopModal || showCandidateMap)
+      && Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
+      ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
+      : mapDriverIsLive && mapDriverHasCoordinates
       ? { lat: mapDriver.lat, lng: mapDriver.lng }
+      : selectedMapRider && Number.isFinite(selectedMapRider.lat) && Number.isFinite(selectedMapRider.lng)
+        ? { lat: selectedMapRider.lat, lng: selectedMapRider.lng }
       : { lat: startDepot.lat, lng: startDepot.lng };
-  const mapSearchQuery = selectedStopId && mapStop && !mapStopHasCoordinates
-    ? mapStop.address
-    : `${mapCenter.lat},${mapCenter.lng}`;
-  const googleMapsEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapSearchQuery)}&z=${MAP_ZOOM}&output=embed`;
-  const googleMapsSearchUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapSearchQuery)}`;
-  const liveMapDrivers = currentUser?.role === 'ADMIN' ? driversList : currentUser?.role === 'DRIVER' ? [currentUser] : [];
+  const openStreetMapUrl = mapStop && !mapStopHasCoordinates
+    ? openStreetMapSearchUrl(mapStop.address)
+    : openStreetMapLocationUrl(mapCenter);
+  const liveMapDrivers = useMemo(() => (
+    currentUser?.role === 'ADMIN'
+      ? driversList
+      : currentUser?.role === 'DRIVER' && currentUser
+        ? [currentUser]
+        : []
+  ), [currentUser, driversList]);
+  const mapDisplayDrivers = useMemo(() => {
+    const driversById = new Map(liveMapDrivers.map(driver => [driver.id, driver]));
+    for (const rider of dispatchMapRiders) {
+      driversById.set(rider.id, { ...driversById.get(rider.id), ...rider });
+    }
+    if (showAddStopModal || showCandidateMap) {
+      nearbyAvailableRiders.forEach((rider, index) => {
+        const current = driversById.get(rider.id);
+        if (current) {
+          driversById.set(rider.id, {
+            ...current,
+            discoveryRank: index + 1,
+            pickupDistanceKm: rider.distanceKm
+          });
+        }
+      });
+    }
+    return [...driversById.values()];
+  }, [dispatchMapRiders, liveMapDrivers, nearbyAvailableRiders, showAddStopModal, showCandidateMap]);
+  const mapVisibleStops = useMemo(() => {
+    if (!showAddStopModal && !showCandidateMap) return stops;
+    return [
+      ...stops,
+      {
+        id: 'delivery-draft-preview',
+        name: newStopForm.name || 'New delivery',
+        pickupAddress: newStopForm.pickupAddress,
+        pickupLat: newStopForm.pickupLat,
+        pickupLng: newStopForm.pickupLng,
+        address: newStopForm.address,
+        lat: newStopForm.lat,
+        lng: newStopForm.lng,
+        status: 'DRAFT'
+      }
+    ];
+  }, [
+    newStopForm.address, newStopForm.lat, newStopForm.lng, newStopForm.name,
+    newStopForm.pickupAddress, newStopForm.pickupLat, newStopForm.pickupLng,
+    showAddStopModal, showCandidateMap, stops
+  ]);
   const dashboardMappedStops = stops.filter(stop =>
     Number.isFinite(stop.lat) && Number.isFinite(stop.lng)
   );
-  const dashboardMappedDrivers = isPreviewSession
-    ? []
-    : liveMapDrivers.filter(driver =>
-      driver.isTracking &&
-      driver.locationUpdatedAt &&
-      clockNow - new Date(driver.locationUpdatedAt).getTime() < 90_000 &&
-      Number.isFinite(driver.lat) &&
-      Number.isFinite(driver.lng)
+  const dashboardMappedDrivers = mapDisplayDrivers.filter(driver =>
+    Number.isFinite(driver.lat)
+    && Number.isFinite(driver.lng)
+    && (driver.isPreviewFixture === true
+      || (driver.locationUpdatedAt
+        && ((driver.isTracking && clockNow - new Date(driver.locationUpdatedAt).getTime() < 90_000)
+          || driver.assigned === true)))
     );
-  const focusedLiveDriver = dashboardMappedDrivers.find(driver => driver.id === activeDriverId)
-    || dashboardMappedDrivers[0];
+  const focusedLiveDriver = dashboardMappedDrivers.find(driver => driver.id === activeDriverId);
+  const freshMapDrivers = dashboardMappedDrivers.filter(driver =>
+    driver.isTracking && clockNow - new Date(driver.locationUpdatedAt).getTime() < 90_000
+  );
+  const mapCenterDrivers = freshMapDrivers.length ? freshMapDrivers : dashboardMappedDrivers;
   const dashboardMapCenter = focusedLiveDriver
     ? { lat: focusedLiveDriver.lat, lng: focusedLiveDriver.lng }
-    : dashboardMappedStops.length
-    ? {
-      lat: dashboardMappedStops.reduce((total, stop) => total + stop.lat, 0) / dashboardMappedStops.length,
-      lng: dashboardMappedStops.reduce((total, stop) => total + stop.lng, 0) / dashboardMappedStops.length
-    }
-    : dashboardMappedDrivers.length
+    : mapCenterDrivers.length
       ? {
-        lat: dashboardMappedDrivers.reduce((total, driver) => total + driver.lat, 0) / dashboardMappedDrivers.length,
-        lng: dashboardMappedDrivers.reduce((total, driver) => total + driver.lng, 0) / dashboardMappedDrivers.length
+        lat: mapCenterDrivers.reduce((total, driver) => total + driver.lat, 0) / mapCenterDrivers.length,
+        lng: mapCenterDrivers.reduce((total, driver) => total + driver.lng, 0) / mapCenterDrivers.length
       }
-      : mapCenter;
-  const dashboardMapSearchQuery = `${dashboardMapCenter.lat},${dashboardMapCenter.lng}`;
-  const dashboardGoogleMapsEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(dashboardMapSearchQuery)}&z=${MAP_ZOOM}&output=embed`;
-
+      : dashboardMappedStops.length
+        ? {
+          lat: dashboardMappedStops.reduce((total, stop) => total + stop.lat, 0) / dashboardMappedStops.length,
+          lng: dashboardMappedStops.reduce((total, stop) => total + stop.lng, 0) / dashboardMappedStops.length
+        }
+        : mapCenter;
   const saveOrganizationLogo = (orgName, email, logoData) => {
     const orgKey = orgName.trim().toLowerCase();
     const emailKey = email.trim().toLowerCase();
@@ -1209,6 +1479,7 @@ const [authError, setAuthError] = useState('');
   };
 
   const activeSupportThread = supportThreads.find(thread => thread.id === supportThreadId) || supportThreads[0] || null;
+  const unreadDispatchNotificationCount = dispatchNotifications.filter(notification => !notification.read_at).length;
 
   const profileMenu = currentUser && (
     <div className="relative flex items-center space-x-2" ref={profileMenuRef}>
@@ -1217,14 +1488,18 @@ const [authError, setAuthError] = useState('');
         onClick={() => setProfileMenuOpen(open => !open)}
         aria-haspopup="menu"
         aria-expanded={profileMenuOpen}
-        aria-label={hasPendingDriverRoute ? 'Open menu, new route awaiting acceptance' : 'Open menu'}
-        title={hasPendingDriverRoute ? 'New route awaiting acceptance' : 'Menu'}
+        aria-label={hasPendingDriverRoute || unreadDispatchNotificationCount
+          ? `Open menu, ${unreadDispatchNotificationCount} unread dispatch notifications`
+          : 'Open menu'}
+        title={unreadDispatchNotificationCount
+          ? `${unreadDispatchNotificationCount} unread dispatch notifications`
+          : hasPendingDriverRoute ? 'New route awaiting acceptance' : 'Menu'}
         className="profile-menu-trigger relative ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-violet-200 bg-white text-violet-900 shadow-sm transition-colors hover:bg-violet-50"
       >
         <span className="profile-menu-initials" aria-hidden="true">
           {String(currentUser.name || 'Admin').split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
         </span>
-        {hasPendingDriverRoute && (
+        {(hasPendingDriverRoute || unreadDispatchNotificationCount > 0) && (
           <span className="profile-menu-notification-dot" aria-hidden="true" />
         )}
       </button>
@@ -1275,6 +1550,29 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             <MessageSquare className="h-4 w-4" />
             <span>Customer Care chat</span>
           </button>
+          {dispatchNotifications.length > 0 && (
+            <section aria-label="Dispatch notifications" className="border-b border-violet-100 py-2">
+              <p className="px-3 pb-1 text-[9px] font-extrabold uppercase tracking-wide text-slate-500">
+                Dispatch notifications
+              </p>
+              {dispatchNotifications.slice(0, 5).map(notification => (
+                <button
+                  key={notification.notification_id}
+                  type="button"
+                  onClick={() => markDispatchNotificationRead(notification)}
+                  className={`block w-full px-3 py-2 text-left ${notification.read_at ? 'opacity-60' : 'bg-violet-50'}`}
+                >
+                  <span className="block text-[10px] font-bold text-slate-800">
+                    {String(notification.notification_type).replaceAll('_', ' ').toLowerCase()}
+                  </span>
+                  <span className="block text-[8px] text-slate-500">
+                    {new Date(notification.created_at).toLocaleString()}
+                    {!notification.read_at ? ' · tap to mark read' : ''}
+                  </span>
+                </button>
+              ))}
+            </section>
+          )}
           {currentUser.role === 'ADMIN' && (
             <>
               <label className="profile-menu-logo block cursor-pointer border-b border-violet-100 px-3 py-3 text-[10px] font-bold text-violet-950">
@@ -1368,17 +1666,89 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     }
 
     try {
-      const { user } = await apiRequest(`/api/users/${encodeURIComponent(driverId)}/route-status`, {
+      const { user, stops: updatedStops } = await apiRequest(`/api/users/${encodeURIComponent(driverId)}/route-status`, {
         method: 'PATCH',
         body: JSON.stringify({ routeStatus, routeStopCount })
       });
       setUsers(prev => prev.map(item => item.id === user.id ? user : item));
       if (currentUser?.id === user.id) setCurrentUser(user);
+      if (Array.isArray(updatedStops)) {
+        setStops(prev => prev.map(stop =>
+          updatedStops.some(updatedStop => updatedStop.id === stop.id)
+            ? updatedStops.find(updatedStop => updatedStop.id === stop.id)
+            : stop
+        ));
+      }
     } catch (error) {
       console.error('Could not update the driver route status:', error);
       window.alert(`Route status could not be updated: ${error.message}`);
     }
   }
+
+  const toggleRiderAvailability = async () => {
+    if (currentUser?.role !== 'DRIVER') return;
+    const isAvailable = !currentUser.isAvailable;
+    if (isPreviewSession) {
+      const update = { isAvailable, availabilityUpdatedAt: new Date(clockNow).toISOString() };
+      setCurrentUser(previous => previous ? { ...previous, ...update } : previous);
+      setUsers(previous => previous.map(user => user.id === currentUser.id ? { ...user, ...update } : user));
+      return;
+    }
+
+    try {
+      const { user } = await apiRequest('/api/users/me/availability', {
+        method: 'PATCH',
+        body: JSON.stringify({ isAvailable })
+      });
+      setCurrentUser(user);
+      setUsers(previous => previous.map(item => item.id === user.id ? user : item));
+    } catch (error) {
+      console.error('Could not update rider availability:', error);
+      window.alert(`Rider availability could not be updated: ${error.message}`);
+    }
+  };
+
+  const saveDispatchProfile = async () => {
+    setDispatchProfileSaving(true);
+    setDispatchProfileError('');
+    try {
+      const { user } = await apiRequest('/api/users/me/dispatch-profile', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          maxPackageCount: dispatchProfileForm.maxPackageCount === ''
+            ? null
+            : Number(dispatchProfileForm.maxPackageCount),
+          maxPackageWeightKg: dispatchProfileForm.maxPackageWeightKg === ''
+            ? null
+            : Number(dispatchProfileForm.maxPackageWeightKg),
+          maxPackageSize: dispatchProfileForm.maxPackageSize || null,
+          acceptsCrossBusinessBatches: dispatchProfileForm.acceptsCrossBusinessBatches
+        })
+      });
+      setCurrentUser(user);
+      setUsers(previous => previous.map(item => item.id === user.id ? user : item));
+    } catch (error) {
+      console.error('Could not save rider dispatch profile:', error);
+      setDispatchProfileError(error.message);
+    } finally {
+      setDispatchProfileSaving(false);
+    }
+  };
+
+  const updateBusinessBatchConsent = async enabled => {
+    setBusinessBatchConsent(enabled);
+    try {
+      const result = await apiRequest('/api/dispatch/business-preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ allowsCrossBusinessBatch: enabled })
+      });
+      setBusinessBatchConsent(result.allowsCrossBusinessBatch === true);
+    } catch (error) {
+      console.error('Could not update cross-business batching consent:', error);
+      setBusinessBatchConsent(!enabled);
+      setDeliveryOfferError(`Cross-business batching preference was not saved: ${error.message}`);
+    }
+  };
 
   const removeDriverAccount = async (driver) => {
     const assignedStops = stops.filter(stop => stop.assignedDriverId === driver.id);
@@ -1417,12 +1787,283 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   };
 
   const openAddStopModal = () => {
-    const assignedDriverId = currentUser.role === 'DRIVER' ? currentUser.id : activeDriverId;
+    setShowCandidateMap(false);
+    const assignedDriverId = currentUser.role === 'DRIVER' ? currentUser.id : '';
     const assignedDriver = driversList.find(driver => driver.id === assignedDriverId);
-    setNewStopForm(prev => ({ ...prev, assignedDriverId }));
+    const pickupAddress = routeOriginAddress.trim();
+    const pickupCoordinates = routeOriginCoordinates[currentUser.id]
+      || (() => {
+        const match = pickupAddress.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+        return match ? { lat: Number(match[1]), lng: Number(match[2]) } : { lat: null, lng: null };
+      })();
+    setDeliveryOfferError('');
+    setNewStopForm(prev => ({
+      ...prev,
+      assignedDriverId,
+      pickupAddress,
+      pickupLat: pickupCoordinates.lat,
+      pickupLng: pickupCoordinates.lng
+    }));
     setDriverNameQuery(assignedDriver?.name || '');
     setIsDriverSuggestionOpen(false);
     setShowAddStopModal(true);
+  };
+
+  const requestRidersForStop = async (stop, riderId = '') => {
+    if (isPreviewSession || IS_GITHUB_PAGES_DEMO) {
+      window.alert('Sending rider offers requires the connected dispatch service.');
+      return;
+    }
+    setDeliverySearchFeedback({ stopId: stop.id, state: 'searching', message: `Searching for available drivers near ${stop.pickupAddress || 'the pickup'}…` });
+    try {
+      const { riderCount } = await apiRequest(`/api/stops/${encodeURIComponent(stop.id)}/offers`, {
+        method: 'POST',
+        body: JSON.stringify(riderId ? { riderId } : {})
+      });
+      setDeliverySearchFeedback({
+        stopId: stop.id,
+        state: riderCount > 0 ? 'offered' : 'empty',
+        message: riderCount > 0
+          ? `Offer sent to ${riderCount} ${riderId ? 'selected' : 'nearby'} driver${riderCount === 1 ? '' : 's'}. The driver appears on the live map after accepting.`
+          : 'No eligible drivers were found within the current search radius. Check availability and live location, then search again.'
+      });
+    } catch (error) {
+      console.error('Could not send rider offers:', error);
+      setDeliverySearchFeedback({ stopId: stop.id, state: 'error', message: `Driver search failed: ${error.message}` });
+    }
+  };
+
+  const createDeliveryStop = async findRider => {
+    const address = newStopForm.address.trim();
+    const pickupAddress = newStopForm.pickupAddress.trim();
+    if (!address || !pickupAddress) {
+      setDeliveryOfferError('Enter both pickup and delivery addresses.');
+      return;
+    }
+    if (findRider && (
+      !Number.isFinite(newStopForm.pickupLat) || !Number.isFinite(newStopForm.pickupLng)
+      || !Number.isFinite(newStopForm.lat) || !Number.isFinite(newStopForm.lng)
+    )) {
+      setDeliveryOfferError('Select both pickup and delivery addresses from the map suggestions to send accurate rider offers.');
+      return;
+    }
+    if (findRider && (!deliveryEstimate?.quoteToken
+      || deliveryEstimate.coordinatesKey !== estimateCoordinatesKey)) {
+      setDeliveryOfferError(deliveryEstimateError
+        || 'Wait for a current delivery price estimate before confirming this delivery.');
+      return;
+    }
+    const riderEarningsNgn = newStopForm.riderEarningsNgn === ''
+      ? null
+      : Number(newStopForm.riderEarningsNgn);
+    const packageWeightKg = newStopForm.packageWeightKg === ''
+      ? null
+      : Number(newStopForm.packageWeightKg);
+    if ((riderEarningsNgn !== null && (!Number.isFinite(riderEarningsNgn) || riderEarningsNgn < 0 || riderEarningsNgn > 1_000_000))
+      || (packageWeightKg !== null && (!Number.isFinite(packageWeightKg) || packageWeightKg <= 0 || packageWeightKg > 500))) {
+      setDeliveryOfferError('Enter a valid rider earning (up to NGN 1,000,000) and package weight (up to 500 kg).');
+      return;
+    }
+    const deadlineTimestamp = newStopForm.deadlineAt
+      ? new Date(newStopForm.deadlineAt).getTime()
+      : null;
+    if (deadlineTimestamp !== null
+      && (!Number.isFinite(deadlineTimestamp) || deadlineTimestamp <= Date.now())) {
+      setDeliveryOfferError('Choose a delivery deadline in the future.');
+      return;
+    }
+    const deliveryDeadlineAt = deadlineTimestamp === null
+      ? null
+      : new Date(deadlineTimestamp).toISOString();
+
+    const stopPayload = {
+      id: `l_${crypto.randomUUID()}`,
+      name: newStopForm.name.trim() || address,
+      receiverPhone: newStopForm.receiverPhone.trim(),
+      pickupAddress,
+      pickupLat: newStopForm.pickupLat,
+      pickupLng: newStopForm.pickupLng,
+      address,
+      lat: newStopForm.lat,
+      lng: newStopForm.lng,
+      priority: newStopForm.priority,
+      timeWindow: newStopForm.timeWindow,
+      packages: Math.max(1, Math.floor(Number(newStopForm.packages) || 1)),
+      packageDescription: newStopForm.packageDescription.trim(),
+      packageWeightKg,
+      packageSize: newStopForm.packageSize,
+      riderEarningsNgn,
+      deliveryDeadlineAt,
+      status: 'PENDING',
+      assignedDriverId: findRider ? '' : newStopForm.assignedDriverId,
+      ...(findRider ? {
+        pricingQuoteToken: deliveryEstimate.quoteToken,
+        estimatedPriceNgn: deliveryEstimate.estimate.amount,
+        pricingCurrency: deliveryEstimate.estimate.currency,
+        pricingRuleVersion: deliveryEstimate.estimate.ruleVersion,
+        routeDistanceKm: deliveryEstimate.route.distanceKm,
+        routeDurationMinutes: deliveryEstimate.route.durationMinutes
+      } : {})
+    };
+    if (!findRider && !stopPayload.assignedDriverId) {
+      setDeliveryOfferError('Choose an existing route assignment or select “Save & Find Riders”.');
+      return;
+    }
+
+    setCreatingDelivery(true);
+    setDeliveryOfferError('');
+    setDeliverySearchFeedback(findRider
+      ? { stopId: stopPayload.id, state: 'searching', message: 'Saving pickup and destination, then searching nearby drivers…' }
+      : null);
+    let savedStops;
+    let savedUsers;
+    try {
+      if (isPreviewSession) {
+        setStops(previous => [...previous, stopPayload]);
+        setShowAddStopModal(false);
+        return;
+      }
+
+      const saved = await apiRequest('/api/stops', {
+        method: 'PUT',
+        body: JSON.stringify({ stops: [...stops, stopPayload] })
+      });
+      savedStops = saved.stops;
+      savedUsers = saved.users;
+      setStops(savedStops);
+      if (Array.isArray(savedUsers)) setUsers(savedUsers);
+      if (findRider) {
+        const { riderCount } = await apiRequest(`/api/stops/${encodeURIComponent(stopPayload.id)}/offers`, {
+          method: 'POST',
+          body: JSON.stringify({
+            ...(newStopForm.assignedDriverId ? { riderId: newStopForm.assignedDriverId } : {})
+          })
+        });
+        setDeliverySearchFeedback({
+          stopId: stopPayload.id,
+          state: riderCount > 0 ? 'offered' : 'empty',
+          message: riderCount > 0
+            ? `Searching live: offer sent to ${riderCount} eligible driver${riderCount === 1 ? '' : 's'}. When one accepts, their live approach will appear on the map.`
+            : 'Delivery saved. No eligible drivers were found within the current search radius; you can retry from Unassigned Stops.'
+        });
+      }
+      setNewStopForm({
+        name: '',
+        receiverPhone: '',
+        pickupAddress,
+        pickupLat: newStopForm.pickupLat,
+        pickupLng: newStopForm.pickupLng,
+        address: '',
+        lat: null,
+        lng: null,
+        assignedDriverId: activeDriverId,
+        priority: 'NORMAL',
+        timeWindow: '10:00 - 13:00',
+        packages: 1,
+        packageDescription: '',
+        packageWeightKg: '',
+        packageSize: '',
+        riderEarningsNgn: '',
+        deadlineAt: ''
+      });
+      setDeliveryEstimate(null);
+      setDeliveryEstimateError('');
+      setDriverNameQuery(driversList.find(driver => driver.id === activeDriverId)?.name || '');
+      setShowAddStopModal(false);
+    } catch (error) {
+      console.error(savedStops ? 'Delivery saved, but rider offers could not be sent:' : 'Could not create the delivery:', error);
+      if (savedStops) {
+        setDeliverySearchFeedback({
+          stopId: stopPayload.id,
+          state: 'error',
+          message: `Delivery saved, but live driver search failed: ${error.message}. Retry from Unassigned Stops.`
+        });
+        setStops(savedStops);
+        if (Array.isArray(savedUsers)) setUsers(savedUsers);
+        setNewStopForm(previous => ({
+          ...previous,
+          name: '',
+          receiverPhone: '',
+          address: '',
+          lat: null,
+          lng: null,
+          assignedDriverId: activeDriverId,
+          packageDescription: '',
+          packageWeightKg: '',
+          packageSize: '',
+          riderEarningsNgn: '',
+          deadlineAt: ''
+        }));
+        setShowAddStopModal(false);
+      } else {
+        setDeliveryOfferError(error.message);
+      }
+    } finally {
+      setCreatingDelivery(false);
+    }
+  };
+
+  const respondToDeliveryOffer = async (offer, action) => {
+    setRespondingOfferId(offer.id);
+    setDeliveryOfferError('');
+    try {
+      const result = await apiRequest(`/api/delivery-offers/${encodeURIComponent(offer.id)}/${action}`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      setDeliveryOffers(previous => previous.filter(item => item.id !== offer.id));
+      if (action === 'accept') {
+        const acceptedStops = Array.isArray(result.stops) && result.stops.length
+          ? result.stops
+          : [result.stop];
+        setStops(previous => {
+          const byId = new Map(acceptedStops.map(stop => [stop.id, stop]));
+          const existingIds = new Set(previous.map(stop => stop.id));
+          return [
+            ...previous.map(stop => byId.has(stop.id) ? { ...stop, ...byId.get(stop.id) } : stop),
+            ...acceptedStops.filter(stop => !existingIds.has(stop.id))
+          ];
+        });
+        setUsers(previous => previous.map(user =>
+          user.id === result.rider.id ? { ...user, ...result.rider } : user
+        ));
+        setCurrentUser(result.rider);
+        setActiveDriverId(result.rider.id);
+        setDeliverySearchFeedback({
+          stopId: acceptedStops[0].id,
+          state: 'accepted',
+          message: `${result.rider.name} accepted the delivery. Their live approach to pickup is now shown on the map while location sharing is active.`
+        });
+      }
+    } catch (error) {
+      console.error(`Could not ${action} delivery offer:`, error);
+      setDeliveryOfferError(error.message);
+    } finally {
+      setRespondingOfferId('');
+    }
+  };
+
+  const confirmDeliveryPickup = async stop => {
+    try {
+      if (isPreviewSession) {
+        const pickedUpAt = new Date().toISOString();
+        setStops(previous => previous.map(item => item.id === stop.id ? {
+          ...item,
+          status: 'IN_PROGRESS',
+          dispatchStatus: 'HEADING_TO_DESTINATION',
+          pickedUpAt
+        } : item));
+        return;
+      }
+      const { stop: updatedStop } = await apiRequest(`/api/stops/${encodeURIComponent(stop.id)}/pickup`, {
+        method: 'PATCH',
+        body: JSON.stringify({})
+      });
+      setStops(previous => previous.map(item => item.id === updatedStop.id ? updatedStop : item));
+    } catch (error) {
+      console.error('Could not confirm delivery pickup:', error);
+      setDeliveryOfferError(error.message);
+    }
   };
 
   const handleGenerateInvite = async () => {
@@ -1685,7 +2326,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
   };
 
-  // --- GOOGLE MAPS DIRECT NAVIGATION ---
+  // --- OPENSTREETMAP DIRECT NAVIGATION ---
   const getNavigationOrigin = () => {
     const savedCoordinates = currentUser ? routeOriginCoordinates[currentUser.id] : null;
     if (savedCoordinates && Number.isFinite(savedCoordinates.lat) && Number.isFinite(savedCoordinates.lng)) {
@@ -1745,9 +2386,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
         try {
           const params = new URLSearchParams({ lat: String(location.lat), lon: String(location.lng) });
-          const response = await fetch(`https://photon.komoot.io/reverse?${params}`);
-          if (!response.ok) throw new Error(`Reverse geocoding failed (${response.status}).`);
-          const data = await response.json();
+          const data = await apiRequest(`/api/geocode/reverse?${params}`);
           const properties = data.features?.[0]?.properties;
           if (!properties) throw new Error('No address was found for the current coordinates.');
 
@@ -1791,36 +2430,23 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     return stop?.name || 'delivery location';
   };
 
-  const launchSingleStopGoogleNav = (stop, e) => {
+  const launchSingleStopMapNav = (stop, e) => {
     if (e) e.stopPropagation();
     const origin = getNavigationOrigin();
     const destination = getStopDestination(stop);
-    const mapsUrl = new URL('https://www.google.com/maps/dir/');
-    mapsUrl.searchParams.set('api', '1');
-    mapsUrl.searchParams.set('origin', origin);
-    mapsUrl.searchParams.set('destination', destination);
-    mapsUrl.searchParams.set('travelmode', 'driving');
-    window.open(mapsUrl.toString(), '_blank');
+    window.open(openStreetMapDirectionsUrl([origin, destination]), '_blank', 'noopener,noreferrer');
   };
 
-  const launchMultiStopGoogleNav = () => {
+  const launchMultiStopMapNav = () => {
     if (activeDriverStops.length === 0) return;
 
     const origin = getNavigationOrigin();
     const routeStops = activeDriverStops.slice(0, 10);
-    const destinationStop = routeStops[routeStops.length - 1];
-    const waypoints = routeStops.slice(0, -1);
-
-    const mapsUrl = new URL('https://www.google.com/maps/dir/');
-    mapsUrl.searchParams.set('api', '1');
-    mapsUrl.searchParams.set('origin', origin);
-    mapsUrl.searchParams.set('destination', getStopDestination(destinationStop));
-    if (waypoints.length > 0) {
-      mapsUrl.searchParams.set('waypoints', waypoints.map(getStopDestination).join('|'));
-    }
-    mapsUrl.searchParams.set('travelmode', 'driving');
-
-    window.open(mapsUrl.toString(), '_blank');
+    window.open(
+      openStreetMapDirectionsUrl([origin, ...routeStops.map(getStopDestination)]),
+      '_blank',
+      'noopener,noreferrer'
+    );
   };
 
   // --- SIGNATURE POD HANDLERS ---
@@ -1898,7 +2524,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     reader.readAsDataURL(file);
   };
 
-  const confirmPODDelivery = () => {
+  const confirmPODDelivery = async () => {
     if (!podStop) return;
     if (!customerName.trim()) {
       setPodError('Enter the name of the person receiving the delivery.');
@@ -1912,22 +2538,58 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     const signatureData = canvasRef.current ? canvasRef.current.toDataURL('image/png') : '';
     const deliveryPayload = {
       status: 'DELIVERED',
+      dispatchStatus: 'DELIVERED',
       driverNotes,
       customerName: customerName.trim(),
       customerSignature: signatureData,
       customerPhoto,
-      deliveredAt: new Date().toISOString(),
-      deliveryEmail: DELIVERY_EMAIL
+      deliveredAt: new Date().toISOString()
     };
 
-    setStops(prev => prev.map(s => s.id === podStop.id ? { ...s, ...deliveryPayload } : s));
-
-    const body = encodeURIComponent(
-      `Delivery Confirmation\n\nCustomer: ${customerName.trim()}\nAddress: ${podStop.address}\nLocation: ${podStop.name}\nDriver notes: ${driverNotes || 'None'}\nDelivered at: ${new Date().toLocaleString()}\n\nCustomer signature${customerPhoto ? ' and delivery photo are' : ' is'} saved in the app.`
-    );
-
-    const mailtoUrl = `mailto:${DELIVERY_EMAIL}?subject=${encodeURIComponent('Proof of Delivery - ' + podStop.name)}&body=${body}`;
-    window.location.href = mailtoUrl;
+    setPodSaving(true);
+    try {
+      if (isPreviewSession) {
+        setStops(previous => previous.map(stop =>
+          stop.id === podStop.id ? { ...stop, ...deliveryPayload } : stop
+        ));
+        const remainingStops = stops.filter(stop =>
+          stop.id !== podStop.id
+          && stop.assignedDriverId === currentUser?.id
+          && !['DELIVERED', 'FAILED', 'UNDELIVERED', 'DELIVERY_FAILED', 'CANCELLED']
+            .includes(String(stop.status || '').toUpperCase())
+        );
+        if (remainingStops.length === 0 && currentUser?.role === 'DRIVER') {
+          setDriverRouteStatus(currentUser.id, 'IDLE', 0);
+        }
+      } else {
+        const { stop: completedStop, user: completedDriver } = await apiRequest(
+          `/api/stops/${encodeURIComponent(podStop.id)}/proof`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              customerName: customerName.trim(),
+              driverNotes,
+              customerSignature: signatureData,
+              customerPhoto
+            })
+          }
+        );
+        setStops(previous => previous.map(stop =>
+          stop.id === completedStop.id ? { ...stop, ...completedStop } : stop
+        ));
+        if (completedDriver) {
+          setUsers(previous => previous.map(user =>
+            user.id === completedDriver.id ? completedDriver : user
+          ));
+          setCurrentUser(previous => previous?.id === completedDriver.id ? completedDriver : previous);
+        }
+      }
+    } catch (error) {
+      console.error('Could not save proof of delivery:', error);
+      setPodError(`Delivery proof was not saved: ${error.message}`);
+      setPodSaving(false);
+      return;
+    }
 
     setPodStop(null);
     setDriverNotes('');
@@ -1941,6 +2603,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       const ctx = canvasRef.current.getContext('2d');
       ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
+    setPodSaving(false);
+    window.alert('Delivery completed and proof of delivery saved.');
   };
 
   const clearActiveRoute = () => {
@@ -2063,7 +2727,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     return (
       <>
       {brandSplash}
-      <div className="min-h-screen w-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans select-none">
+      <div className="auth-screen min-h-screen w-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans select-none">
         <div className="max-h-[90dvh] w-full max-w-lg space-y-6 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900 p-5 shadow-2xl sm:p-8">
           
           {/* LOGO & TITLE */}
@@ -2697,6 +3361,18 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   })}
                 </div>
               </div>
+              <label className="flex items-start gap-2 rounded-xl border border-sky-500/30 bg-sky-950/30 p-2.5 text-[9px] text-sky-100">
+                <input
+                  type="checkbox"
+                  checked={businessBatchConsent}
+                  onChange={event => updateBusinessBatchConsent(event.target.checked)}
+                  disabled={isPreviewSession}
+                  className="mt-0.5 accent-sky-500"
+                />
+                <span>
+                  Allow cross-business delivery batches. Other businesses and the rider must also opt in.
+                </span>
+              </label>
               {stops.some(stop => !stop.assignedDriverId) && (
                 <div className="rounded-xl border border-amber-500/30 bg-slate-950 p-2.5">
                   <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-300">
@@ -2704,35 +3380,54 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   </p>
                   <div className="space-y-1.5">
                     {stops.filter(stop => !stop.assignedDriverId).map(stop => (
-                      <div key={stop.id} className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 p-2">
-                        <button
-                          type="button"
-                          onClick={() => focusStopOnMap(stop)}
-                          className="min-w-0 flex-1 text-left"
-                        >
-                          <span className="block truncate text-[10px] font-bold text-slate-200">{stop.name}</span>
-                          <span className="block truncate text-[9px] text-slate-500">{stop.address}</span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!activeDriverId}
-                          onClick={() => {
-                            setStops(prev => prev.map(item =>
-                              item.id === stop.id ? { ...item, assignedDriverId: activeDriverId } : item
-                            ));
-                          }}
-                          className="rounded-md bg-emerald-500/15 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Assign
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`Delete ${stop.name}`}
-                          onClick={() => deleteStop(stop)}
-                          className="rounded-md p-1 text-rose-300 hover:bg-rose-500/15"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                      <div key={stop.id} className="space-y-1">
+                        <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 p-2">
+                          <button
+                            type="button"
+                            onClick={() => focusStopOnMap(stop)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <span className="block truncate text-[10px] font-bold text-slate-200">{stop.name}</span>
+                            <span className="block truncate text-[9px] text-slate-500">{stop.address}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => requestRidersForStop(stop)}
+                            className="rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[9px] font-bold text-violet-200 hover:bg-violet-500/20"
+                          >
+                            Find riders
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!activeDriverId}
+                            onClick={() => requestRidersForStop(stop, activeDriverId)}
+                            className="rounded-md bg-emerald-500/15 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Offer selected
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${stop.name}`}
+                            onClick={() => deleteStop(stop)}
+                            className="rounded-md p-1 text-rose-300 hover:bg-rose-500/15"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                        {deliverySearchFeedback?.stopId === stop.id && (
+                          <p
+                            role={deliverySearchFeedback.state === 'error' ? 'alert' : 'status'}
+                            className={`rounded-lg px-2 py-1.5 text-[9px] ${
+                              deliverySearchFeedback.state === 'error'
+                                ? 'bg-rose-950/50 text-rose-200'
+                                : deliverySearchFeedback.state === 'accepted'
+                                  ? 'bg-emerald-950/50 text-emerald-200'
+                                  : 'bg-violet-950/50 text-violet-200'
+                            }`}
+                          >
+                            {deliverySearchFeedback.message}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2741,6 +3436,111 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               </>
             ) : (
               <div className="space-y-3">
+                {deliveryOfferError && (
+                  <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-2.5 text-[10px] font-semibold text-rose-800">
+                    {deliveryOfferError}
+                  </p>
+                )}
+                {deliveryOffers.length > 0 && (
+                  <section className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-xs font-extrabold text-amber-950">Delivery offers</h3>
+                      <span className="rounded-full bg-white px-2 py-1 text-[9px] font-bold text-amber-800">
+                        {deliveryOffers.length} available
+                      </span>
+                    </div>
+                    {deliveryOffers.map(offer => {
+                      const pickupPoint = `${offer.stop.pickupLat},${offer.stop.pickupLng}`;
+                      const deliveryPoint = `${offer.stop.lat},${offer.stop.lng}`;
+                      const mapUrl = openStreetMapDirectionsUrl([pickupPoint, deliveryPoint]);
+                      return (
+                        <article key={offer.id} className="rounded-xl border border-amber-200 bg-white p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] font-extrabold text-slate-900">{offer.businessName}</p>
+                              <p className="mt-0.5 text-[9px] text-slate-500">
+                                Offer expires {new Date(offer.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                            <span className="rounded-md bg-violet-50 px-2 py-1 text-[9px] font-bold text-violet-800">
+                              {offer.stop.priority || 'NORMAL'}
+                            </span>
+                          </div>
+                          <div className="mt-2 space-y-1.5 text-[10px]">
+                            {offer.batch && offer.batchStops?.length > 1 && (
+                              <div className="rounded-lg bg-violet-50 p-2 text-violet-950">
+                                <p className="font-extrabold">
+                                  Optimized route · {offer.batchStops.length} deliveries
+                                </p>
+                                {offer.batchStops.map((batchStop, index) => (
+                                  <p key={batchStop.id} className="mt-1 text-slate-700">
+                                    {index + 1}. {batchStop.pickupAddress} → {batchStop.address}
+                                    {batchStop.deliveryDeadlineAt
+                                      ? ` · due ${new Date(batchStop.deliveryDeadlineAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                                      : ''}
+                                  </p>
+                                ))}
+                                {Number.isFinite(offer.route?.distanceKm) && (
+                                  <p className="mt-1 font-semibold">
+                                    Road route {offer.route.distanceKm.toFixed(1)} km · ETA {new Date(offer.route.estimatedArrivalAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            <p><strong className="text-slate-700">Pickup:</strong> <span className="text-slate-600">{offer.stop.pickupAddress}</span></p>
+                            <p><strong className="text-slate-700">Delivery:</strong> <span className="text-slate-600">{offer.stop.address}</span></p>
+                            <p className="text-slate-500">
+                              {offer.pickupDistanceKm?.toFixed(1) ?? '—'} km straight-line to pickup
+                            </p>
+                            <DeliveryRouteEstimate offer={offer} />
+                            <p className="text-slate-500">
+                              {offer.stop.packages || 1} package(s)
+                              {offer.stop.packageDescription ? ` · ${offer.stop.packageDescription}` : ''}
+                              {offer.stop.packageSize ? ` · ${offer.stop.packageSize.toLowerCase()}` : ''}
+                              {offer.stop.packageWeightKg ? ` · ${offer.stop.packageWeightKg} kg` : ''}
+                            </p>
+                            {offer.stop.riderEarningsNgn !== null && offer.stop.riderEarningsNgn !== undefined && (
+                              <p className="font-bold text-emerald-800">
+                                Proposed earnings: NGN {Number(offer.stop.riderEarningsNgn).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                          <a
+                            href={mapUrl.toString()}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[9px] font-bold text-violet-800 hover:bg-violet-50"
+                          >
+                            <MapPin className="h-3 w-3" />
+                            View pickup and delivery map
+                          </a>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              disabled={respondingOfferId === offer.id}
+                              onClick={() => respondToDeliveryOffer(offer, 'accept')}
+                              className="rounded-lg bg-emerald-600 px-2 py-2 text-[10px] font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {respondingOfferId === offer.id
+                                ? 'Submitting...'
+                                : offer.batch && offer.batchStops?.length > 1
+                                  ? `Accept ${offer.batchStops.length}-delivery route`
+                                  : 'Accept delivery'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={respondingOfferId === offer.id}
+                              onClick={() => respondToDeliveryOffer(offer, 'reject')}
+                              className="rounded-lg border border-slate-300 px-2 py-2 text-[10px] font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </section>
+                )}
                 {driverRouteStatus !== 'IDLE' && (
                   <div className="rounded-2xl border border-violet-200 bg-violet-50 p-3.5">
                     <div className="flex items-start gap-3">
@@ -2779,6 +3579,109 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     )}
                   </div>
                 )}
+                <div className="rounded-2xl border border-violet-200 bg-white p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-violet-950">Delivery availability</p>
+                      <p className="mt-1 text-[9px] text-slate-500">
+                        This is separate from sharing your live location.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-pressed={currentUser.isAvailable === true}
+                      onClick={toggleRiderAvailability}
+                      className={`shrink-0 rounded-full px-3 py-1.5 text-[10px] font-extrabold ${
+                        currentUser.isAvailable
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {currentUser.isAvailable ? 'Available' : 'Unavailable'}
+                    </button>
+                  </div>
+                  {currentUser.isAvailable && !(isGpsActive || currentUser.isTracking) && (
+                    <p className="text-[9px] text-amber-700">
+                      Turn on live location to appear in nearby rider discovery.
+                    </p>
+                  )}
+                </div>
+                <div className="rounded-2xl border border-violet-200 bg-white p-3">
+                  <p className="text-xs font-bold text-violet-950">Delivery capacity and consent</p>
+                  <p className="mt-1 text-[9px] text-slate-500">
+                    Batching is offered only when capacity, package sizes and delivery deadlines are known.
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="text-[9px] font-semibold text-slate-600">
+                      Maximum packages
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={dispatchProfileForm.maxPackageCount}
+                        onChange={event => setDispatchProfileForm(previous => ({
+                          ...previous,
+                          maxPackageCount: event.target.value === '' ? '' : Number(event.target.value)
+                        }))}
+                        className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs text-slate-800"
+                      />
+                    </label>
+                    <label className="text-[9px] font-semibold text-slate-600">
+                      Maximum load (kg)
+                      <input
+                        type="number"
+                        min="0.1"
+                        max="1000"
+                        step="0.1"
+                        value={dispatchProfileForm.maxPackageWeightKg}
+                        onChange={event => setDispatchProfileForm(previous => ({
+                          ...previous,
+                          maxPackageWeightKg: event.target.value === '' ? '' : Number(event.target.value)
+                        }))}
+                        className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs text-slate-800"
+                      />
+                    </label>
+                  </div>
+                  <label className="mt-2 block text-[9px] font-semibold text-slate-600">
+                    Largest package size
+                    <select
+                      value={dispatchProfileForm.maxPackageSize}
+                      onChange={event => setDispatchProfileForm(previous => ({
+                        ...previous,
+                        maxPackageSize: event.target.value
+                      }))}
+                      className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs text-slate-800"
+                    >
+                      <option value="">Not specified</option>
+                      <option value="SMALL">Small</option>
+                      <option value="MEDIUM">Medium</option>
+                      <option value="LARGE">Large</option>
+                    </select>
+                  </label>
+                  <label className="mt-2 flex items-start gap-2 text-[9px] text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={dispatchProfileForm.acceptsCrossBusinessBatches}
+                      onChange={event => setDispatchProfileForm(previous => ({
+                        ...previous,
+                        acceptsCrossBusinessBatches: event.target.checked
+                      }))}
+                      className="mt-0.5 accent-violet-700"
+                    />
+                    <span>I consent to eligible batches containing deliveries from other businesses.</span>
+                  </label>
+                  {dispatchProfileError && (
+                    <p role="alert" className="mt-2 text-[9px] text-rose-700">{dispatchProfileError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={saveDispatchProfile}
+                    disabled={dispatchProfileSaving}
+                    className="mt-2 w-full rounded-lg bg-violet-700 py-2 text-[10px] font-extrabold text-white disabled:opacity-50"
+                  >
+                    {dispatchProfileSaving ? 'Saving...' : 'Save dispatch profile'}
+                  </button>
+                </div>
                 <div className="rounded-2xl border border-violet-200 bg-white p-3">
                   <div className="mb-2 flex items-center justify-between text-xs font-bold text-violet-950">
                     <span className="flex items-center gap-1.5">
@@ -2854,14 +3757,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 <p className="text-[9px] text-slate-500">Leave blank to use the driver’s saved location.</p>
               </div>
 
-              {/* BATCH GOOGLE MAPS DIRECT LINK */}
               <button
-                onClick={launchMultiStopGoogleNav}
+                onClick={launchMultiStopMapNav}
                 className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs rounded-xl flex items-center justify-center space-x-2 transition-all"
               >
                 <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
                 <span>
-                  Launch {Math.min(activeDriverStops.length, 10)}-Stop Route in Google Maps App
+                  Open {Math.min(activeDriverStops.length, 10)}-Stop Route in OpenStreetMap
                 </span>
               </button>
               <button
@@ -2888,6 +3790,12 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               </div>
             </div>
             )}
+
+            <DeliveryChatPanel
+              deliveryId={activeChatStop?.id}
+              currentUserId={currentUser.id}
+              request={apiRequest}
+            />
 
             {/* STOP LIST */}
             <div className="admin-stop-list space-y-2">
@@ -2947,6 +3855,44 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                           </div>
 
                           <p className="text-[10px] text-slate-400 truncate mt-0.5">{stop.address}</p>
+                          {stop.dispatchStatus && (
+                            <span className="mt-1 inline-block rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[8px] font-bold text-violet-200">
+                              {stop.dispatchStatus.replaceAll('_', ' ')}
+                            </span>
+                          )}
+                          {currentUser.role === 'ADMIN' && stop.assignedDriverId && (
+                            <div className="mt-1 flex items-center justify-between gap-2">
+                              <span className="min-w-0 truncate text-[9px] text-slate-400">
+                                {(() => {
+                                  const assignedRider = driversList.find(driver => driver.id === stop.assignedDriverId);
+                                  return `Rider: ${assignedRider?.name || 'Assigned'}${assignedRider?.vehicle ? ` · ${assignedRider.vehicle}` : ''}`;
+                                })()}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  setActiveDriverId(stop.assignedDriverId);
+                                  setMapExpanded(true);
+                                }}
+                                className="shrink-0 rounded-md border border-violet-500/30 px-1.5 py-0.5 text-[8px] font-bold text-violet-200 hover:bg-violet-500/10"
+                              >
+                                Track rider
+                              </button>
+                            </div>
+                          )}
+                          {currentUser.role === 'ADMIN'
+                            && stop.assignedDriverId
+                            && driversList.find(driver => driver.id === stop.assignedDriverId)?.phone && (
+                              <a
+                                href={`tel:${driversList.find(driver => driver.id === stop.assignedDriverId).phone}`}
+                                onClick={event => event.stopPropagation()}
+                                className="mt-1 inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-300 hover:text-emerald-200"
+                              >
+                                <Phone className="h-3 w-3" />
+                                Contact rider
+                              </a>
+                            )}
                           {stop.receiverPhone && (
                             <a
                               href={`tel:${stop.receiverPhone}`}
@@ -3025,12 +3971,25 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                         </>
                         )}
                         <button
-                          onClick={(e) => launchSingleStopGoogleNav(stop, e)}
+                          onClick={(e) => launchSingleStopMapNav(stop, e)}
                           className="flex-1 py-1 px-2 bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-emerald-400 font-bold text-[10px] rounded-lg flex items-center justify-center space-x-1 transition-all"
                         >
                           <Target className="w-3 h-3" />
-                          <span>Google Nav</span>
+                          <span>OpenStreetMap</span>
                         </button>
+
+                        {currentUser.role === 'DRIVER' && stop.dispatchStatus === 'HEADING_TO_PICKUP' && (
+                          <button
+                            type="button"
+                            onClick={event => {
+                              event.stopPropagation();
+                              confirmDeliveryPickup(stop);
+                            }}
+                            className="rounded-lg bg-amber-500 px-2 py-1 text-[9px] font-extrabold text-slate-950 hover:bg-amber-400"
+                          >
+                            Confirm pickup
+                          </button>
+                        )}
 
                         {stop.status !== 'DELIVERED' ? (
                           <button
@@ -3091,15 +4050,21 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           drivers={driversList}
           now={clockNow}
           mapContent={(
-            <GoogleFleetMap
-              center={dashboardMapCenter}
-              drivers={isPreviewSession ? [] : liveMapDrivers}
-              stops={stops}
-              now={clockNow}
-              fallbackUrl={dashboardGoogleMapsEmbedUrl}
-              onReadyChange={setGoogleMapReady}
-              onDriverSelect={driverId => setActiveDriverId(driverId)}
-            />
+            <div className="relative h-full w-full">
+              <FleetMap
+                center={dashboardMapCenter}
+                drivers={mapDisplayDrivers}
+                stops={mapVisibleStops}
+                now={clockNow}
+                selectedDriverId={activeDriverId}
+                onDriverSelect={driverId => setActiveDriverId(driverId)}
+              />
+              {dispatchMapError && (
+                <p role="status" className="absolute left-3 top-3 z-20 rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-[10px] font-semibold text-amber-950 shadow">
+                  {dispatchMapError}
+                </p>
+              )}
+            </div>
           )}
           profileMenu={profileMenu}
           search={dashboardSearchQuery}
@@ -3244,7 +4209,10 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         <div className="admin-map-toolbar z-10 flex min-h-12 items-center justify-between gap-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">
           <button
             type="button"
-            onClick={() => setMapExpanded(!mapExpanded)}
+            onClick={() => {
+              if (mapExpanded) setShowCandidateMap(false);
+              setMapExpanded(!mapExpanded);
+            }}
             aria-label={mapExpanded ? 'Return to route' : 'Expand map'}
             title={mapExpanded ? 'Return to route' : 'Expand map'}
             className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-800 hover:bg-slate-50"
@@ -3254,14 +4222,14 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           </button>
           <div className="admin-map-actions flex items-center gap-2">
             <a
-              href={googleMapsSearchUrl}
+              href={openStreetMapUrl}
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/20 sm:px-2.5 sm:text-[10px]"
             >
               <ExternalLink className="h-3 w-3" />
-              <span className="hidden sm:inline">Open in Google Maps</span>
-              <span className="sm:hidden">Google Maps</span>
+              <span className="hidden sm:inline">Open in OpenStreetMap</span>
+              <span className="sm:hidden">OpenStreetMap</span>
             </a>
             {profileMenu}
           </div>
@@ -3269,17 +4237,21 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
         {/* Map follows the selected driver's next stop, or the selected stop. */}
         <div className="admin-map-canvas flex-1 relative w-full h-full">
-          <GoogleFleetMap
+          <FleetMap
             center={mapCenter}
-            drivers={liveMapDrivers}
-            stops={stops}
+            drivers={mapDisplayDrivers}
+            stops={mapVisibleStops}
             now={clockNow}
-            fallbackUrl={googleMapsEmbedUrl}
-            onReadyChange={setGoogleMapReady}
+            selectedDriverId={activeDriverId}
             onDriverSelect={driverId => {
               if (currentUser.role === 'ADMIN') setActiveDriverId(driverId);
             }}
           />
+          {dispatchMapError && currentUser.role === 'ADMIN' && (
+            <p role="status" className="absolute left-3 top-3 z-20 rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-[10px] font-semibold text-amber-950 shadow">
+              {dispatchMapError}
+            </p>
+          )}
 
         </div>
 
@@ -3417,6 +4389,26 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
             <div className="space-y-3">
               <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Pickup Address</label>
+                <AddressAutocomplete
+                  value={newStopForm.pickupAddress}
+                  onChange={pickupAddress => setNewStopForm(previous => ({
+                    ...previous,
+                    pickupAddress,
+                    pickupLat: null,
+                    pickupLng: null
+                  }))}
+                  onSelect={(pickupAddress, location) => {
+                    setNewStopForm(previous => ({ ...previous, pickupAddress, pickupLat: location.lat, pickupLng: location.lng }));
+                    setRouteOrigins(previous => ({ ...previous, [currentUser.id]: pickupAddress }));
+                    setRouteOriginCoordinates(previous => ({ ...previous, [currentUser.id]: location }));
+                  }}
+                  placeholder="Search and select the package pickup location"
+                  inputClassName="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
                 <label className="block text-slate-400 mb-1 font-semibold">Receiver Name</label>
                 <input
                   type="text"
@@ -3456,9 +4448,101 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               </div>
 
               {currentUser.role === 'ADMIN' && (
+                <section className="rounded-xl border border-slate-700 bg-slate-950 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="font-bold text-slate-200">Nearby available riders</h4>
+                      <p className="mt-1 text-[9px] leading-relaxed text-slate-400">
+                        Live candidates are ranked from the selected pickup. Only available drivers with a fresh location and no active route are shown.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <select
+                      aria-label="Filter available riders by zone"
+                      value={riderDiscoveryZone}
+                      onChange={event => setRiderDiscoveryZone(event.target.value)}
+                      className="min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-slate-200"
+                    >
+                      <option value="ALL">All zones</option>
+                      {[...new Set([...driversList, ...dispatchMapRiders]
+                        .map(driver => String(driver.zone || '').trim())
+                        .filter(Boolean))]
+                        .sort((left, right) => left.localeCompare(right))
+                        .map(zone => <option key={zone} value={zone}>{zone}</option>)}
+                    </select>
+                    <select
+                      aria-label="Sort drivers by distance from pickup"
+                      value={riderDistanceSort}
+                      onChange={event => setRiderDistanceSort(event.target.value)}
+                      className="min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-slate-200"
+                    >
+                      <option value="NEAREST">Closest first</option>
+                      <option value="FARTHEST">Farthest first</option>
+                    </select>
+                  </div>
+                  {nearbyAvailableRiders.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {nearbyAvailableRiders.map((rider, index) => (
+                        <article key={rider.id} className="rounded-lg border border-slate-800 bg-slate-900 p-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-[11px] font-bold text-slate-100">
+                                <span className="mr-1 text-emerald-300">#{index + 1}</span>{rider.name}
+                              </p>
+                              <p className="truncate text-[9px] text-slate-400">
+                                {rider.vehicle || 'Vehicle not listed'} · {rider.zone || 'Zone not listed'}
+                              </p>
+                            </div>
+                            <p className="shrink-0 text-right text-[9px] font-semibold text-emerald-300">
+                              {rider.distanceKm.toFixed(1)} km · ~{rider.etaMinutes} min
+                            </p>
+                          </div>
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewStopForm(previous => ({ ...previous, assignedDriverId: rider.id }));
+                                setDriverNameQuery(rider.name);
+                              }}
+                              className="flex-1 rounded-lg bg-emerald-500/15 px-2 py-1.5 text-[9px] font-bold text-emerald-300 hover:bg-emerald-500/25"
+                            >
+                              Select rider
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveDriverId(rider.id);
+                                setSelectedStopId(null);
+                                setShowAddStopModal(false);
+                                setShowCandidateMap(true);
+                                setMapExpanded(true);
+                              }}
+                              className="rounded-lg border border-slate-700 px-2 py-1.5 text-[9px] font-bold text-slate-300 hover:bg-slate-800"
+                            >
+                              Show on map
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 rounded-lg bg-slate-900 p-2.5 text-[10px] text-slate-400">
+                      {Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
+                        ? 'No nearby drivers match this zone. Drivers must be available and sharing a location updated within the last 90 seconds.'
+                        : 'Select the pickup address from the suggestions to search and rank drivers by distance.'}
+                    </p>
+                  )}
+                  <p className="mt-2 text-[9px] text-slate-500">
+                    Map pins are numbered in the same order as this list. Distance is straight-line; arrival time is an estimate, not a routed ETA.
+                  </p>
+                </section>
+              )}
+
+              {currentUser.role === 'ADMIN' && (
                 <div className="relative">
                   <label htmlFor="stop-driver-search" className="mb-1 block font-semibold text-slate-400">
-                    Assign to driver
+                    Preferred driver (optional)
                   </label>
                   <input
                     id="stop-driver-search"
@@ -3511,8 +4595,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   )}
                   <p className="mt-1 text-[9px] text-slate-500">
                     {newStopForm.assignedDriverId
-                      ? 'This stop will be assigned to the selected driver.'
-                      : 'Choose a driver from the suggestions to assign this stop.'}
+                      ? 'The selected driver receives an offer and must accept before assignment.'
+                      : 'Leave empty to offer this delivery to all eligible nearby drivers.'}
                   </p>
                 </div>
               )}
@@ -3547,40 +4631,97 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 </div>
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Latest delivery time</label>
+                <input
+                  type="datetime-local"
+                  value={newStopForm.deadlineAt}
+                  onChange={event => setNewStopForm(previous => ({ ...previous, deadlineAt: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-slate-200 focus:border-emerald-500 focus:outline-none"
+                />
+                <p className="mt-1 text-[9px] text-slate-500">
+                  A deadline is required before this delivery can be grouped with other orders.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Package description</label>
+                  <input
+                    type="text"
+                    maxLength={160}
+                    value={newStopForm.packageDescription}
+                    onChange={event => setNewStopForm(previous => ({ ...previous, packageDescription: event.target.value }))}
+                    placeholder="Optional"
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-slate-200 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Package size</label>
+                  <select
+                    value={newStopForm.packageSize}
+                    onChange={event => setNewStopForm(previous => ({ ...previous, packageSize: event.target.value }))}
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-slate-200 focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="">Not specified</option>
+                    <option value="SMALL">Small</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="LARGE">Large</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Weight (kg)</label>
+                  <input
+                    type="number"
+                    min="0.1"
+                    max="500"
+                    step="0.1"
+                    value={newStopForm.packageWeightKg}
+                    onChange={event => setNewStopForm(previous => ({
+                      ...previous,
+                      packageWeightKg: event.target.value === '' ? '' : Number(event.target.value)
+                    }))}
+                    placeholder="Optional"
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-slate-200 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">Proposed rider earnings (NGN)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1000000"
+                    step="50"
+                    value={newStopForm.riderEarningsNgn}
+                    onChange={event => setNewStopForm(previous => ({
+                      ...previous,
+                      riderEarningsNgn: event.target.value === '' ? '' : Number(event.target.value)
+                    }))}
+                    placeholder="Optional"
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-slate-200 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {deliveryOfferError && (
+                <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-2.5 text-[10px] font-semibold text-rose-200">
+                  {deliveryOfferError}
+                </p>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <button
                   type="button"
-                  onClick={() => {
-                    const address = newStopForm.address.trim();
-                    if (!address) return;
-                    const stopPayload = {
-                      id: `l_${Date.now()}`,
-                      name: newStopForm.name.trim() || address,
-                      receiverPhone: newStopForm.receiverPhone.trim(),
-                      address,
-                      lat: newStopForm.lat,
-                      lng: newStopForm.lng,
-                      priority: newStopForm.priority,
-                      timeWindow: newStopForm.timeWindow,
-                      packages: Math.max(1, Math.floor(Number(newStopForm.packages) || 1)),
-                      status: 'PENDING',
-                      assignedDriverId: currentUser.role === 'DRIVER' ? currentUser.id : newStopForm.assignedDriverId
-                    };
-
-                    setStops(prev => [...prev, stopPayload]);
-                    setNewStopForm({
-                      name: '', receiverPhone: '', address: '', lat: null, lng: null,
-                      assignedDriverId: '',
-                      priority: 'NORMAL', timeWindow: '10:00 - 13:00', packages: 1
-                    });
-                    setDriverNameQuery('');
-                    setShowAddStopModal(false);
-                  }}
-                  disabled={currentUser.role === 'ADMIN' && !driversList.some(driver => driver.id === newStopForm.assignedDriverId)}
-                  className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 text-slate-950 font-black text-xs rounded-xl"
+                  onClick={() => createDeliveryStop(true)}
+                  disabled={creatingDelivery
+                    || !Number.isFinite(newStopForm.pickupLat)
+                    || !Number.isFinite(newStopForm.pickupLng)
+                    || !Number.isFinite(newStopForm.lat)
+                    || !Number.isFinite(newStopForm.lng)}
+                  className="flex-1 rounded-xl bg-emerald-500 py-2.5 text-xs font-black text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Save Address & Route
-                </button>
+                  {creatingDelivery ? 'Saving and sending offers...' : newStopForm.assignedDriverId ? 'Save & send selected driver an offer' : 'Save & find nearby drivers'}
+                 </button>
 
                 <button
                   type="button"
@@ -3588,12 +4729,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     const address = newStopForm.address.trim();
                     if (!address) return;
                     const origin = getNavigationOrigin();
-                    const mapsUrl = new URL('https://www.google.com/maps/dir/');
-                    mapsUrl.searchParams.set('api', '1');
-                    mapsUrl.searchParams.set('origin', origin);
-                    mapsUrl.searchParams.set('destination', address);
-                    mapsUrl.searchParams.set('travelmode', 'driving');
-                    window.open(mapsUrl.toString(), '_blank');
+                    window.open(openStreetMapDirectionsUrl([origin, address]), '_blank', 'noopener,noreferrer');
                   }}
                   className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl"
                 >
@@ -3623,6 +4759,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             </div>
 
             <div className="max-h-[70vh] space-y-3 overflow-y-auto bg-slate-50 p-4">
+              {activeSupportThread && (
+                <DispatchCallControls
+                  supportThreadId={activeSupportThread.id}
+                  currentUserId={currentUser.id}
+                  request={apiRequest}
+                />
+              )}
               {(activeSupportThread?.messages || []).map(message => (
                 <div
                   key={message.id}
@@ -3784,9 +4927,10 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
             <button
               onClick={confirmPODDelivery}
-              className="w-full py-3 bg-emerald-500 text-slate-950 font-bold rounded-xl hover:bg-emerald-400 transition-all shadow-lg"
+              disabled={podSaving}
+              className="w-full py-3 bg-emerald-500 text-slate-950 font-bold rounded-xl hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-60 transition-all shadow-lg"
             >
-              Confirm Delivery & Prepare Email
+              {podSaving ? 'Saving proof...' : 'Confirm delivery and save proof'}
             </button>
           </div>
         </div>
