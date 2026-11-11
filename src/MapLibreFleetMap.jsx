@@ -46,7 +46,6 @@ export default function MapLibreFleetMap({
   styleUrl,
   apiBaseUrl = '',
   center,
-  focusLocation,
   drivers,
   stops = [],
   now,
@@ -87,7 +86,7 @@ export default function MapLibreFleetMap({
       style: styleUrl,
       center: [initialCenterRef.current.lng, initialCenterRef.current.lat],
       zoom: 10,
-      cooperativeGestures: false,
+      cooperativeGestures: true,
       attributionControl: true
     });
     map.addControl(new NavigationControl({ visualizePitch: false }), 'top-right');
@@ -138,17 +137,6 @@ export default function MapLibreFleetMap({
     if (!map || !mapLoaded || !isValidMapLocation(centerLat, centerLng)) return;
     map.setCenter([centerLng, centerLat]);
   }, [centerLat, centerLng, mapLoaded]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded || !isValidMapLocation(focusLocation?.lat, focusLocation?.lng)) return;
-    map.flyTo({
-      center: [focusLocation.lng, focusLocation.lat],
-      zoom: 16,
-      duration: 900,
-      essential: true
-    });
-  }, [focusLocation, mapLoaded]);
 
   useEffect(() => {
     const map = mapRef.current;

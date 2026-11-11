@@ -1021,7 +1021,6 @@ const [authError, setAuthError] = useState('');
     const saved = localStorage.getItem('lagos_circuit_route_origin_coordinates');
     return saved ? JSON.parse(saved) : {};
   });
-  const [mapFocusLocation, setMapFocusLocation] = useState(null);
   const routeOriginLookupRef = useRef(0);
   const routeOriginAddress = currentUser ? routeOrigins[currentUser.id] || '' : '';
   const [customerName, setCustomerName] = useState('');
@@ -2382,7 +2381,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         const userId = currentUser.id;
         const location = { lat: coords.latitude, lng: coords.longitude };
         const fallbackAddress = `${location.lat},${location.lng}`;
-        setMapFocusLocation(location);
         setRouteOrigins(prev => ({ ...prev, [userId]: fallbackAddress }));
         setRouteOriginCoordinates(prev => ({ ...prev, [userId]: location }));
 
@@ -4236,7 +4234,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         <div className="admin-map-canvas flex-1 relative w-full h-full">
           <FleetMap
             center={mapCenter}
-            focusLocation={mapFocusLocation}
             drivers={mapDisplayDrivers}
             stops={mapVisibleStops}
             now={clockNow}
