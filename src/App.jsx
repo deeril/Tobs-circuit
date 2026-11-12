@@ -22,6 +22,16 @@ const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, ln
 let csrfTokenCache = '';
 let csrfTokenRequest = null;
 
+async function fetchPhotonGeocode(resource, params, signal) {
+  const url = new URL(`/${resource}`, 'https://photon.komoot.io');
+  url.search = params.toString();
+  const response = await fetch(url, { signal, headers: { Accept: 'application/json' } });
+  if (!response.ok) throw new Error(`Address provider returned HTTP ${response.status}.`);
+  const data = await response.json();
+  if (!Array.isArray(data.features)) throw new Error('Address provider returned an invalid response.');
+  return data;
+}
+
 function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, id }) {
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +56,9 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
         const data = await apiRequest(`/api/geocode/search?${params}`, {
           method: 'GET',
           signal: controller.signal
+        }).catch(error => {
+          if (controller.signal.aborted) throw error;
+          return fetchPhotonGeocode('api', params, controller.signal);
         });
         setSuggestions(data.features || []);
       } catch (lookupError) {
@@ -2390,7 +2403,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
         try {
           const params = new URLSearchParams({ lat: String(location.lat), lon: String(location.lng) });
-          const data = await apiRequest(`/api/geocode/reverse?${params}`);
+          const data = await apiRequest(`/api/geocode/reverse?${params}`)
+            .catch(() => fetchPhotonGeocode('reverse', params));
           const properties = data.features?.[0]?.properties;
           if (!properties) throw new Error('No address was found for the current coordinates.');
 
