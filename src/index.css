@@ -297,7 +297,8 @@ button {
 .maplibre-fleet-map .maplibre-rider-stale-marker,
 .maplibre-fleet-map .maplibre-rider-preview-marker,
 .maplibre-fleet-map .maplibre-pickup-marker,
-.maplibre-fleet-map .maplibre-destination-marker {
+.maplibre-fleet-map .maplibre-destination-marker,
+.maplibre-fleet-map .maplibre-current-location-marker {
   max-width: 128px;
   padding: 5px 8px;
   overflow: hidden;
@@ -310,8 +311,29 @@ button {
   box-shadow: 0 2px 8px rgb(15 23 42 / 35%);
 }
 
+.maplibre-fleet-map .maplibre-marker-content {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.maplibre-fleet-map .maplibre-marker-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 350ms ease-out;
+}
+
+.maplibre-fleet-map .maplibre-marker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .maplibre-fleet-map .maplibre-rider-marker {
-  background: #6f35b5;
+  background: var(--tc-business, #176bff);
 }
 
 .maplibre-fleet-map .maplibre-rider-preview-marker {
@@ -332,11 +354,52 @@ button {
 }
 
 .maplibre-fleet-map .maplibre-pickup-marker {
-  background: #d97706;
+  max-width: 150px;
+  background: var(--tc-tracking, #f29b26);
 }
 
 .maplibre-fleet-map .maplibre-destination-marker {
-  background: #0f766e;
+  max-width: 154px;
+  background: #1d4ed8;
+}
+
+.maplibre-fleet-map .maplibre-route-start-marker {
+  z-index: 3;
+  background: #f59e0b;
+  color: #172554;
+  border-color: #fff7ed;
+}
+
+.maplibre-fleet-map .maplibre-destination-marker-completed {
+  background: #15803d;
+  border-color: #bbf7d0;
+}
+
+.maplibre-fleet-map .maplibre-destination-marker-selected {
+  z-index: 4;
+  border-color: #facc15;
+  box-shadow: 0 0 0 3px rgb(250 204 21 / 65%), 0 4px 12px rgb(15 23 42 / 45%);
+  transform: scale(1.12);
+}
+
+.maplibre-fleet-map .maplibregl-marker {
+  transition: transform 650ms linear;
+}
+
+.maplibre-fleet-map .maplibre-current-location-marker {
+  z-index: 3;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
+  overflow: visible;
+  background: #4285f4;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 6px rgb(66 133 244 / 20%);
+}
+
+.maplibre-fleet-map .maplibre-current-location-marker .maplibre-marker-content {
+  display: none;
 }
 
 .maplibre-fleet-map .maplibregl-ctrl-group {
@@ -688,7 +751,7 @@ button {
   height: 9px;
   border: 2px solid #fff;
   border-radius: 50%;
-  background: #dc2626;
+  background: var(--tc-tracking, #f29b26);
 }
 
 .profile-menu {

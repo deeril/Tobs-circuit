@@ -146,6 +146,31 @@ describe('dispatch PostgreSQL integration', () => {
     await pool.query('UPDATE tobs_app_state SET state = $1::jsonb WHERE id = 1', [JSON.stringify({ stops: [] })]);
   });
 
+  it('persists route sequence and route geometry in the shared application state', { skip: !enabled }, async () => {
+    const routeState = {
+      stops: [{
+        id: randomUUID(),
+        assignedDriverId: randomUUID(),
+        routeSequence: 1,
+        routeOrder: 1,
+        routeSequenceStatus: 'READY',
+        routeLegGeometry: {
+          type: 'LineString',
+          coordinates: [[3.3, 6.5], [3.31, 6.51]]
+        }
+      }]
+    };
+    await pool.query(
+      'INSERT INTO tobs_app_state (id, state) VALUES (2, $1::jsonb)',
+      [JSON.stringify(routeState)]
+    );
+    const { rows } = await pool.query(
+      'SELECT state->\'stops\' AS stops FROM tobs_app_state WHERE id = 2'
+    );
+    assert.deepEqual(rows[0].stops, routeState.stops);
+    await pool.query('DELETE FROM tobs_app_state WHERE id = 2');
+  });
+
   after(async () => {
     if (!enabled) return;
     await pool?.end();

@@ -17,6 +17,7 @@ describe('server route registration', () => {
     }
 
     assert.ok(routes.includes('POST /api/super-admin/drivers/:id/verification'));
+    assert.ok(routes.includes('POST /api/stops/route-sequence/:driverId'));
   });
 
   it('accepts valid pricing quotes and rejects tampered ones', () => {

@@ -4,8 +4,12 @@
   --tc-line: #e7e7e7;
   --tc-paper: #fff;
   --tc-canvas: #f5f5f5;
-  --tc-brand: #6f35b5;
-  --tc-brand-soft: #f3ecfb;
+  --tc-business: #176bff;
+  --tc-driver: #00a88f;
+  --tc-super-admin: #7546e8;
+  --tc-tracking: #f29b26;
+  --tc-brand: var(--tc-business);
+  --tc-brand-soft: #edf4ff;
 }
 
 button,
@@ -509,10 +513,21 @@ textarea {
   }
 }
 
+#root .admin-dashboard,
+#root .app-shell.is-route-planner {
+  --tc-brand: var(--tc-business);
+  --tc-brand-soft: #edf4ff;
+  --tc-current-location: var(--tc-business);
+}
+
+#root .driver-dashboard {
+  --tc-brand: var(--tc-driver);
+  --tc-brand-soft: #e7f7f4;
+  --tc-current-location: var(--tc-driver);
+}
+
 #root .app-shell.is-route-planner,
 #root .app-shell.driver-dashboard {
-  --tc-brand: #b4d83d;
-  --tc-brand-soft: #f2f7dc;
   --tc-line: #e3e6dc;
   color: #171915;
   background: #eef0e9 !important;
@@ -538,12 +553,12 @@ textarea {
 }
 
 #root .app-shell.is-route-planner .admin-sidebar-nav button[aria-current="page"] {
-  background: #171915 !important;
+  background: var(--tc-business) !important;
   color: #fff !important;
 }
 
 #root .app-shell.is-route-planner .admin-sidebar-nav button[aria-current="page"]::before {
-  background: #c9ef54;
+  background: #fff;
 }
 
 #root .app-shell.is-route-planner .admin-sidebar-controls,
@@ -569,13 +584,20 @@ textarea {
   color: #171915 !important;
 }
 
-#root .app-shell.is-route-planner .admin-route-actions > div:first-child button:first-child,
+#root .app-shell.is-route-planner .admin-route-actions > div:first-child button:first-child {
+  border-color: var(--tc-business) !important;
+  border-radius: 14px !important;
+  background: var(--tc-business) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+
 #root .app-shell.driver-dashboard .admin-sidebar-controls button[class*="bg-violet-700"],
 #root .app-shell.driver-dashboard .admin-sidebar-controls button[class*="bg-emerald-600"] {
-  border-color: #b4d83d !important;
+  border-color: var(--tc-driver) !important;
   border-radius: 14px !important;
-  background: #c9ef54 !important;
-  color: #171915 !important;
+  background: var(--tc-driver) !important;
+  color: #fff !important;
   box-shadow: none !important;
 }
 
@@ -630,9 +652,9 @@ textarea {
 }
 
 #root .app-shell.driver-dashboard .admin-sidebar-controls button[aria-pressed="true"] {
-  border: 1px solid #b4d83d !important;
-  background: #c9ef54 !important;
-  color: #171915 !important;
+  border: 1px solid var(--tc-driver) !important;
+  background: var(--tc-driver) !important;
+  color: #fff !important;
 }
 
 #root .app-shell.driver-dashboard .admin-sidebar-controls button[aria-pressed="false"] {
@@ -744,6 +766,94 @@ textarea {
     border: 0;
     border-radius: 0;
     box-shadow: none;
+  }
+
+  #root .app-shell.is-route-planner .admin-route-standard-brand,
+  #root .app-shell.is-route-planner .admin-route-collapsed-logo {
+    display: none;
+  }
+
+  #root .app-shell.is-route-planner .admin-route-mobile-greeting {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 12px;
+  }
+
+  #root .app-shell.is-route-planner .admin-route-mobile-greeting > img {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 auto;
+    object-fit: contain;
+  }
+
+  #root .app-shell.is-route-planner .admin-route-mobile-greeting > div {
+    min-width: 0;
+  }
+
+  #root .app-shell.is-route-planner .admin-route-mobile-greeting strong {
+    display: block;
+    color: #171915;
+    font-size: 15px;
+    line-height: 1.2;
+  }
+
+  #root .app-shell.is-route-planner .admin-route-mobile-greeting p {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+    margin: 3px 0 0;
+    color: #717171;
+    font-size: 12px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #root .app-shell.is-route-planner .admin-route-mobile-greeting p svg {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+  }
+
+  #root .app-shell.is-route-planner .admin-sidebar-nav {
+    display: none;
+  }
+
+  #root .app-shell.is-route-planner .admin-dashboard-sidebar.is-mobile-open .admin-sidebar-nav {
+    position: fixed;
+    top: 82px;
+    left: 24px;
+    z-index: 1;
+    display: flex;
+    width: 250px;
+    max-height: calc(100dvh - 100px);
+    overflow-y: auto;
+    border: 1px solid var(--tc-line);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 12px 32px rgb(0 0 0 / 16%);
+  }
+
+  #root .app-shell.is-route-planner .admin-dashboard-sidebar.is-mobile-open .admin-sidebar-nav button {
+    color: #4b5563;
+  }
+
+  #root .app-shell.is-route-planner .admin-dashboard-sidebar.is-mobile-open .admin-sidebar-nav button[aria-current="page"] {
+    background: #171915;
+    color: #fff;
+  }
+
+  #root .app-shell.is-route-planner .admin-fleet-card > div:last-child {
+    max-height: none;
+    overflow: visible;
+  }
+
+  #root .app-shell.is-route-planner > .admin-dashboard-sidebar.is-collapsed {
+    width: 368px !important;
+    max-width: 368px !important;
+    flex-basis: 368px !important;
   }
 }
 

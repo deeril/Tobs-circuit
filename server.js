@@ -13,7 +13,13 @@ import {
   isWithinSearchCells,
   RIDER_DISCOVERY_RADIUS_ROUNDS_KM
 } from './src/dispatch-geo.js';
-import { getRoadRoute, searchPhoton } from './server/dispatch-services.js';
+import {
+  getRoadRoute,
+  getRoadRouteMatrix,
+  resolvePhotonBaseUrl,
+  searchPhoton
+} from './server/dispatch-services.js';
+import { sequenceStopsByRoad } from './server/dispatch-route-sequencing.js';
 import { AUTHORIZED_MAP_RIDERS_SQL } from './server/dispatch-map-query.js';
 import { hasActiveRiderAssignment } from './server/dispatch-assignments.js';
 import { PUBLIC_MARKETPLACE_DRIVERS_SQL } from './server/dispatch-marketplace-query.js';
@@ -1450,8 +1456,10 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
   }
   const zone = cleanText(request.body.zone, 100);
   const vehicle = cleanText(request.body.vehicle, 100);
-  if (!name || !validEmail(email) || typeof password !== 'string' || password.length < 12 || !zone || !vehicle) {
-    return response.status(400).json({ error: 'Enter your name, valid email, password (at least 12 characters), operating zone, and vehicle plate number.' });
+  const vehicleType = cleanText(request.body.vehicleType, 32).toUpperCase();
+  if (!name || !validEmail(email) || typeof password !== 'string' || password.length < 12
+    || !zone || !vehicle || !['CAR', 'MOTORCYCLE', 'BICYCLE'].includes(vehicleType)) {
+    return response.status(400).json({ error: 'Enter your name, valid email, password (at least 12 characters), operating zone, vehicle type, and vehicle plate number.' });
   }
   if (store.users.some(user => user.email === email)) {
     return response.status(409).json({ error: 'An account already exists for this email.' });
@@ -1467,6 +1475,7 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
     ...(invite?.ownerAdminId ? { ownerAdminId: invite.ownerAdminId } : {}),
     zone,
     vehicle,
+    vehicleType,
     phone: cleanText(request.body.phone, 40),
     status: 'PENDING',
     verificationStatus: 'PENDING',
@@ -1805,6 +1814,7 @@ app.get('/api/dispatch/map-riders', requireUser, requireAdmin, rateLimit({ windo
           vehicle: rider.vehicle || '',
           lat: Number(row.lat),
           lng: Number(row.lng),
+          heading: Number.isFinite(rider.heading) ? rider.heading : null,
           locationUpdatedAt,
           isTracking: now - new Date(locationUpdatedAt).getTime() < 90_000,
           isAvailable: row.assigned !== true,
@@ -1996,7 +2006,7 @@ app.get('/api/geocode/search', requireUser, rateLimit({ limit: 30 }), async (req
   if ((lat !== undefined || lng !== undefined) && !validCoordinates(lat, lng)) {
     return response.status(400).json({ error: 'The address search location is invalid.' });
   }
-  const baseUrl = process.env.PHOTON_BASE_URL || (!isProduction ? 'https://photon.komoot.io' : '');
+  const baseUrl = resolvePhotonBaseUrl(process.env.PHOTON_BASE_URL);
   try {
     const features = await searchPhoton({ baseUrl, query: q, lat, lng });
     response.setHeader('Cache-Control', 'private, no-store');
@@ -2017,7 +2027,7 @@ app.get('/api/geocode/reverse', requireUser, rateLimit({ limit: 20 }), async (re
   if (!validCoordinates(lat, lng)) {
     return response.status(400).json({ error: 'The reverse-geocoding coordinates are invalid.' });
   }
-  const baseUrl = process.env.PHOTON_BASE_URL || (!isProduction ? 'https://photon.komoot.io' : '');
+  const baseUrl = resolvePhotonBaseUrl(process.env.PHOTON_BASE_URL);
   try {
     const features = await searchPhoton({ baseUrl, lat, lng, reverse: true });
     response.setHeader('Cache-Control', 'private, no-store');
@@ -2059,6 +2069,224 @@ app.get('/api/routing/route', requireUser, rateLimit({ limit: 30 }), async (requ
     if (error instanceof TypeError) return response.status(400).json({ error: error.message });
     console.error('Road routing failed:', error.message);
     return response.status(503).json({ error: 'Route calculation is temporarily unavailable.' });
+  }
+});
+
+const ROUTE_SEQUENCE_ACTIVE_STATUSES = new Set([
+  'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'HEADING_TO_PICKUP',
+  'ARRIVED_AT_PICKUP', 'HEADING_TO_DESTINATION'
+]);
+const ROUTE_SEQUENCE_TERMINAL_STATUSES = new Set([
+  'DELIVERED', 'FAILED', 'UNDELIVERED', 'DELIVERY_FAILED', 'CANCELLED'
+]);
+
+function isPendingRouteStop(stop, riderId) {
+  const status = String(dispatchStatusFromStop(stop) || stop.status || '').toUpperCase();
+  return stop.assignedDriverId === riderId
+    && !ROUTE_SEQUENCE_TERMINAL_STATUSES.has(status)
+    && (!status || ROUTE_SEQUENCE_ACTIVE_STATUSES.has(status)
+      || ['PENDING', 'IN_PROGRESS', 'ASSIGNED'].includes(status));
+}
+
+function emitRouteUpdated(riderId, stops, updatedAt) {
+  for (const businessId of new Set(stops.map(stop => stop.ownerAdminId).filter(Boolean))) {
+    io.to(`business:${businessId}`).emit('dispatch:route-updated', { riderId, updatedAt });
+  }
+  io.to(`user:${riderId}`).emit('dispatch:route-updated', { riderId, updatedAt });
+}
+
+function markRouteSequenceUnavailable(riderId, reason) {
+  const updatedAt = new Date().toISOString();
+  store.stops = store.stops.map(stop =>
+    isPendingRouteStop(stop, riderId)
+      ? {
+        ...stop,
+        routeSequenceStatus: 'UNAVAILABLE',
+        routeSequenceError: reason,
+        routeSequenceUpdatedAt: updatedAt,
+        routeLegGeometry: null
+      }
+      : stop
+  );
+  const rider = store.users.find(user => user.id === riderId && user.role === 'DRIVER');
+  if (rider) rider.routeSequenceError = reason;
+  const riderStops = store.stops.filter(stop => stop.assignedDriverId === riderId);
+  writeStore();
+  emitRouteUpdated(riderId, riderStops, updatedAt);
+}
+
+async function getFreshRiderLocation(riderId, request) {
+  if (request.dispatchSchemaReady) {
+    const { rows } = await databaseRequestClient.query(`
+      SELECT latitude AS lat, longitude AS lng, recorded_at
+      FROM rider_current_locations
+      WHERE rider_id = $1 AND sharing_enabled = TRUE
+        AND recorded_at > NOW() - INTERVAL '90 seconds'
+    `, [riderId]);
+    if (!rows.length) return null;
+    return { lat: Number(rows[0].lat), lng: Number(rows[0].lng) };
+  }
+  const rider = store.users.find(user => user.id === riderId && user.role === 'DRIVER');
+  const updatedAt = new Date(rider?.locationUpdatedAt || '').getTime();
+  if (!rider?.isTracking || !validCoordinates(rider.lat, rider.lng)
+    || !Number.isFinite(updatedAt) || Date.now() - updatedAt >= 90_000) return null;
+  return { lat: rider.lat, lng: rider.lng };
+}
+
+async function updateDriverRouteSequence(riderId, request, {
+  ownerAdminId = null,
+  preserveSequence = false
+} = {}) {
+  const routeStops = store.stops.filter(stop =>
+    isPendingRouteStop(stop, riderId)
+    && (!ownerAdminId || stop.ownerAdminId === ownerAdminId)
+  );
+  if (!routeStops.length) return { stops: [], totalDistanceKm: 0, totalDurationMinutes: 0 };
+  const origin = await getFreshRiderLocation(riderId, request);
+  if (!origin) {
+    const error = new Error('A fresh rider GPS location is required to sequence this route.');
+    error.status = 409;
+    throw error;
+  }
+  const routingBaseUrl = process.env.VALHALLA_BASE_URL || '';
+  if (!routingBaseUrl) {
+    const error = new Error('Road routing is not configured; no stop sequence was changed.');
+    error.status = 503;
+    throw error;
+  }
+  const routingProfile = process.env.VALHALLA_PROFILE || 'auto';
+  if (!['auto', 'car', 'driving', 'bicycle', 'cycling', 'pedestrian', 'walking', 'motorcycle'].includes(routingProfile)) {
+    const error = new Error('The road-routing profile is not configured correctly.');
+    error.status = 503;
+    throw error;
+  }
+
+  const result = await sequenceStopsByRoad({
+    origin,
+    stops: routeStops,
+    routeMatrixProvider: async (sources, destinations) => getRoadRouteMatrix({
+      baseUrl: routingBaseUrl,
+      profile: routingProfile,
+      sources,
+      destinations
+    }),
+    routeProvider: async (from, to) => getRoadRoute({
+      baseUrl: routingBaseUrl,
+      profile: routingProfile,
+      from,
+      to
+    })
+  });
+
+  const routeHistory = store.stops.filter(stop =>
+    (stop.assignedDriverId === riderId || stop.lastAssignedDriverId === riderId)
+    && (ownerAdminId === null || stop.ownerAdminId === ownerAdminId)
+  );
+  const hasCompletedSequence = routeHistory.some(stop =>
+    ROUTE_SEQUENCE_TERMINAL_STATUSES.has(String(dispatchStatusFromStop(stop) || stop.status || '').toUpperCase())
+    && Number.isInteger(stop.routeSequence)
+    && stop.routeSequence > 0
+  );
+  const keepHistoricalNumbers = preserveSequence || hasCompletedSequence;
+  const sequenceCounts = new Map();
+  for (const sequence of routeHistory.map(stop => stop.routeSequence)
+    .filter(sequence => Number.isInteger(sequence) && sequence > 0)) {
+    sequenceCounts.set(sequence, (sequenceCounts.get(sequence) || 0) + 1);
+  }
+  const usedSequenceNumbers = new Set(routeHistory
+    .map(stop => stop.routeSequence)
+    .filter(sequence => Number.isInteger(sequence) && sequence > 0));
+  const claimedSequenceNumbers = new Set(routeHistory
+    .filter(stop => ROUTE_SEQUENCE_TERMINAL_STATUSES.has(
+      String(dispatchStatusFromStop(stop) || stop.status || '').toUpperCase()
+    ))
+    .map(stop => stop.routeSequence)
+    .filter(sequence => Number.isInteger(sequence) && sequence > 0));
+  let nextSequence = Math.max(0, ...usedSequenceNumbers);
+  const routePlanId = crypto.randomUUID();
+  const routeUpdatedAt = new Date().toISOString();
+  const updates = new Map();
+  result.ordered.forEach(({ stop, leg }, index) => {
+    let routeSequence;
+    if (keepHistoricalNumbers
+      && Number.isInteger(stop.routeSequence)
+      && stop.routeSequence > 0
+      && sequenceCounts.get(stop.routeSequence) === 1
+      && !claimedSequenceNumbers.has(stop.routeSequence)) {
+      routeSequence = stop.routeSequence;
+    } else if (keepHistoricalNumbers) {
+      do {
+        nextSequence += 1;
+      } while (usedSequenceNumbers.has(nextSequence) || claimedSequenceNumbers.has(nextSequence));
+      routeSequence = nextSequence;
+      usedSequenceNumbers.add(routeSequence);
+    } else {
+      routeSequence = index + 1;
+    }
+    updates.set(stop.id, {
+      routeSequence,
+      routeOrder: index + 1,
+      routePlanId,
+      routeSequenceStatus: 'READY',
+      routeSequenceError: '',
+      routeSequenceUpdatedAt: routeUpdatedAt,
+      routeStartLocation: keepHistoricalNumbers ? stop.routeStartLocation || origin : origin,
+      routeCurrentOrigin: origin,
+      routeLegGeometry: leg.geometry,
+      routeDistanceKm: leg.distanceKm,
+      routeDurationMinutes: leg.durationMinutes
+    });
+  });
+  store.stops = store.stops.map(stop => {
+    const update = updates.get(stop.id);
+    if (!update) return stop;
+    const isCompleted = ROUTE_SEQUENCE_TERMINAL_STATUSES.has(
+      String(dispatchStatusFromStop(stop) || stop.status || '').toUpperCase()
+    );
+    return isCompleted
+      ? stop
+      : { ...stop, ...update };
+  });
+
+  const sequencedStops = result.ordered.map(({ stop }) =>
+    store.stops.find(item => item.id === stop.id)
+  );
+  const rider = store.users.find(user => user.id === riderId && user.role === 'DRIVER');
+  if (rider) {
+    rider.routeSequenceUpdatedAt = routeUpdatedAt;
+    rider.routeSequenceError = '';
+  }
+  writeStore();
+  emitRouteUpdated(riderId, sequencedStops, routeUpdatedAt);
+  return {
+    stops: sequencedStops,
+    totalDistanceKm: result.totalDistanceKm,
+    totalDurationMinutes: result.totalDurationMinutes,
+    routePlanId,
+    updatedAt: routeUpdatedAt
+  };
+}
+
+app.post('/api/stops/route-sequence/:driverId', requireUser, rateLimit({ windowMs: 60_000, limit: 5 }), async (request, response) => {
+  const { driverId } = request.params;
+  const isDriverSelf = request.user.role === 'DRIVER' && request.user.id === driverId;
+  const isBusinessOwner = request.user.role === 'ADMIN'
+    && store.users.some(user =>
+      user.id === driverId && user.role === 'DRIVER' && user.ownerAdminId === request.user.id
+    );
+  if (!isDriverSelf && !isBusinessOwner) {
+    return response.status(403).json({ error: 'You are not authorized to sequence this rider route.' });
+  }
+  try {
+    const route = await updateDriverRouteSequence(driverId, request, {
+      ownerAdminId: isBusinessOwner ? request.user.id : null
+    });
+    return response.json(route);
+  } catch (error) {
+    if (error.status) return response.status(error.status).json({ error: error.message });
+    if (error instanceof TypeError) return response.status(400).json({ error: error.message });
+    console.error('Could not sequence rider stops using road routes:', error);
+    return response.status(503).json({ error: 'The route could not be sequenced because road routing is unavailable.' });
   }
 });
 
@@ -2372,6 +2600,8 @@ app.post('/api/stops/:id/offers', requireUser, requireAdmin, async (request, res
     if (rider.role !== 'DRIVER' || (selectedRiderId && rider.id !== selectedRiderId)
       || rider.status !== 'ACTIVE' || rider.isAvailable !== true || rider.routeStatus !== 'IDLE'
       || !rider.isTracking || !validCoordinates(rider.lat, rider.lng)) return false;
+    if (stop.requiredVehicleType
+      && String(rider.vehicleType || '').toUpperCase() !== stop.requiredVehicleType) return false;
     const updatedAt = new Date(rider.locationUpdatedAt || '').getTime();
     if (!Number.isFinite(updatedAt) || now - updatedAt >= 90_000) return false;
     if (!isWithinSearchCells(h3Cells, rider.lat, rider.lng)) return false;
@@ -3334,8 +3564,39 @@ app.post('/api/delivery-offers/:id/accept', requireUser, async (request, respons
         WHERE rider_id = $1
       `, [rider.id]);
     }
+    let routeSequenceWarning = '';
+    try {
+      await updateDriverRouteSequence(rider.id, request);
+    } catch (error) {
+      routeSequenceWarning = error.message;
+      console.warn('Delivery accepted, but its road route could not be calculated:', error.message);
+      store.stops = store.stops.map(item => item.id === stop.id
+        ? {
+          ...item,
+          routeSequence: 1,
+          routeOrder: 1,
+          routeSequenceStatus: 'UNAVAILABLE',
+          routeSequenceError: routeSequenceWarning,
+          routeSequenceUpdatedAt: acceptedAt,
+          routeStartLocation: validCoordinates(rider.lat, rider.lng)
+            ? { lat: rider.lat, lng: rider.lng }
+            : null,
+          routeCurrentOrigin: validCoordinates(rider.lat, rider.lng)
+            ? { lat: rider.lat, lng: rider.lng }
+            : null
+        }
+        : item);
+      const acceptedStop = store.stops.find(item => item.id === stop.id);
+      emitRouteUpdated(rider.id, [acceptedStop], acceptedAt);
+      writeStore();
+    }
     writeStore();
-    return response.json({ stop, rider: publicUser(rider) });
+    const acceptedStop = store.stops.find(item => item.id === stop.id);
+    return response.json({
+      stop: acceptedStop,
+      rider: publicUser(rider),
+      ...(routeSequenceWarning ? { routeSequenceWarning } : {})
+    });
   } catch (error) {
     console.error('Could not atomically assign the delivery offer:', error);
     return response.status(503).json({ error: 'The delivery could not be assigned because the database is temporarily unavailable.' });
@@ -3455,10 +3716,15 @@ app.post('/api/stops/:id/assignment/cancel', requireUser, async (request, respon
   }
 
   const cancelledAt = new Date().toISOString();
+  stop.lastAssignedDriverId = riderId;
   stop.assignedDriverId = '';
   stop.assignedAt = null;
   stop.acceptedAt = null;
   stop.dispatchStatus = 'UNASSIGNED';
+  stop.routeSequenceStatus = stop.routeSequence ? 'CANCELLED' : stop.routeSequenceStatus;
+  stop.routeOrder = null;
+  stop.routeCurrentOrigin = null;
+  stop.routeLegGeometry = null;
   stop.dispatchStatusHistory = [
     ...(Array.isArray(stop.dispatchStatusHistory) ? stop.dispatchStatusHistory : []),
     { status: 'UNASSIGNED', at: cancelledAt, riderId }
@@ -3483,8 +3749,22 @@ app.post('/api/stops/:id/assignment/cancel', requireUser, async (request, respon
     if (remainingStops.length === 0) rider.routeStatus = 'IDLE';
     rider.routeUpdatedAt = cancelledAt;
   }
+  let routeSequenceWarning = '';
+  if (rider && store.stops.some(item => isPendingRouteStop(item, riderId))) {
+    try {
+      await updateDriverRouteSequence(riderId, request, { preserveSequence: true });
+    } catch (error) {
+      routeSequenceWarning = error.message;
+      console.warn('Assignment cancelled, but the remaining route could not be recalculated:', error.message);
+      markRouteSequenceUnavailable(riderId, routeSequenceWarning);
+    }
+  }
   writeStore();
-  return response.json({ ok: true, deliveryStatus: 'UNASSIGNED' });
+  return response.json({
+    ok: true,
+    deliveryStatus: 'UNASSIGNED',
+    ...(routeSequenceWarning ? { routeSequenceWarning } : {})
+  });
 });
 
 app.put('/api/stops', requireUser, async (request, response) => {
@@ -3540,6 +3820,13 @@ app.put('/api/stops', requireUser, async (request, response) => {
       return response.status(403).json({ error: 'A route cannot be assigned outside your fleet.' });
     }
     const previousStop = previousStopsById.get(stop.id);
+    const requiredVehicleType = cleanText(
+      stop.requiredVehicleType ?? previousStop?.requiredVehicleType ?? '',
+      32
+    ).toUpperCase();
+    if (requiredVehicleType && !['CAR', 'MOTORCYCLE', 'BICYCLE'].includes(requiredVehicleType)) {
+      return response.status(400).json({ error: 'Choose a supported delivery vehicle type.' });
+    }
     if (request.user.role === 'ADMIN'
       && stop.assignedDriverId
       && stop.assignedDriverId !== previousStop?.assignedDriverId) {
@@ -3558,8 +3845,27 @@ app.put('/api/stops', requireUser, async (request, response) => {
     );
     const sanitizedStop = {
       ...stop,
+      requiredVehicleType: requiredVehicleType || null,
       ownerAdminId: request.user.role === 'DRIVER' ? previousStop.ownerAdminId : ownerAdminId
     };
+    if (previousStop) {
+      for (const field of [
+        'routeSequence', 'routeOrder', 'routePlanId', 'routeSequenceStatus',
+        'routeSequenceError', 'routeSequenceUpdatedAt', 'routeStartLocation',
+        'routeCurrentOrigin', 'routeLegGeometry', 'routeDistanceKm',
+        'routeDurationMinutes'
+      ]) {
+        if (Object.hasOwn(previousStop, field)) sanitizedStop[field] = previousStop[field];
+        else delete sanitizedStop[field];
+      }
+      if (request.user.role === 'ADMIN'
+        && stop.routePlanId
+        && stop.routePlanId === previousStop.routePlanId
+        && Number.isInteger(stop.routeOrder)
+        && stop.routeOrder > 0) {
+        sanitizedStop.routeOrder = stop.routeOrder;
+      }
+    }
     if (isAcceptedDispatch) {
       sanitizedStop.assignedDriverId = previousStop.assignedDriverId;
       sanitizedStop.assignedAt = previousStop.assignedAt;
@@ -3803,11 +4109,13 @@ app.patch('/api/users/me/location', requireUser, async (request, response) => {
   if (request.user.role !== 'DRIVER') {
     return response.status(403).json({ error: 'Only driver accounts can share live location.' });
   }
-  const { lat, lng, speed, isTracking } = request.body;
+  const { lat, lng, speed, heading, isTracking } = request.body;
   if (typeof isTracking !== 'boolean'
     || (isTracking && (!Number.isFinite(lat) || lat < -90 || lat > 90
       || !Number.isFinite(lng) || lng < -180 || lng > 180
-      || !Number.isFinite(speed) || speed < 0 || speed > 300))) {
+      || !Number.isFinite(speed) || speed < 0 || speed > 300
+      || (heading !== undefined && heading !== null
+        && (!Number.isFinite(heading) || heading < 0 || heading >= 360))))) {
     return response.status(400).json({ error: 'The location update is invalid.' });
   }
   const user = store.users.find(item => item.id === request.user.id);
@@ -3817,11 +4125,12 @@ app.patch('/api/users/me/location', requireUser, async (request, response) => {
   }
   user.isTracking = isTracking;
   user.locationUpdatedAt = isTracking ? new Date().toISOString() : null;
-  if (isTracking) Object.assign(user, { lat, lng, speed });
+  if (isTracking) Object.assign(user, { lat, lng, speed, heading: heading ?? null });
   else {
     user.lat = null;
     user.lng = null;
     user.speed = 0;
+    user.heading = null;
   }
   if (request.dispatchSchemaReady) {
     try {
@@ -3895,6 +4204,7 @@ app.patch('/api/users/me/location', requireUser, async (request, response) => {
     lat: user.lat,
     lng: user.lng,
     speed: user.speed || 0,
+    heading: Number.isFinite(user.heading) ? user.heading : null,
     isTracking: user.isTracking,
     isAvailable: user.isAvailable === true && !activeDelivery,
     assigned: Boolean(activeDelivery),
@@ -4060,6 +4370,7 @@ app.post('/api/stops/:id/proof', requireUser, async (request, response) => {
     customerPhoto: photo,
     deliveredAt: proofTime
   };
+  let routeSequenceWarning = '';
   try {
     await databaseRequestClient.query('SAVEPOINT dispatch_delivery_proof');
     const { rows: assignmentRows } = await databaseRequestClient.query(`
@@ -4092,17 +4403,27 @@ app.post('/api/stops/:id/proof', requireUser, async (request, response) => {
     store.stops = store.stops.map(item => item.id === stop.id ? completedStop : item);
     await syncDispatchDelivery(databaseRequestClient, completedStop);
     const driver = store.users.find(user => user.id === request.user.id && user.role === 'DRIVER');
+    let remainingActiveStops = [];
     if (driver) {
       const activeStatuses = new Set([
         'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'HEADING_TO_PICKUP',
         'ARRIVED_AT_PICKUP', 'HEADING_TO_DESTINATION'
       ]);
-      const remainingActiveStops = store.stops.filter(item =>
+      remainingActiveStops = store.stops.filter(item =>
         item.assignedDriverId === driver.id && activeStatuses.has(dispatchStatusFromStop(item))
       );
       driver.routeStatus = remainingActiveStops.length ? 'IN_PROGRESS' : 'IDLE';
       driver.routeStopCount = remainingActiveStops.length;
       driver.routeUpdatedAt = proofTime;
+    }
+    if (driver && remainingActiveStops.length > 0) {
+      try {
+        await updateDriverRouteSequence(driver.id, request, { preserveSequence: true });
+      } catch (error) {
+        routeSequenceWarning = error.message;
+        console.warn('Delivery completed, but the remaining route could not be recalculated:', error.message);
+        markRouteSequenceUnavailable(driver.id, routeSequenceWarning);
+      }
     }
     await databaseRequestClient.query('RELEASE SAVEPOINT dispatch_delivery_proof');
   } catch (error) {
@@ -4116,7 +4437,12 @@ app.post('/api/stops/:id/proof', requireUser, async (request, response) => {
   }
   writeStore();
   const completedDriver = store.users.find(user => user.id === request.user.id && user.role === 'DRIVER');
-  return response.status(201).json({ stop: completedStop, user: completedDriver ? publicUser(completedDriver) : null });
+  emitRouteUpdated(request.user.id, [completedStop], proofTime);
+  return response.status(201).json({
+    stop: completedStop,
+    user: completedDriver ? publicUser(completedDriver) : null,
+    ...(routeSequenceWarning ? { routeSequenceWarning } : {})
+  });
 });
 
 app.delete('/api/users/:id', requireUser, requireAdmin, async (request, response) => {

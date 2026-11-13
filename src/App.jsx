@@ -10,19 +10,29 @@ import DeliveryChatPanel from './DeliveryChatPanel.jsx';
 import DispatchCallControls from './DispatchCallControls.jsx';
 import { applyBusinessRiderLocation } from './dispatch-map-state.js';
 import {
-  MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
+  Activity, Home, MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2, Bike, CarFront, Motorbike, Tag,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, Users, UserPlus, Shield, PenTool,
  Send, ArrowDownUp, Copy, LogOut, User, Phone, ArrowUp, ArrowDown,
- MessageSquare,
+ MessageSquare, Menu, X,
  BellRing, Eye, EyeOff, Maximize2, Minimize2
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
+const DELIVERY_TYPES = [
+  { vehicleType: 'BICYCLE', label: 'Bicycle', description: 'Bicycle delivery', Icon: Bike },
+  { vehicleType: 'MOTORCYCLE', label: 'Bike', description: 'Motorcycle delivery', Icon: Motorbike },
+  { vehicleType: 'CAR', label: 'Car', description: 'Car delivery', Icon: CarFront }
+];
 let csrfTokenCache = '';
 let csrfTokenRequest = null;
+const PREVIEW_ADDRESS_SUGGESTIONS = [
+  { properties: { name: 'Ikeja', city: 'Lagos' }, geometry: { coordinates: [3.3515, 6.6018] } },
+  { properties: { name: 'Yaba', city: 'Lagos' }, geometry: { coordinates: [3.3711, 6.5095] } },
+  { properties: { name: 'Victoria Island', city: 'Lagos' }, geometry: { coordinates: [3.4219, 6.4281] } }
+];
 
-function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, id }) {
+function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, inputStyle, id }) {
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -36,6 +46,17 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
     const timeoutId = window.setTimeout(async () => {
       setIsLoading(true);
       setError('');
+      const localPreviewMode = import.meta.env.DEV
+        && new URLSearchParams(window.location.search).has('preview');
+      if (IS_GITHUB_PAGES_DEMO || localPreviewMode) {
+        const normalizedQuery = query.toLowerCase();
+        const sampleSuggestions = PREVIEW_ADDRESS_SUGGESTIONS.filter(feature =>
+          `${feature.properties.name}, ${feature.properties.city}`.toLowerCase().includes(normalizedQuery)
+        );
+        setSuggestions(sampleSuggestions.length > 0 ? sampleSuggestions : PREVIEW_ADDRESS_SUGGESTIONS);
+        setIsLoading(false);
+        return;
+      }
       try {
         const params = new URLSearchParams({
           q: query,
@@ -52,7 +73,7 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
         if (!controller.signal.aborted) {
           console.error('Address suggestion lookup error:', lookupError);
           setSuggestions([]);
-          setError('Address suggestions are unavailable right now.');
+          setError(lookupError.message || 'Address suggestions are unavailable right now.');
         }
       } finally {
         if (!controller.signal.aborted) setIsLoading(false);
@@ -100,6 +121,7 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
         aria-autocomplete="list"
         aria-expanded={isOpen && suggestions.length > 0}
         className={inputClassName}
+        style={inputStyle}
       />
       {isOpen && (isLoading || error || suggestions.length > 0 || value.trim().length >= 2) && (
         <div className="absolute z-30 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
@@ -192,6 +214,26 @@ const PREVIEW_DRIVERS = [
     speed: 0,
     isTracking: false,
     routeStatus: 'PENDING',
+    isPreviewFixture: true
+  },
+  {
+    id: 'preview-driver-3',
+    name: 'Amina Bello',
+    email: 'amina@example.test',
+    role: 'DRIVER',
+    orgName: PREVIEW_ADMIN.orgName,
+    ownerAdminId: PREVIEW_ADMIN.id,
+    zone: 'Ikeja',
+    vehicleType: 'MOTORCYCLE',
+    vehicle: 'Motorcycle',
+    status: 'ACTIVE',
+    isAvailable: true,
+    lat: 6.5988,
+    lng: 3.3597,
+    speed: 0,
+    isTracking: true,
+    locationUpdatedAt: new Date().toISOString(),
+    routeStatus: 'IDLE',
     isPreviewFixture: true
   }
 ];
@@ -330,6 +372,9 @@ async function apiRequest(path, options = {}) {
     }
     if (path === '/api/auth/logout' && response.ok) csrfTokenCache = '';
   } catch (error) {
+    if (path.startsWith('/api/geocode/')) {
+      throw new Error(`Address lookup failed: ${error.message}`);
+    }
     throw new Error(`Could not reach the account API. Check the deployment and network connection. ${error.message}`);
   }
   const contentType = response.headers.get('content-type') || '';
@@ -338,6 +383,9 @@ async function apiRequest(path, options = {}) {
     : {};
   if (!response.ok) {
     if (response.status === 502 || response.status === 504) {
+      if (path.startsWith('/api/geocode/')) {
+        throw new Error(payload.error || 'The address search provider is temporarily unavailable.');
+      }
       throw new Error('The deployment could not reach the account API. Confirm the latest deployment succeeded and check the service logs.');
     }
     throw new Error(payload.error || `Request failed (${response.status}).`);
@@ -541,6 +589,7 @@ const [registerForm, setRegisterForm] = useState(() => ({
   inviteToken: invitationToken,
   zone: '',
   vehicle: '',
+  vehicleType: '',
   phone: ''
 }));
 
@@ -773,7 +822,7 @@ const [authError, setAuthError] = useState('');
   }, [currentUser?.id, currentUser?.role, isPreviewSession]);
 
   useEffect(() => {
-    if (currentUser?.role !== 'ADMIN' || isPreviewSession || !SOCKET_BASE_URL) return undefined;
+    if (!['ADMIN', 'DRIVER'].includes(currentUser?.role) || isPreviewSession || !SOCKET_BASE_URL) return undefined;
     const socket = createSocketClient(SOCKET_BASE_URL, {
       withCredentials: true,
       transports: ['websocket']
@@ -781,12 +830,25 @@ const [authError, setAuthError] = useState('');
     const applyDriverLocation = event => {
       setDispatchMapRiders(previous => applyBusinessRiderLocation(previous, event, currentUser.id));
     };
-    socket.on('driver:location', applyDriverLocation);
+    const refreshStopsForRoute = async event => {
+      if (event?.riderId !== currentUser.id && currentUser.role === 'DRIVER') return;
+      try {
+        const { stops: updatedStops } = await apiRequest('/api/stops');
+        setStops(previous => JSON.stringify(previous) === JSON.stringify(updatedStops)
+          ? previous
+          : updatedStops);
+      } catch (error) {
+        console.error('Could not refresh the route after a live dispatch update:', error);
+      }
+    };
+    if (currentUser.role === 'ADMIN') socket.on('driver:location', applyDriverLocation);
+    socket.on('dispatch:route-updated', refreshStopsForRoute);
     socket.on('connect_error', error => {
       console.warn('Live map updates are unavailable; continuing with periodic location refreshes.', error.message);
     });
     return () => {
       socket.off('driver:location', applyDriverLocation);
+      socket.off('dispatch:route-updated', refreshStopsForRoute);
       socket.disconnect();
     };
   }, [currentUser?.id, currentUser?.role, isPreviewSession]);
@@ -879,6 +941,8 @@ const [authError, setAuthError] = useState('');
   const [clockNow, setClockNow] = useState(() => Date.now());
   const lastLocationSyncRef = useRef(0);
   const watchIdRef = useRef(null);
+  const routeOriginWatchIdRef = useRef(null);
+  const lastRouteOriginGeocodeRef = useRef(0);
   const gpsPositionRef = useRef(null);
   const locationHeartbeatRef = useRef(null);
 
@@ -889,6 +953,9 @@ const [authError, setAuthError] = useState('');
     if (locationHeartbeatRef.current !== null) {
       window.clearInterval(locationHeartbeatRef.current);
     }
+    if (routeOriginWatchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(routeOriginWatchIdRef.current);
+    }
   }, []);
 
   useEffect(() => {
@@ -898,12 +965,18 @@ const [authError, setAuthError] = useState('');
 
   // Modals
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showDeliveryTypePicker, setShowDeliveryTypePicker] = useState(false);
+  const [deliveryBannerVisible, setDeliveryBannerVisible] = useState(true);
   const [showAddStopModal, setShowAddStopModal] = useState(false);
   const [deliveryOfferError, setDeliveryOfferError] = useState('');
   const [creatingDelivery, setCreatingDelivery] = useState(false);
   const [deliveryOffers, setDeliveryOffers] = useState([]);
+  const [assignmentActionError, setAssignmentActionError] = useState('');
+  const [cancellingAssignmentId, setCancellingAssignmentId] = useState('');
   const [dispatchMapRiders, setDispatchMapRiders] = useState([]);
   const [dispatchMapError, setDispatchMapError] = useState('');
+  const [routeSequenceSaving, setRouteSequenceSaving] = useState(false);
+  const [routeSequenceSummary, setRouteSequenceSummary] = useState(null);
   const [deliveryEstimate, setDeliveryEstimate] = useState(null);
   const [deliveryEstimateError, setDeliveryEstimateError] = useState('');
   const estimateRequestKeyRef = useRef('');
@@ -953,6 +1026,7 @@ const [authError, setAuthError] = useState('');
     lat: null,
     lng: null,
     assignedDriverId: '',
+    requiredVehicleType: '',
     priority: 'NORMAL',
     timeWindow: '10:00 - 13:00',
     packages: 1,
@@ -962,15 +1036,44 @@ const [authError, setAuthError] = useState('');
     riderEarningsNgn: '',
     deadlineAt: ''
   });
+  const selectedDeliveryType = DELIVERY_TYPES.find(
+    deliveryType => deliveryType.vehicleType === newStopForm.requiredVehicleType
+  ) || null;
+  const recentDeliveryStops = useMemo(() => {
+    const seenAddresses = new Set();
+    return [...stops]
+      .sort((left, right) => {
+        const leftDate = new Date(left.createdAt || left.createdOn || 0).getTime() || 0;
+        const rightDate = new Date(right.createdAt || right.createdOn || 0).getTime() || 0;
+        return rightDate - leftDate;
+      })
+      .filter(stop => {
+        const address = String(stop.address || '').trim();
+        const key = address.toLowerCase();
+        if (!address || seenAddresses.has(key)) return false;
+        seenAddresses.add(key);
+        return true;
+      })
+      .slice(0, 3);
+  }, [stops]);
   const estimateCoordinatesKey = [
     newStopForm.pickupLat, newStopForm.pickupLng, newStopForm.lat, newStopForm.lng
   ].join(':');
+  const estimateCoordinatesAreValid = [
+    newStopForm.pickupLat, newStopForm.pickupLng, newStopForm.lat, newStopForm.lng
+  ].every(Number.isFinite);
+  const currentDeliveryEstimate = showAddStopModal
+    && currentUser?.role === 'ADMIN'
+    && !isPreviewSession
+    && estimateCoordinatesAreValid
+    && deliveryEstimate?.coordinatesKey === estimateCoordinatesKey
+    ? deliveryEstimate
+    : null;
 
   useEffect(() => {
     if (!showAddStopModal || currentUser?.role !== 'ADMIN' || isPreviewSession
-      || ![newStopForm.pickupLat, newStopForm.pickupLng, newStopForm.lat, newStopForm.lng]
-        .every(Number.isFinite)) {
-      setDeliveryEstimate(null);
+      || !estimateCoordinatesAreValid) {
+      estimateRequestKeyRef.current = '';
       return undefined;
     }
     const requestKey = estimateCoordinatesKey;
@@ -1000,6 +1103,7 @@ const [authError, setAuthError] = useState('');
     };
   }, [
     currentUser?.role,
+    estimateCoordinatesAreValid,
     estimateCoordinatesKey,
     isPreviewSession,
     showAddStopModal,
@@ -1021,6 +1125,7 @@ const [authError, setAuthError] = useState('');
     const saved = localStorage.getItem('lagos_circuit_route_origin_coordinates');
     return saved ? JSON.parse(saved) : {};
   });
+  const [currentLocationPoint, setCurrentLocationPoint] = useState(null);
   const routeOriginLookupRef = useRef(0);
   const routeOriginAddress = currentUser ? routeOrigins[currentUser.id] || '' : '';
   const [customerName, setCustomerName] = useState('');
@@ -1043,13 +1148,17 @@ const [authError, setAuthError] = useState('');
   const generatedInvite = invites.find(invite => invite.id === generatedInviteId) || null;
   const driverSuggestions = useMemo(() => {
     const query = driverNameQuery.trim().toLowerCase();
-    return driversList.filter(driver =>
-      !query ||
-      driver.name.toLowerCase().includes(query) ||
-      driver.email.toLowerCase().includes(query) ||
-      (driver.zone || '').toLowerCase().includes(query)
-    );
-  }, [driversList, driverNameQuery]);
+    return driversList.filter(driver => {
+      const vehicleTypeMatches = !newStopForm.requiredVehicleType
+        || String(driver.vehicleType || driver.vehicle_type || '').toUpperCase() === newStopForm.requiredVehicleType;
+      return vehicleTypeMatches && (
+        !query ||
+        driver.name.toLowerCase().includes(query) ||
+        driver.email.toLowerCase().includes(query) ||
+        (driver.zone || '').toLowerCase().includes(query)
+      );
+    });
+  }, [driversList, driverNameQuery, newStopForm.requiredVehicleType]);
   const nearbyAvailableRiders = useMemo(() => {
     const pickup = Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
       ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
@@ -1072,9 +1181,11 @@ const [authError, setAuthError] = useState('');
         const mapRider = mapRidersById.get(driver.id);
         const current = mapRider ? { ...driver, ...mapRider } : driver;
         const locationTimestamp = new Date(current.locationUpdatedAt || '').getTime();
-        const locationIsFresh = current.isTracking
+        const locationIsFresh = (current.isPreviewFixture || (
+          current.isTracking
           && Number.isFinite(locationTimestamp)
           && clockNow - locationTimestamp < 90_000
+        ))
           && Number.isFinite(current.lat)
           && Number.isFinite(current.lng);
         const hasActiveDelivery = stops.some(stop =>
@@ -1083,12 +1194,15 @@ const [authError, setAuthError] = useState('');
         );
         const zoneMatches = riderDiscoveryZone === 'ALL'
           || String(current.zone || '').trim().toLowerCase() === riderDiscoveryZone.toLowerCase();
+        const vehicleTypeMatches = !newStopForm.requiredVehicleType
+          || String(current.vehicleType || current.vehicle_type || '').toUpperCase() === newStopForm.requiredVehicleType;
         return (current.status === 'ACTIVE' || current.status === undefined)
           && current.isAvailable === true
           && driver.routeStatus === 'IDLE'
           && locationIsFresh
           && !hasActiveDelivery
-          && zoneMatches;
+          && zoneMatches
+          && vehicleTypeMatches;
       })
       .map(driver => {
         const current = mapRidersById.has(driver.id)
@@ -1108,7 +1222,8 @@ const [authError, setAuthError] = useState('');
         : left.distanceKm - right.distanceKm);
   }, [
     clockNow, currentUser?.id, dispatchMapRiders, driversList, newStopForm.pickupLat,
-    newStopForm.pickupLng, riderDiscoveryZone, riderDistanceSort, routeOriginCoordinates, stops
+    newStopForm.pickupLng, newStopForm.requiredVehicleType, riderDiscoveryZone,
+    riderDistanceSort, routeOriginCoordinates, stops
   ]);
 
   // Current Selected Driver Object
@@ -1134,16 +1249,30 @@ const [authError, setAuthError] = useState('');
       && !['DELIVERED', 'FAILED', 'CANCELLED'].includes(stop.dispatchStatus))
       || stops.find(stop => stop.assignedDriverId === activeDriverId
         && !['DELIVERED', 'FAILED', 'CANCELLED'].includes(stop.dispatchStatus));
+  const activeChatDriver = activeChatStop?.assignedDriverId
+    ? users.find(user => user.id === activeChatStop.assignedDriverId)
+    : null;
+  const activeChatBusiness = activeChatStop?.ownerAdminId
+    ? users.find(user => user.id === activeChatStop.ownerAdminId)
+    : null;
 
   // Filtered Stops for Active Driver
   const activeDriverStops = useMemo(() => {
     const targetDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
     let base = stops.filter(s => s.assignedDriverId === targetDriverId);
-    if (!searchQuery) return base;
-    return base.filter(s =>
+    if (searchQuery) {
+      base = base.filter(s =>
       s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.address.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+      );
+    }
+    return base.map((stop, index) => ({ stop, index }))
+      .sort((left, right) =>
+        (left.stop.routeOrder ?? left.stop.routeSequence ?? Number.MAX_SAFE_INTEGER)
+          - (right.stop.routeOrder ?? right.stop.routeSequence ?? Number.MAX_SAFE_INTEGER)
+        || left.index - right.index
+      )
+      .map(entry => entry.stop);
   }, [stops, currentUser, activeDriverId, searchQuery]);
   const mapStop = stops.find(stop => stop.id === selectedStopId)
     || activeDriverStops.find(stop => stop.id === selectedStopId)
@@ -1166,22 +1295,29 @@ const [authError, setAuthError] = useState('');
   const mapCenterStops = selectedStopId && mapStopHasCoordinates
     ? [mapStop]
     : mapRouteStops.filter(stop => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
-  const mapCenter = mapCenterStops.length > 0
-    ? (showAddStopModal || showCandidateMap)
-      && Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
-      ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
-      : {
+  const mapCenter = (showAddStopModal || showCandidateMap)
+    && Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
+    ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
+    : currentLocationPoint
+      ? currentLocationPoint
+      : mapDriverIsLive && mapDriverHasCoordinates
+        ? { lat: mapDriver.lat, lng: mapDriver.lng }
+        : mapCenterStops.length > 0
+        ? {
       lat: mapCenterStops.reduce((total, stop) => total + stop.lat, 0) / mapCenterStops.length,
       lng: mapCenterStops.reduce((total, stop) => total + stop.lng, 0) / mapCenterStops.length
     }
-    : (showAddStopModal || showCandidateMap)
-      && Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
-      ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
-      : mapDriverIsLive && mapDriverHasCoordinates
-      ? { lat: mapDriver.lat, lng: mapDriver.lng }
-      : selectedMapRider && Number.isFinite(selectedMapRider.lat) && Number.isFinite(selectedMapRider.lng)
-        ? { lat: selectedMapRider.lat, lng: selectedMapRider.lng }
-      : { lat: startDepot.lat, lng: startDepot.lng };
+          : selectedMapRider && Number.isFinite(selectedMapRider.lat) && Number.isFinite(selectedMapRider.lng)
+            ? { lat: selectedMapRider.lat, lng: selectedMapRider.lng }
+            : { lat: startDepot.lat, lng: startDepot.lng };
+  const selectDriverToTrack = driverId => {
+    if (routeOriginWatchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(routeOriginWatchIdRef.current);
+      routeOriginWatchIdRef.current = null;
+    }
+    setCurrentLocationPoint(null);
+    setActiveDriverId(driverId);
+  };
   const openStreetMapUrl = mapStop && !mapStopHasCoordinates
     ? openStreetMapSearchUrl(mapStop.address)
     : openStreetMapLocationUrl(mapCenter);
@@ -1244,6 +1380,10 @@ const [authError, setAuthError] = useState('');
           || driver.assigned === true)))
     );
   const focusedLiveDriver = dashboardMappedDrivers.find(driver => driver.id === activeDriverId);
+  const focusedDriverIsLive = Boolean(
+    focusedLiveDriver?.isTracking
+    && clockNow - new Date(focusedLiveDriver.locationUpdatedAt).getTime() < 90_000
+  );
   const freshMapDrivers = dashboardMappedDrivers.filter(driver =>
     driver.isTracking && clockNow - new Date(driver.locationUpdatedAt).getTime() < 90_000
   );
@@ -1356,6 +1496,7 @@ const [authError, setAuthError] = useState('');
           inviteToken: registerForm.inviteToken,
           zone: registerForm.zone,
           vehicle: registerForm.vehicle,
+          vehicleType: registerForm.vehicleType,
           phone: registerForm.phone
         };
       const { user } = await apiRequest(endpoint, {
@@ -1480,6 +1621,7 @@ const [authError, setAuthError] = useState('');
 
   const activeSupportThread = supportThreads.find(thread => thread.id === supportThreadId) || supportThreads[0] || null;
   const unreadDispatchNotificationCount = dispatchNotifications.filter(notification => !notification.read_at).length;
+  const hasMapRefreshWarning = currentUser?.role === 'ADMIN' && Boolean(dispatchMapError);
 
   const profileMenu = currentUser && (
     <div className="relative flex items-center space-x-2" ref={profileMenuRef}>
@@ -1488,18 +1630,19 @@ const [authError, setAuthError] = useState('');
         onClick={() => setProfileMenuOpen(open => !open)}
         aria-haspopup="menu"
         aria-expanded={profileMenuOpen}
-        aria-label={hasPendingDriverRoute || unreadDispatchNotificationCount
-          ? `Open menu, ${unreadDispatchNotificationCount} unread dispatch notifications`
+        aria-label={hasPendingDriverRoute || unreadDispatchNotificationCount || hasMapRefreshWarning
+          ? `Open menu, ${unreadDispatchNotificationCount} unread dispatch notifications${hasMapRefreshWarning ? ', map refresh warning' : ''}`
           : 'Open menu'}
         title={unreadDispatchNotificationCount
           ? `${unreadDispatchNotificationCount} unread dispatch notifications`
+          : hasMapRefreshWarning ? 'Map refresh warning'
           : hasPendingDriverRoute ? 'New route awaiting acceptance' : 'Menu'}
         className="profile-menu-trigger relative ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-violet-200 bg-white text-violet-900 shadow-sm transition-colors hover:bg-violet-50"
       >
         <span className="profile-menu-initials" aria-hidden="true">
           {String(currentUser.name || 'Admin').split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
         </span>
-        {(hasPendingDriverRoute || unreadDispatchNotificationCount > 0) && (
+        {(hasPendingDriverRoute || unreadDispatchNotificationCount > 0 || hasMapRefreshWarning) && (
           <span className="profile-menu-notification-dot" aria-hidden="true" />
         )}
       </button>
@@ -1536,6 +1679,17 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               >
                 Accept route
               </button>
+            </div>
+          )}
+          {hasMapRefreshWarning && (
+            <div className="profile-menu-route-notice" role="status" aria-live="polite">
+              <span className="flex items-start gap-2">
+                <BellRing className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  <span className="block font-extrabold">Rider locations are delayed</span>
+                  <span className="mt-0.5 block text-[10px]">Showing the last known positions until refresh succeeds.</span>
+                </span>
+              </span>
             </div>
           )}
           <button
@@ -1799,6 +1953,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     setDeliveryOfferError('');
     setNewStopForm(prev => ({
       ...prev,
+      requiredVehicleType: '',
       assignedDriverId,
       pickupAddress,
       pickupLat: pickupCoordinates.lat,
@@ -1806,12 +1961,30 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     }));
     setDriverNameQuery(assignedDriver?.name || '');
     setIsDriverSuggestionOpen(false);
+    setShowAddStopModal(false);
+    setShowDeliveryTypePicker(true);
+  };
+
+  const selectDeliveryType = vehicleType => {
+    setNewStopForm(previous => ({ ...previous, requiredVehicleType: vehicleType }));
+    setDeliveryOfferError('');
+    setShowDeliveryTypePicker(false);
     setShowAddStopModal(true);
   };
 
   const requestRidersForStop = async (stop, riderId = '') => {
     if (isPreviewSession || IS_GITHUB_PAGES_DEMO) {
-      window.alert('Sending rider offers requires the connected dispatch service.');
+      const sampleRiders = driversList.filter(driver =>
+        driver.isPreviewFixture && driver.isAvailable && driver.routeStatus === 'IDLE'
+        && (!riderId || driver.id === riderId)
+      );
+      setDeliverySearchFeedback({
+        stopId: stop.id,
+        state: sampleRiders.length > 0 ? 'offered' : 'empty',
+        message: sampleRiders.length > 0
+          ? `Preview only: simulated an offer to ${sampleRiders.map(driver => driver.name).join(', ')}. No real driver was contacted.`
+          : 'No sample riders are available for this preview search.'
+      });
       return;
     }
     setDeliverySearchFeedback({ stopId: stop.id, state: 'searching', message: `Searching for available drivers near ${stop.pickupAddress || 'the pickup'}…` });
@@ -1833,9 +2006,40 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     }
   };
 
+  const cancelDriverAssignment = async stop => {
+    const assignedDriver = users.find(user => user.id === stop.assignedDriverId);
+    const driverName = assignedDriver?.name || 'this rider';
+    if (!window.confirm(`Remove ${driverName} from this delivery? The delivery will stay open so you can find another rider.`)) return;
+    setCancellingAssignmentId(stop.id);
+    setAssignmentActionError('');
+    try {
+      const result = await apiRequest(`/api/stops/${encodeURIComponent(stop.id)}/assignment/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      const refreshed = await apiRequest('/api/stops');
+      setStops(refreshed.stops);
+      if (result.routeSequenceWarning) setAssignmentActionError(result.routeSequenceWarning);
+      setDeliverySearchFeedback({
+        stopId: stop.id,
+        state: 'empty',
+        message: `${driverName} was removed. The delivery is still open; find another rider when ready.`
+      });
+    } catch (error) {
+      console.error('Could not remove the assigned rider:', error);
+      setAssignmentActionError(error.message);
+    } finally {
+      setCancellingAssignmentId('');
+    }
+  };
+
   const createDeliveryStop = async findRider => {
     const address = newStopForm.address.trim();
     const pickupAddress = newStopForm.pickupAddress.trim();
+    if (!newStopForm.requiredVehicleType) {
+      setDeliveryOfferError('Choose a delivery type before creating this stop.');
+      return;
+    }
     if (!address || !pickupAddress) {
       setDeliveryOfferError('Enter both pickup and delivery addresses.');
       return;
@@ -1847,8 +2051,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       setDeliveryOfferError('Select both pickup and delivery addresses from the map suggestions to send accurate rider offers.');
       return;
     }
-    if (findRider && (!deliveryEstimate?.quoteToken
-      || deliveryEstimate.coordinatesKey !== estimateCoordinatesKey)) {
+    if (findRider && !isPreviewSession && !currentDeliveryEstimate?.quoteToken) {
       setDeliveryOfferError(deliveryEstimateError
         || 'Wait for a current delivery price estimate before confirming this delivery.');
       return;
@@ -1886,6 +2089,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       address,
       lat: newStopForm.lat,
       lng: newStopForm.lng,
+      requiredVehicleType: newStopForm.requiredVehicleType,
       priority: newStopForm.priority,
       timeWindow: newStopForm.timeWindow,
       packages: Math.max(1, Math.floor(Number(newStopForm.packages) || 1)),
@@ -1896,13 +2100,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       deliveryDeadlineAt,
       status: 'PENDING',
       assignedDriverId: findRider ? '' : newStopForm.assignedDriverId,
-      ...(findRider ? {
-        pricingQuoteToken: deliveryEstimate.quoteToken,
-        estimatedPriceNgn: deliveryEstimate.estimate.amount,
-        pricingCurrency: deliveryEstimate.estimate.currency,
-        pricingRuleVersion: deliveryEstimate.estimate.ruleVersion,
-        routeDistanceKm: deliveryEstimate.route.distanceKm,
-        routeDurationMinutes: deliveryEstimate.route.durationMinutes
+      ...(findRider && currentDeliveryEstimate ? {
+        pricingQuoteToken: currentDeliveryEstimate.quoteToken,
+        estimatedPriceNgn: currentDeliveryEstimate.estimate.amount,
+        pricingCurrency: currentDeliveryEstimate.estimate.currency,
+        pricingRuleVersion: currentDeliveryEstimate.estimate.ruleVersion,
+        routeDistanceKm: currentDeliveryEstimate.route.distanceKm,
+        routeDurationMinutes: currentDeliveryEstimate.route.durationMinutes
       } : {})
     };
     if (!findRider && !stopPayload.assignedDriverId) {
@@ -1920,6 +2124,18 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     try {
       if (isPreviewSession) {
         setStops(previous => [...previous, stopPayload]);
+        if (findRider) {
+          const sampleRiders = nearbyAvailableRiders.filter(rider =>
+            !newStopForm.assignedDriverId || rider.id === newStopForm.assignedDriverId
+          );
+          setDeliverySearchFeedback({
+            stopId: stopPayload.id,
+            state: sampleRiders.length > 0 ? 'offered' : 'empty',
+            message: sampleRiders.length > 0
+              ? `Preview only: simulated an offer to ${sampleRiders.map(rider => rider.name).join(', ')}. No real driver was contacted.`
+              : 'Delivery saved in this browser, but no sample riders were eligible.'
+          });
+        }
         setShowAddStopModal(false);
         return;
       }
@@ -1957,6 +2173,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         lat: null,
         lng: null,
         assignedDriverId: activeDriverId,
+        requiredVehicleType: '',
         priority: 'NORMAL',
         timeWindow: '10:00 - 13:00',
         packages: 1,
@@ -1988,6 +2205,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           lat: null,
           lng: null,
           assignedDriverId: activeDriverId,
+          requiredVehicleType: '',
           packageDescription: '',
           packageWeightKg: '',
           packageSize: '',
@@ -2029,6 +2247,9 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         ));
         setCurrentUser(result.rider);
         setActiveDriverId(result.rider.id);
+        if (result.routeSequenceWarning) {
+          setDeliveryOfferError(`Delivery accepted. ${result.routeSequenceWarning}`);
+        }
         setDeliverySearchFeedback({
           stopId: acceptedStops[0].id,
           state: 'accepted',
@@ -2116,69 +2337,61 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   };
 
   // --- "CLOSEST TO FARTHEST" ROUTE OPTIMIZATION ENGINE ---
-  const getRouteStartPoint = () => {
-    const savedCoordinates = currentUser ? routeOriginCoordinates[currentUser.id] : null;
-    if (savedCoordinates && Number.isFinite(savedCoordinates.lat) && Number.isFinite(savedCoordinates.lng)) {
-      return savedCoordinates;
-    }
-
-    const coordinates = routeOriginAddress.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
-    if (coordinates) {
-      return { lat: Number(coordinates[1]), lng: Number(coordinates[2]) };
-    }
-
+  const optimizeClosestToFarthest = async () => {
     const targetDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
-    const driverObj = users.find(u => u.id === targetDriverId);
-    if (currentUser?.role === 'DRIVER' && isGpsActive) return gpsPos;
-    if (driverObj && Number.isFinite(driverObj.lat) && Number.isFinite(driverObj.lng)) {
-      return { lat: driverObj.lat, lng: driverObj.lng };
-    }
-    return { lat: startDepot.lat, lng: startDepot.lng };
-  };
-
-  const optimizeClosestToFarthest = () => {
-    const targetDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
-    const driverStops = stops.filter(s => s.assignedDriverId === targetDriverId);
-    if (driverStops.length < 2) return;
-    const startPoint = getRouteStartPoint();
-
-    const orderedStops = [...driverStops].sort((a, b) => {
-      const aHasCoordinates = Number.isFinite(a.lat) && Number.isFinite(a.lng);
-      const bHasCoordinates = Number.isFinite(b.lat) && Number.isFinite(b.lng);
-      if (aHasCoordinates !== bHasCoordinates) return aHasCoordinates ? -1 : 1;
-      if (!aHasCoordinates) return 0;
-      return calcHaversineDistance(startPoint.lat, startPoint.lng, a.lat, a.lng)
-        - calcHaversineDistance(startPoint.lat, startPoint.lng, b.lat, b.lng);
-    });
-
-    setStops(prevStops => {
-      const driverStopIndices = prevStops
-        .map((stop, index) => stop.assignedDriverId === targetDriverId ? index : -1)
-        .filter(index => index !== -1);
-      const nextStops = [...prevStops];
-      driverStopIndices.forEach((index, orderIndex) => {
-        nextStops[index] = orderedStops[orderIndex];
+    if (!targetDriverId || routeSequenceSaving || isPreviewSession) return;
+    setRouteSequenceSaving(true);
+    setRouteSequenceSummary(null);
+    setDeliveryOfferError('');
+    try {
+      const result = await apiRequest(
+        `/api/stops/route-sequence/${encodeURIComponent(targetDriverId)}`,
+        { method: 'POST', body: JSON.stringify({}) }
+      );
+      const orderedStops = Array.isArray(result.stops) ? result.stops : [];
+      const updatesById = new Map(orderedStops.map(stop => [stop.id, stop]));
+      setStops(previous => previous.map(stop =>
+        updatesById.has(stop.id) ? { ...stop, ...updatesById.get(stop.id) } : stop
+      ));
+      setRouteSequenceSummary({
+        planId: result.routePlanId,
+        distanceKm: result.totalDistanceKm,
+        durationMinutes: result.totalDurationMinutes,
+        updatedAt: result.updatedAt
       });
-      return nextStops;
-    });
-    setShowStopDistances(true);
-    focusStopOnMap(orderedStops[0]);
+      setShowStopDistances(true);
+      if (orderedStops[0]) focusStopOnMap(orderedStops[0]);
+    } catch (error) {
+      console.error('Could not calculate the road-based closest-to-farthest route:', error);
+      setDeliveryOfferError(`Closest-to-farthest route was not changed: ${error.message}`);
+    } finally {
+      setRouteSequenceSaving(false);
+    }
   };
 
   const moveStop = (stopId, direction) => {
     const targetDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
     setStops(prevStops => {
-      const driverStopIndices = prevStops
-        .map((stop, index) => stop.assignedDriverId === targetDriverId ? index : -1)
-        .filter(index => index !== -1);
-      const currentIndex = driverStopIndices.findIndex(index => prevStops[index].id === stopId);
+      const driverStops = prevStops
+        .filter(stop => stop.assignedDriverId === targetDriverId)
+        .map((stop, index) => ({ stop, index }))
+        .sort((left, right) =>
+          (left.stop.routeOrder ?? left.stop.routeSequence ?? Number.MAX_SAFE_INTEGER)
+            - (right.stop.routeOrder ?? right.stop.routeSequence ?? Number.MAX_SAFE_INTEGER)
+          || left.index - right.index
+        );
+      const currentIndex = driverStops.findIndex(entry => entry.stop.id === stopId);
       const nextIndex = currentIndex + direction;
-      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= driverStopIndices.length) return prevStops;
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= driverStops.length) return prevStops;
 
       const nextStops = [...prevStops];
+      const driverStopIndices = driverStops.map(entry => entry.index);
       const currentStopIndex = driverStopIndices[currentIndex];
       const nextStopIndex = driverStopIndices[nextIndex];
       [nextStops[currentStopIndex], nextStops[nextStopIndex]] = [nextStops[nextStopIndex], nextStops[currentStopIndex]];
+      driverStopIndices.forEach((stopIndex, orderIndex) => {
+        nextStops[stopIndex] = { ...nextStops[stopIndex], routeOrder: orderIndex + 1 };
+      });
       return nextStops;
     });
   };
@@ -2245,6 +2458,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           lat: position.lat,
           lng: position.lng,
           speed: position.speed,
+          heading: position.heading,
           isTracking: true
         };
         const locationUpdatedAt = new Date().toISOString();
@@ -2267,11 +2481,12 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       };
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
-          const { latitude, longitude, speed } = pos.coords;
+          const { latitude, longitude, speed, heading } = pos.coords;
           const position = {
             lat: latitude,
             lng: longitude,
-            speed: speed === null ? 0 : Math.min(300, Math.max(0, Math.round(speed * 3.6)))
+            speed: speed === null ? 0 : Math.min(300, Math.max(0, Math.round(speed * 3.6))),
+            heading: Number.isFinite(heading) && heading >= 0 && heading < 360 ? heading : null
           };
           gpsPositionRef.current = position;
           if (Date.now() - lastLocationSyncRef.current >= 5000) {
@@ -2359,6 +2574,11 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   const updateRouteOriginAddress = (address) => {
     if (!currentUser) return;
     routeOriginLookupRef.current += 1;
+    if (routeOriginWatchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(routeOriginWatchIdRef.current);
+      routeOriginWatchIdRef.current = null;
+    }
+    setCurrentLocationPoint(null);
     setRouteOrigins(prev => ({ ...prev, [currentUser.id]: address }));
     setRouteOriginCoordinates(prev => {
       if (!prev[currentUser.id]) return prev;
@@ -2374,47 +2594,70 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      async ({ coords }) => {
-        if (!currentUser) return;
-        const lookupId = ++routeOriginLookupRef.current;
-        const userId = currentUser.id;
-        const location = { lat: coords.latitude, lng: coords.longitude };
-        const fallbackAddress = `${location.lat},${location.lng}`;
-        setRouteOrigins(prev => ({ ...prev, [userId]: fallbackAddress }));
+    if (routeOriginWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(routeOriginWatchIdRef.current);
+    }
+    lastRouteOriginGeocodeRef.current = 0;
+    const userId = currentUser?.id;
+    if (!userId) return;
+    let hasReceivedPosition = false;
+    let hasResolvedAddress = false;
+
+    routeOriginWatchIdRef.current = navigator.geolocation.watchPosition(
+      position => {
+        hasReceivedPosition = true;
+        const location = { lat: position.coords.latitude, lng: position.coords.longitude };
         setRouteOriginCoordinates(prev => ({ ...prev, [userId]: location }));
+        setCurrentLocationPoint(location);
 
-        try {
-          const params = new URLSearchParams({ lat: String(location.lat), lon: String(location.lng) });
-          const data = await apiRequest(`/api/geocode/reverse?${params}`);
-          const properties = data.features?.[0]?.properties;
-          if (!properties) throw new Error('No address was found for the current coordinates.');
+        const now = Date.now();
+        if (now - lastRouteOriginGeocodeRef.current < 30_000) return;
+        lastRouteOriginGeocodeRef.current = now;
+        if (isPreviewSession) {
+          setRouteOrigins(prev => ({ ...prev, [userId]: 'Current location (preview)' }));
+          return;
+        }
+        const lookupId = ++routeOriginLookupRef.current;
+        if (!hasResolvedAddress) {
+          setRouteOrigins(prev => ({ ...prev, [userId]: 'Finding address...' }));
+        }
 
-          const address = [
-            properties.name,
-            properties.housenumber,
-            properties.street,
-            properties.district,
-            properties.city,
-            properties.county,
-            properties.state,
-            properties.country
-          ].filter((part, index, parts) => part && parts.indexOf(part) === index).join(', ');
-          if (!address) throw new Error('The address lookup returned no readable address.');
-          if (routeOriginLookupRef.current === lookupId) {
-            setRouteOrigins(prev => ({ ...prev, [userId]: address }));
-          }
-        } catch (error) {
-          if (routeOriginLookupRef.current !== lookupId) return;
-          console.error('Unable to find an address for the current location:', error);
-          alert('Your current location was found, but its street address could not be looked up. Coordinates are shown instead.');
+        const params = new URLSearchParams({ lat: String(location.lat), lon: String(location.lng) });
+        apiRequest(`/api/geocode/reverse?${params}`)
+          .then(data => {
+            const properties = data.features?.[0]?.properties;
+            if (!properties) throw new Error('No address was found for the current coordinates.');
+            const address = [
+              properties.name,
+              properties.housenumber,
+              properties.street,
+              properties.district,
+              properties.city,
+              properties.county,
+              properties.state,
+              properties.country
+            ].filter((part, index, parts) => part && parts.indexOf(part) === index).join(', ');
+            if (!address) throw new Error('The address lookup returned no readable address.');
+            if (routeOriginLookupRef.current === lookupId) {
+              hasResolvedAddress = true;
+              setRouteOrigins(prev => ({ ...prev, [userId]: address }));
+            }
+          })
+          .catch(error => {
+            if (routeOriginLookupRef.current !== lookupId) return;
+            console.error('Unable to find an address for the current location:', error);
+            if (!hasResolvedAddress) {
+              setRouteOrigins(prev => ({ ...prev, [userId]: 'Current location (address unavailable)' }));
+            }
+          });
+      },
+      error => {
+        console.error('Unable to follow current location:', error);
+        if (!hasReceivedPosition) {
+          alert('Could not get your current location. Allow location access or enter coordinates.');
         }
       },
-      (error) => {
-        console.error('Unable to get starting location:', error);
-        alert('Could not get your current location. Allow location access or enter coordinates.');
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
     );
   };
 
@@ -2562,7 +2805,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           setDriverRouteStatus(currentUser.id, 'IDLE', 0);
         }
       } else {
-        const { stop: completedStop, user: completedDriver } = await apiRequest(
+        const { stop: completedStop, user: completedDriver, routeSequenceWarning } = await apiRequest(
           `/api/stops/${encodeURIComponent(podStop.id)}/proof`,
           {
             method: 'POST',
@@ -2577,6 +2820,9 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         setStops(previous => previous.map(stop =>
           stop.id === completedStop.id ? { ...stop, ...completedStop } : stop
         ));
+        if (routeSequenceWarning) {
+          setDeliveryOfferError(`Delivery completed. ${routeSequenceWarning}`);
+        }
         if (completedDriver) {
           setUsers(previous => previous.map(user =>
             user.id === completedDriver.id ? completedDriver : user
@@ -3126,6 +3372,33 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   <p className="rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-900">
                     Complete your driver profile. An email tied to this link is locked; otherwise enter the email you use for your account.
                   </p>
+                  <fieldset>
+                    <legend className="mb-1.5 block text-[10px] font-semibold text-slate-400">Vehicle type</legend>
+                    <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Vehicle type">
+                      {[
+                        { value: 'CAR', label: 'Car', icon: CarFront },
+                        { value: 'MOTORCYCLE', label: 'Motorcycle', icon: Motorbike },
+                        { value: 'BICYCLE', label: 'Bicycle', icon: Bike }
+                      ].map(({ value, label, icon: VehicleIcon }) => {
+                        const selected = registerForm.vehicleType === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            onClick={() => setRegisterForm(previous => ({ ...previous, vehicleType: value }))}
+                            className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border px-1.5 py-2 text-[9px] font-bold transition-colors ${selected
+                              ? 'border-emerald-500 bg-emerald-500/15 text-emerald-800 ring-1 ring-emerald-500'
+                              : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-500'}`}
+                          >
+                            <VehicleIcon className="h-5 w-5" aria-hidden="true" />
+                            <span>{label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       type="text"
@@ -3244,11 +3517,25 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             )}
 
             <button
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              type="button"
+              aria-label={currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES'
+                ? mobileSidebarOpen ? 'Close admin menu' : 'Open admin menu'
+                : sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES'
+                ? mobileSidebarOpen
+                : undefined}
+              onClick={() => {
+                if (currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES') {
+                  setMobileSidebarOpen(open => !open);
+                } else {
+                  setSidebarCollapsed(!sidebarCollapsed);
+                }
+              }}
               className="p-1.5 rounded-lg border bg-slate-800 border-slate-700 text-slate-300 hover:text-white"
             >
-              {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+              {currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES'
+                ? mobileSidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />
+                : sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
           </div>
 
@@ -3718,21 +4005,32 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
                 <button
                   onClick={optimizeClosestToFarthest}
-                  disabled={stops.filter(stop =>
+                  disabled={routeSequenceSaving || isPreviewSession || stops.filter(stop =>
                     stop.assignedDriverId === (currentUser.role === 'DRIVER' ? currentUser.id : activeDriverId)
+                    && !['DELIVERED', 'FAILED', 'CANCELLED'].includes(stop.dispatchStatus)
                   ).length < 2}
                   className="py-2.5 px-2 bg-amber-500 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-1 transition-all"
                 >
                   <ArrowDownUp className="w-4 h-4 stroke-[3]" />
-                  <span>Sort Closest to Farthest</span>
+                  <span>{routeSequenceSaving ? 'Calculating road route...' : 'Closest to Farthest'}</span>
                 </button>
               </div>
               <p className="text-[9px] text-slate-500">
-                Sort two or more stops to show each stop’s approximate straight-line distance from your starting location.
+                Uses the rider’s latest GPS fix and Valhalla road distance. The saved sequence is shared with the rider and your business dashboard.
               </p>
+              {routeSequenceSummary && (
+                <p role="status" className="text-[9px] font-semibold text-emerald-700">
+                  Road route saved: {routeSequenceSummary.distanceKm.toFixed(1)} km · about {routeSequenceSummary.durationMinutes} min.
+                </p>
+              )}
+              {deliveryOfferError && (
+                <p role="alert" className="rounded-lg border border-rose-300 bg-rose-50 px-2.5 py-2 text-[9px] font-semibold text-rose-800">
+                  {deliveryOfferError}
+                </p>
+              )}
 
               <div className="space-y-1.5">
-                <label className="block text-[10px] font-semibold text-slate-400">Starting location</label>
+                <label className="block text-[10px] font-semibold text-slate-400">OpenStreetMap navigation origin</label>
                 <div className="flex items-center space-x-1.5">
                   <input
                     type="text"
@@ -3749,7 +4047,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     Use current location
                   </button>
                 </div>
-                <p className="text-[9px] text-slate-500">Leave blank to use the driver’s saved location.</p>
+                <p className="text-[9px] text-slate-500">Closest-to-farthest always uses the rider’s latest shared GPS location.</p>
               </div>
 
               <button
@@ -3786,20 +4084,104 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             </div>
             )}
 
-            <DeliveryChatPanel
-              deliveryId={activeChatStop?.id}
-              currentUserId={currentUser.id}
-              request={apiRequest}
-            />
+            {activeChatStop && (
+              <div className="space-y-2 border-b border-slate-800 pb-3">
+                <div className="flex items-center justify-between gap-3 px-1">
+                  <div className="min-w-0">
+                    <p className="text-[9px] font-extrabold uppercase tracking-wide text-emerald-300">
+                      {currentUser.role === 'ADMIN' ? 'Rider assigned' : 'Business contact'}
+                    </p>
+                    <p className="truncate text-xs font-bold text-slate-100">
+                      {currentUser.role === 'ADMIN'
+                        ? activeChatDriver?.name || 'Assigned rider'
+                        : activeChatBusiness?.orgName || activeChatBusiness?.name || activeChatStop.orgName || 'Your business'}
+                    </p>
+                    <p className="truncate text-[9px] text-slate-400">
+                      {currentUser.role === 'ADMIN'
+                        ? [activeChatDriver?.vehicle, activeChatDriver?.phone].filter(Boolean).join(' · ') || activeChatStop.dispatchStatus?.replaceAll('_', ' ')
+                        : activeChatStop.dispatchStatus?.replaceAll('_', ' ')}
+                    </p>
+                  </div>
+                  {currentUser.role === 'ADMIN' && (
+                    <button
+                      type="button"
+                      disabled={isPreviewSession || cancellingAssignmentId === activeChatStop.id}
+                      onClick={() => cancelDriverAssignment(activeChatStop)}
+                      title={isPreviewSession ? 'Assignment actions are disabled in preview mode.' : 'Release this rider and keep the delivery open.'}
+                      className="shrink-0 rounded-lg border border-rose-400/40 px-2.5 py-2 text-[9px] font-bold text-rose-200 hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {cancellingAssignmentId === activeChatStop.id ? 'Removing…' : 'Cancel rider'}
+                    </button>
+                  )}
+                </div>
+                {currentUser.role === 'ADMIN' && activeChatDriver?.phone && (
+                  <a
+                    href={`tel:${activeChatDriver.phone}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-[10px] font-extrabold text-slate-950 hover:bg-emerald-400"
+                  >
+                    <Phone className="h-3.5 w-3.5" /> Call rider
+                  </a>
+                )}
+                {assignmentActionError && <p role="alert" className="text-[9px] font-semibold text-rose-300">{assignmentActionError}</p>}
+                {isPreviewSession ? (
+                  <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
+                    <p className="text-[10px] font-bold text-slate-200">Chat and voice call preview</p>
+                    <p className="mt-1 text-[9px] leading-relaxed text-slate-400">
+                      Messaging and calls activate for authenticated deliveries in the connected dispatch service.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" disabled className="rounded-lg bg-slate-700 px-3 py-2 text-[9px] font-bold text-slate-400">Message</button>
+                      <button type="button" disabled className="rounded-lg bg-slate-700 px-3 py-2 text-[9px] font-bold text-slate-400">Voice call</button>
+                    </div>
+                  </div>
+                ) : (
+                  <DeliveryChatPanel
+                    key={activeChatStop.id}
+                    deliveryId={activeChatStop.id}
+                    currentUserId={currentUser.id}
+                    request={apiRequest}
+                    autoOpen
+                    conversationTitle={currentUser.role === 'ADMIN'
+                      ? `Chat with ${activeChatDriver?.name || 'rider'}`
+                      : `Chat with ${activeChatBusiness?.orgName || activeChatBusiness?.name || 'business'}`}
+                  />
+                )}
+              </div>
+            )}
 
             {/* STOP LIST */}
             <div className="admin-stop-list space-y-2">
               <div className="flex items-center justify-between text-xs text-slate-400 px-1 font-semibold">
                 <span>Stops ({activeDriverStops.length})</span>
                 {currentUser.role === 'ADMIN' && (
-                  <span className="text-[10px] text-amber-400">Use arrows to reorder</span>
+                  <span className="text-[10px] text-amber-400">
+                    {activeDriverStops.some(stop => Number.isInteger(stop.routeSequence))
+                      ? 'Calculated road sequence'
+                      : 'Use arrows to reorder'}
+                  </span>
                 )}
               </div>
+              {activeDriverStops.some(stop => stop.routeSequenceStatus === 'READY') && (
+                <p className="rounded-lg border border-sky-700/40 bg-sky-950/30 px-2.5 py-2 text-[9px] leading-relaxed text-sky-100">
+                  Start → {activeDriverStops
+                    .filter(stop => Number.isInteger(stop.routeSequence))
+                    .map(stop => `Stop ${stop.routeSequence}`)
+                    .join(' → ')}
+                  {(() => {
+                    const first = activeDriverStops.find(stop => stop.routeSequenceStatus === 'READY');
+                    const totalKm = activeDriverStops.reduce((sum, stop) => sum + (stop.routeDistanceKm || 0), 0);
+                    const totalMinutes = activeDriverStops.reduce((sum, stop) => sum + (stop.routeDurationMinutes || 0), 0);
+                    return first
+                      ? ` · ${totalKm.toFixed(1)} km · about ${totalMinutes} min`
+                      : '';
+                  })()}
+                </p>
+              )}
+              {activeDriverStops.some(stop => stop.routeSequenceStatus === 'UNAVAILABLE') && (
+                <p role="status" className="rounded-lg border border-amber-700/40 bg-amber-950/30 px-2.5 py-2 text-[9px] text-amber-100">
+                  Road sequence needs recalculation: {activeDriverStops.find(stop => stop.routeSequenceStatus === 'UNAVAILABLE')?.routeSequenceError || 'routing or fresh GPS is unavailable.'}
+                </p>
+              )}
 
               {activeDriverStops.length === 0 ? (
                 <div className="p-4 text-center border border-dashed border-slate-800 rounded-xl space-y-2">
@@ -3817,10 +4199,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               ) : (
                 activeDriverStops.map((stop, idx) => {
                   const isSelected = selectedStopId === stop.id;
-                  const routeStartPoint = getRouteStartPoint();
-                  const stopDistance = Number.isFinite(stop.lat) && Number.isFinite(stop.lng)
-                    ? calcHaversineDistance(routeStartPoint.lat, routeStartPoint.lng, stop.lat, stop.lng)
-                    : null;
+                  const stopNumber = stop.routeSequence ?? idx + 1;
+                  const stopDistance = Number.isFinite(stop.routeDistanceKm) ? stop.routeDistanceKm : null;
 
                   return (
                     <div
@@ -3834,11 +4214,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     >
                       <div className="flex items-start space-x-2.5">
                         <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] font-mono mt-0.5 shrink-0 ${
-                          stop.status === 'DELIVERED'
+                          ['DELIVERED', 'COMPLETED'].includes(String(stop.dispatchStatus || stop.status).toUpperCase())
                             ? 'bg-emerald-500 text-slate-950'
                             : 'bg-blue-600 text-white'
                         }`}>
-                          {idx + 1}
+                          {stopNumber}
+                          {['DELIVERED', 'COMPLETED'].includes(String(stop.dispatchStatus || stop.status).toUpperCase())
+                            && <Check className="ml-0.5 h-3 w-3" aria-label="Delivered" />}
                         </div>
 
                         <div className="flex-1 min-w-0">
@@ -3898,11 +4280,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                               <span>{stop.receiverPhone}</span>
                             </a>
                           )}
-                          {showStopDistances && (
+                          {(showStopDistances || Number.isInteger(stop.routeSequence)) && (
                             <p className="mt-1 text-[10px] font-semibold text-emerald-300">
                               {stopDistance === null
-                                ? 'Select an address suggestion to calculate distance'
-                                : `~${stopDistance.toFixed(1)} km from start`}
+                                ? stop.routeSequenceStatus === 'UNAVAILABLE'
+                                  ? 'Road distance unavailable'
+                                  : 'Road distance not calculated'
+                                : `${stop.routeDurationMinutes} min · ${stopDistance.toFixed(1)} km from previous route point`}
                             </p>
                           )}
 
@@ -3928,6 +4312,12 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                                   />
                                 </a>
                               )}
+                              {['DELIVERED', 'COMPLETED'].includes(String(stop.dispatchStatus || stop.status).toUpperCase())
+                                && stop.deliveredAt && (
+                                <p className="mt-1 text-[9px] font-semibold text-emerald-700">
+                                  Delivered {new Date(stop.deliveredAt).toLocaleString()}
+                                </p>
+                              )}
                             </div>
                           )}
                         </div>
@@ -3940,8 +4330,10 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                         <button
                           type="button"
                           aria-label={`Move ${stop.name} closer in the route`}
-                          title="Move closer"
-                          disabled={idx === 0 || Boolean(searchQuery)}
+                          title={Number.isInteger(stop.routeSequence)
+                            ? 'Recalculate Closest to Farthest to change the saved road sequence'
+                            : 'Move closer'}
+                          disabled={idx === 0 || Boolean(searchQuery) || Number.isInteger(stop.routeSequence)}
                           onClick={(event) => {
                             event.stopPropagation();
                             moveStop(stop.id, -1);
@@ -3953,8 +4345,10 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                         <button
                           type="button"
                           aria-label={`Move ${stop.name} farther in the route`}
-                          title="Move farther"
-                          disabled={idx === activeDriverStops.length - 1 || Boolean(searchQuery)}
+                          title={Number.isInteger(stop.routeSequence)
+                            ? 'Recalculate Closest to Farthest to change the saved road sequence'
+                            : 'Move farther'}
+                          disabled={idx === activeDriverStops.length - 1 || Boolean(searchQuery) || Number.isInteger(stop.routeSequence)}
                           onClick={(event) => {
                             event.stopPropagation();
                             moveStop(stop.id, 1);
@@ -4048,24 +4442,23 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             <div className="relative h-full w-full">
               <FleetMap
                 center={dashboardMapCenter}
+                currentLocation={currentLocationPoint}
+                followDriverLocation={focusedDriverIsLive}
                 drivers={mapDisplayDrivers}
                 stops={mapVisibleStops}
                 now={clockNow}
                 selectedDriverId={activeDriverId}
-                onDriverSelect={driverId => setActiveDriverId(driverId)}
+                selectedStopId={selectedStopId}
+                onDriverSelect={selectDriverToTrack}
+                onStopSelect={setSelectedStopId}
               />
-              {dispatchMapError && (
-                <p role="status" className="absolute left-3 top-3 z-20 rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-[10px] font-semibold text-amber-950 shadow">
-                  {dispatchMapError}
-                </p>
-              )}
             </div>
           )}
           profileMenu={profileMenu}
           search={dashboardSearchQuery}
           onSearchChange={setDashboardSearchQuery}
           onTrackDriver={driverId => {
-            setActiveDriverId(driverId);
+            selectDriverToTrack(driverId);
             setActiveAdminView('LIVE_TRACKING');
           }}
           onNavigate={view => {
@@ -4234,20 +4627,19 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         <div className="admin-map-canvas flex-1 relative w-full h-full">
           <FleetMap
             center={mapCenter}
+            currentLocation={currentLocationPoint}
+            followDriverLocation={mapDriverIsLive && mapDriverHasCoordinates}
+            mobileBottomSheetVisible={!mapExpanded}
             drivers={mapDisplayDrivers}
             stops={mapVisibleStops}
             now={clockNow}
             selectedDriverId={activeDriverId}
+            selectedStopId={selectedStopId}
             onDriverSelect={driverId => {
-              if (currentUser.role === 'ADMIN') setActiveDriverId(driverId);
+              if (currentUser.role === 'ADMIN') selectDriverToTrack(driverId);
             }}
+            onStopSelect={setSelectedStopId}
           />
-          {dispatchMapError && currentUser.role === 'ADMIN' && (
-            <p role="status" className="absolute left-3 top-3 z-20 rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-[10px] font-semibold text-amber-950 shadow">
-              {dispatchMapError}
-            </p>
-          )}
-
         </div>
 
       </div>
@@ -4368,18 +4760,196 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         </div>
       )}
 
-      {/* --- MODAL 2: ADD STOP MANUALLY --- */}
+      {/* --- BUSINESS DELIVERY HOME --- */}
+      {showDeliveryTypePicker && (
+        <div
+          className="fixed inset-0 z-[60] overflow-y-auto"
+          style={{ background: '#fff', color: '#111' }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delivery-type-picker-title"
+        >
+          <main className="mx-auto min-h-full w-full max-w-[500px] px-5 pb-28 pt-5">
+            {deliveryBannerVisible && (
+              <aside
+                className="mb-7 flex items-center gap-3 rounded-2xl px-4 py-3"
+                style={{ background: '#eef0ff', color: '#161616' }}
+              >
+                <span
+                  className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
+                  style={{ background: '#5867e8', color: '#fff' }}
+                >
+                  <Tag className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-sm font-extrabold">Business delivery</strong>
+                  <span className="mt-1 block text-sm text-slate-600">Choose a vehicle for your order</span>
+                </span>
+                <button
+                  type="button"
+                  aria-label="Dismiss delivery information"
+                  onClick={() => setDeliveryBannerVisible(false)}
+                  className="shrink-0 rounded-full p-1 text-slate-500 hover:bg-white/70"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </aside>
+            )}
+
+            <h2
+              id="delivery-type-picker-title"
+              className="mb-5 text-[26px] font-extrabold leading-tight tracking-tight"
+              style={{ color: '#171717' }}
+            >
+              Let&apos;s get you on your way.
+            </h2>
+
+            <div className="mb-5 grid grid-cols-3 gap-2">
+              {DELIVERY_TYPES.map(({ vehicleType, label, description, Icon }) => (
+                <button
+                  key={vehicleType}
+                  type="button"
+                  onClick={() => selectDeliveryType(vehicleType)}
+                  aria-label={`${label} delivery`}
+                  className="relative flex min-h-[138px] flex-col items-center justify-center gap-2 px-2 py-3 text-center transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  style={{ background: '#eef0f0', borderRadius: 14, color: '#161616' }}
+                >
+                  <span
+                    className="flex h-[68px] w-full items-center justify-center"
+                    aria-hidden="true"
+                  >
+                    <Icon className="h-12 w-12" strokeWidth={1.8} />
+                  </span>
+                  <span className="block text-base font-semibold leading-tight">{label}</span>
+                  <span className="block text-xs leading-tight text-slate-600">{description}</span>
+                </button>
+              ))}
+            </div>
+
+            <div
+              className="mb-5 flex min-h-[70px] items-center gap-3 rounded-2xl px-4 py-2"
+              style={{ background: '#eef0f0' }}
+            >
+              <Search className="h-6 w-6 shrink-0" aria-hidden="true" />
+              <AddressAutocomplete
+                value={newStopForm.address}
+                onChange={address => setNewStopForm(previous => ({ ...previous, address, lat: null, lng: null }))}
+                onSelect={(address, location) =>
+                  setNewStopForm(previous => ({ ...previous, address, ...location }))
+                }
+                placeholder="Where to?"
+                inputClassName="w-full border-0 bg-transparent p-0 text-base font-semibold outline-none"
+                inputStyle={{ background: 'transparent', border: 0, color: '#111', minHeight: 44 }}
+                id="business-delivery-destination"
+              />
+              <button
+                type="button"
+                onClick={() => setShowDeliveryTypePicker(false)}
+                className="flex shrink-0 items-center gap-1 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-slate-900"
+              >
+                <Clock className="h-4 w-4" aria-hidden="true" />
+                Later
+              </button>
+            </div>
+
+            <section aria-label="Recent delivery destinations" className="space-y-2">
+              {recentDeliveryStops.length > 0 ? recentDeliveryStops.map(stop => (
+                <button
+                  key={stop.id}
+                  type="button"
+                  onClick={() => setNewStopForm(previous => ({
+                    ...previous,
+                    address: stop.address,
+                    lat: stop.lat,
+                    lng: stop.lng
+                  }))}
+                  className="flex w-full items-center gap-3 rounded-xl py-1 text-left transition hover:bg-slate-50"
+                  style={{ color: '#171717' }}
+                >
+                  <span
+                    className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl"
+                    style={{ background: '#eef0f0', color: '#4b4b4b' }}
+                  >
+                    <Clock className="h-6 w-6" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-base font-medium">{stop.address}</span>
+                    <span className="mt-1 block truncate text-sm text-slate-600">
+                      {stop.name || stop.pickupAddress || 'Recent delivery'}
+                    </span>
+                  </span>
+                </button>
+              )) : (
+                <p className="px-1 py-3 text-sm text-slate-500">
+                  Recent delivery addresses will appear here.
+                </p>
+              )}
+            </section>
+          </main>
+
+          <nav
+            aria-label="Business dashboard navigation"
+            className="fixed bottom-4 left-1/2 z-[61] grid w-[calc(100%-2.5rem)] max-w-[350px] -translate-x-1/2 grid-cols-3 rounded-full p-1 shadow-lg"
+            style={{ background: '#fff', boxShadow: '0 4px 24px rgb(0 0 0 / 12%)' }}
+          >
+            <button
+              type="button"
+              aria-current="page"
+              className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-full text-xs font-semibold"
+              style={{ background: '#f0f0f0', color: '#111' }}
+            >
+              <Home className="h-5 w-5" aria-hidden="true" />
+              Home
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowDeliveryTypePicker(false);
+                setActiveAdminView('DELIVERIES');
+              }}
+              className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-full text-xs font-medium text-slate-600"
+            >
+              <Activity className="h-5 w-5" aria-hidden="true" />
+              Activity
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowDeliveryTypePicker(false);
+                setProfileMenuOpen(true);
+              }}
+              className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-full text-xs font-medium text-slate-600"
+            >
+              <User className="h-5 w-5" aria-hidden="true" />
+              Account
+            </button>
+          </nav>
+        </div>
+      )}
+
       {showAddStopModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900 p-5 text-xs shadow-2xl sm:p-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-1.5">
                 <Plus className="w-4 h-4 text-emerald-400" />
-                <span>Add Stop Manually</span>
+                <span>Add {selectedDeliveryType?.label || ''} Stop Manually</span>
               </h3>
-              <button onClick={() => setShowAddStopModal(false)} className="text-slate-400 hover:text-white">
-                <XCircle className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddStopModal(false);
+                    setShowDeliveryTypePicker(true);
+                  }}
+                  className="rounded-lg border border-slate-700 px-2 py-1 text-[9px] font-bold text-slate-300 hover:bg-slate-800"
+                >
+                  Change type
+                </button>
+                <button onClick={() => setShowAddStopModal(false)} aria-label="Close add stop form" className="text-slate-400 hover:text-white">
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -4446,9 +5016,11 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 <section className="rounded-xl border border-slate-700 bg-slate-950 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h4 className="font-bold text-slate-200">Nearby available riders</h4>
+                      <h4 className="font-bold text-slate-200">
+                        Nearby available {selectedDeliveryType?.label.toLowerCase()} riders
+                      </h4>
                       <p className="mt-1 text-[9px] leading-relaxed text-slate-400">
-                        Live candidates are ranked from the selected pickup. Only available drivers with a fresh location and no active route are shown.
+                        Live candidates are ranked from the selected pickup. Only available {selectedDeliveryType?.description.toLowerCase()} drivers with a fresh location and no active route are shown.
                       </p>
                     </div>
                   </div>
@@ -4524,7 +5096,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   ) : (
                     <p className="mt-3 rounded-lg bg-slate-900 p-2.5 text-[10px] text-slate-400">
                       {Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
-                        ? 'No nearby drivers match this zone. Drivers must be available and sharing a location updated within the last 90 seconds.'
+                        ? 'No nearby drivers match this delivery type and zone. Drivers must be available and sharing a location updated within the last 90 seconds.'
                         : 'Select the pickup address from the suggestions to search and rank drivers by distance.'}
                     </p>
                   )}

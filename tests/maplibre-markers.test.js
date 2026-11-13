@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  getLocalMapZoom,
   getRiderMarkerState,
   isValidMapLocation,
   reconcileMapMarkers,
@@ -17,6 +18,21 @@ test('map marker location validation accepts legal coordinates and rejects inval
   assert.equal(isValidMapLocation(Number.NaN, 3.3), false);
   assert.deepEqual(toMapLibrePoint(6.5, 3.3), [3.3, 6.5]);
   assert.equal(toMapLibrePoint(91, 3.3), null);
+});
+
+test('default map zoom keeps a 10 km local radius visible at common screen sizes', () => {
+  for (const viewport of [
+    { name: 'mobile', width: 390, height: 780 },
+    { name: 'tablet', width: 768, height: 1024 },
+    { name: 'desktop', width: 1440, height: 900 }
+  ]) {
+    const zoom = getLocalMapZoom({ latitude: 6.5, ...viewport });
+    const usablePixels = Math.min(viewport.width - 48, viewport.height - 128);
+    const visibleDiameterKm = usablePixels * 40_075 * Math.cos(6.5 * Math.PI / 180)
+      / (512 * (2 ** zoom));
+    assert.ok(visibleDiameterKm >= 19.9, `${viewport.name} should show a 20 km local diameter`);
+    assert.ok(visibleDiameterKm < 20.1, `${viewport.name} should use the local viewing area`);
+  }
 });
 
 test('preview and active riders get marker states without treating fixtures as live GPS', () => {

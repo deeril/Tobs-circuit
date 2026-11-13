@@ -6,7 +6,12 @@ import {
   isWithinSearchCells,
   RIDER_DISCOVERY_RADIUS_ROUNDS_KM
 } from '../src/dispatch-geo.js';
-import { getRoadRoute, searchPhoton } from '../server/dispatch-services.js';
+import {
+  getRoadRoute,
+  getRoadRouteMatrix,
+  resolvePhotonBaseUrl,
+  searchPhoton
+} from '../server/dispatch-services.js';
 import { hasActiveRiderAssignment } from '../server/dispatch-assignments.js';
 import { optimizeDeliveryBatch } from '../server/dispatch-optimizer.js';
 import { DELETE_EXPIRED_GPS_BATCH_SQL, DISPATCH_GPS_RETENTION_DAYS } from '../server/dispatch-retention.js';
@@ -193,6 +198,57 @@ test('Valhalla route requests use auto costing and decode the route geometry', a
   assert.deepEqual(result.geometry.coordinates, [[3.3, 6.5], [3.4, 6.6]]);
 });
 
+test('Valhalla road matrix returns actual road costs for every source and destination', async t => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    assert.equal(String(url), 'https://router.example.test/sources_to_targets');
+    assert.equal(options.method, 'POST');
+    assert.deepEqual(JSON.parse(options.body), {
+      sources: [
+        { lat: 6.5, lon: 3.3 },
+        { lat: 6.51, lon: 3.31 }
+      ],
+      targets: [
+        { lat: 6.51, lon: 3.31 },
+        { lat: 6.52, lon: 3.32 }
+      ],
+      costing: 'auto',
+      units: 'kilometers'
+    });
+    return new Response(JSON.stringify({
+      sources_to_targets: [[
+        { distance: 4.2, time: 600 },
+        { distance: 8.6, time: 900 }
+      ], [
+        { distance: 2.1, time: 300 },
+        { distance: 6.3, time: 720 }
+      ]]
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const result = await getRoadRouteMatrix({
+    baseUrl: 'https://router.example.test',
+    sources: [
+      { lat: 6.5, lng: 3.3 },
+      { lat: 6.51, lng: 3.31 }
+    ],
+    destinations: [
+      { lat: 6.51, lng: 3.31 },
+      { lat: 6.52, lng: 3.32 }
+    ]
+  });
+  assert.deepEqual(result, [
+    [
+      { mode: 'road', distanceKm: 4.2, durationMinutes: 10 },
+      { mode: 'road', distanceKm: 8.6, durationMinutes: 15 }
+    ],
+    [
+      { mode: 'road', distanceKm: 2.1, durationMinutes: 5 },
+      { mode: 'road', distanceKm: 6.3, durationMinutes: 12 }
+    ]
+  ]);
+});
+
 test('routing reports an explicit straight-line fallback when unconfigured or unavailable', async t => {
   const originalFetch = globalThis.fetch;
   const unconfigured = await getRoadRoute({
@@ -238,4 +294,28 @@ test('Photon searches validate input, bound results, and preserve provider prope
   assert.equal(results[0].properties.name, 'Lagos 0');
   await assert.rejects(() => searchPhoton({ baseUrl: '', query: 'Ikeja' }), /not configured/i);
   await assert.rejects(() => searchPhoton({ baseUrl: 'https://photon.example.test', query: 'x' }), TypeError);
+});
+
+test('Photon configuration defaults to the live provider and accepts an override', async t => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => {
+    assert.equal(new URL(url).origin, 'https://photon.komoot.io');
+    return new Response(JSON.stringify({
+      features: [{
+        geometry: { type: 'Point', coordinates: [3.3792, 6.5244] },
+        properties: { name: 'Lagos' }
+      }]
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  assert.equal(resolvePhotonBaseUrl(''), 'https://photon.komoot.io');
+  assert.equal(resolvePhotonBaseUrl('  https://photon.example.test/  '), 'https://photon.example.test/');
+  const results = await searchPhoton({
+    baseUrl: resolvePhotonBaseUrl(''),
+    query: 'Ikeja Lagos',
+    lat: 6.5244,
+    lng: 3.3792
+  });
+  assert.equal(results[0].properties.name, 'Lagos');
 });

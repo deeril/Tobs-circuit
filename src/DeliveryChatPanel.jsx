@@ -6,8 +6,14 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '
 const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL
   || (import.meta.env.DEV ? API_BASE_URL || window.location.origin : '');
 
-export default function DeliveryChatPanel({ deliveryId, currentUserId, request }) {
-  const [open, setOpen] = useState(false);
+export default function DeliveryChatPanel({
+  deliveryId,
+  currentUserId,
+  request,
+  autoOpen = false,
+  conversationTitle = 'Delivery chat'
+}) {
+  const [open, setOpen] = useState(autoOpen);
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
@@ -107,7 +113,7 @@ export default function DeliveryChatPanel({ deliveryId, currentUserId, request }
         onClick={() => setOpen(previous => !previous)}
         className="flex w-full items-center justify-between gap-2 text-left"
       >
-        <span className="text-xs font-extrabold text-slate-900">Delivery chat</span>
+        <span className="text-xs font-extrabold text-slate-900">{conversationTitle}</span>
         <span className="rounded-full bg-violet-100 px-2 py-1 text-[9px] font-bold text-violet-800">
           {unreadCount ? `${unreadCount} unread` : open ? 'Close' : 'Open'}
         </span>
