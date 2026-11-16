@@ -22,6 +22,7 @@ export default function DispatchCallControls({
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [muted, setMuted] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(false);
   const socketRef = useRef(null);
   const requestRef = useRef(request);
   const peerRef = useRef(null);
@@ -225,13 +226,21 @@ export default function DispatchCallControls({
       }
       refreshCalls();
     });
-    socket.on('connect', refreshCalls);
+    socket.on('connect', () => {
+      setSocketConnected(true);
+      setError('');
+      refreshCalls();
+    });
+    socket.on('disconnect', () => setSocketConnected(false));
     socket.on('connect_error', socketError => {
       console.warn('Voice call signaling is disconnected:', socketError.message);
+      setSocketConnected(false);
+      setError('Live voice calling is unavailable. Check the connection and try again.');
     });
     return () => {
       active = false;
       window.clearInterval(refreshTimer);
+      setSocketConnected(false);
       const callToEnd = activeCallRef.current;
       if (callToEnd) {
         requestRef.current(`/api/dispatch/calls/${encodeURIComponent(callToEnd.call_id)}/end`, {
@@ -262,6 +271,9 @@ export default function DispatchCallControls({
     setError('');
     setStatus('Calling…');
     try {
+      if (!socketRef.current?.connected) {
+        throw new Error('Live voice-call signaling is disconnected. Reconnect and try again.');
+      }
       const payload = {
         ...(deliveryId ? { deliveryId } : { supportThreadId })
       };
@@ -287,6 +299,9 @@ export default function DispatchCallControls({
     if (!incomingCall) return;
     setError('');
     try {
+      if (!socketRef.current?.connected) {
+        throw new Error('Live voice-call signaling is disconnected. Reconnect and try again.');
+      }
       const { call, iceServers } = await requestRef.current(
         `/api/dispatch/calls/${encodeURIComponent(incomingCall.call_id)}/accept`,
         { method: 'POST', body: JSON.stringify({}) }
@@ -356,10 +371,15 @@ export default function DispatchCallControls({
           <button
             type="button"
             onClick={startCall}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-violet-700 px-3 py-2 text-[10px] font-bold text-white hover:bg-violet-800"
+            disabled={!socketConnected}
+            title={socketConnected ? 'Start an audio call' : 'Waiting for the live call service'}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-violet-700 px-3 py-2 text-[10px] font-bold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Phone className="h-3.5 w-3.5" /> Voice call
           </button>
+        )}
+        {!socketConnected && !error && (
+          <span role="status" className="text-[10px] font-semibold text-slate-500">Connecting to call service…</span>
         )}
         {status && <span role="status" className="text-[10px] font-semibold text-slate-600">{status}</span>}
         {activeCall && (
