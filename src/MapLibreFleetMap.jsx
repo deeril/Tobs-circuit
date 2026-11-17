@@ -29,6 +29,11 @@ const ACTIVE_DELIVERY_STATUSES = [
   'ARRIVED_AT_PICKUP', 'HEADING_TO_DESTINATION'
 ];
 
+function getStopRouteOrder(stop) {
+  if (Number.isInteger(stop.routeSequence) && stop.routeSequence > 0) return stop.routeSequence;
+  return Number.isInteger(stop.routeOrder) && stop.routeOrder > 0 ? stop.routeOrder : null;
+}
+
 function straightLineGeometry(from, to) {
   return { type: 'LineString', coordinates: [[from.lng, from.lat], [to.lng, to.lat]] };
 }
@@ -124,7 +129,8 @@ export default function MapLibreFleetMap({
         width: container.clientWidth,
         height: container.clientHeight
       }),
-      cooperativeGestures: true,
+      cooperativeGestures: false,
+      dragPan: true,
       attributionControl: true
     });
     map.addControl(new NavigationControl({ visualizePitch: false }), 'top-right');
@@ -375,10 +381,10 @@ export default function MapLibreFleetMap({
         onClick: () => requestCallbacksRef.current.onDriverSelect?.(driver.id)
       });
     }
-    const plannedStops = stops.filter(stop => Number.isInteger(stop.routeSequence) && stop.routeSequence > 0);
+    const plannedStops = stops.filter(stop => getStopRouteOrder(stop) !== null);
     const routeStart = plannedStops
       .filter(stop => isValidMapLocation(stop.routeStartLocation?.lat, stop.routeStartLocation?.lng))
-      .sort((left, right) => left.routeSequence - right.routeSequence)[0]?.routeStartLocation;
+      .sort((left, right) => getStopRouteOrder(left) - getStopRouteOrder(right))[0]?.routeStartLocation;
     if (routeStart) {
       desiredMarkers.set('route-start', {
         point: toMapLibrePoint(routeStart.lat, routeStart.lng),
@@ -402,8 +408,9 @@ export default function MapLibreFleetMap({
         const isCompleted = ['DELIVERED', 'COMPLETED'].includes(
           String(stop.dispatchStatus || stop.status || '').toUpperCase()
         );
-        const sequenceText = Number.isInteger(stop.routeSequence) && stop.routeSequence > 0
-          ? `Stop ${stop.routeSequence}`
+        const stopOrder = getStopRouteOrder(stop);
+        const sequenceText = stopOrder !== null
+          ? `Dropoff ${stopOrder}`
           : 'Dropoff';
         desiredMarkers.set(`destination:${stop.id}`, {
           point: toMapLibrePoint(stop.lat, stop.lng),

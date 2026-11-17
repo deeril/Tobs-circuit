@@ -39,6 +39,8 @@ const databasePool = usesDatabase && databaseUrl
   : null;
 const sessionCookie = 'tobs_session';
 const superAdminEmail = 'ayodeletobs@gmail.com';
+const DRIVER_TERMS_VERSION = 'tobs-driver-rider-terms-2026-11-16-v1';
+const DRIVER_DATA_NOTICE_VERSION = 'tobs-driver-data-notice-2026-11-16-v1';
 const sessions = new Map();
 const rateLimits = new Map();
 const frontendOrigin = process.env.FRONTEND_ORIGIN || 'https://deeril.github.io';
@@ -98,7 +100,6 @@ io.on('connection', socket => {
   }
   if (socket.data.userRole === 'ADMIN') {
     socket.join(`business:${socket.data.userId}`);
-    socket.join('marketplace:businesses');
   } else {
     socket.join(`driver:${socket.data.userId}`);
   }
@@ -164,12 +165,13 @@ let databaseStoreDirty = false;
 
 function readStore() {
   if (!fs.existsSync(dataFile)) return {
-    users: [], invitations: [], passwordResets: [], stops: [], sessions: [],
+    users: [], driverApplications: [], invitations: [], passwordResets: [], stops: [], sessions: [],
     supportThreads: [], superAdminChallenges: [], deliveryOffers: [], deliveryAssignments: []
   };
   const parsed = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
   return {
     users: Array.isArray(parsed.users) ? parsed.users : [],
+    driverApplications: Array.isArray(parsed.driverApplications) ? parsed.driverApplications : [],
     invitations: Array.isArray(parsed.invitations) ? parsed.invitations : [],
     passwordResets: Array.isArray(parsed.passwordResets) ? parsed.passwordResets : [],
     stops: Array.isArray(parsed.stops) ? parsed.stops : [],
@@ -217,7 +219,7 @@ async function ensureDatabaseTable() {
       )
     `).then(() => databasePool.query(`
       INSERT INTO tobs_app_state (id, state)
-      VALUES (1, '{"users":[],"invitations":[],"passwordResets":[],"stops":[],"sessions":[],"deliveryOffers":[]}'::jsonb)
+      VALUES (1, '{"users":[],"driverApplications":[],"invitations":[],"passwordResets":[],"stops":[],"sessions":[],"deliveryOffers":[]}'::jsonb)
       ON CONFLICT (id) DO NOTHING
     `)).then(() => databasePool.query(`
       CREATE TABLE IF NOT EXISTS tobs_delivery_assignments (
@@ -227,7 +229,30 @@ async function ensureDatabaseTable() {
         rider_id TEXT NOT NULL,
         accepted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
-    `)).catch(error => {
+    `)).then(() => databasePool.query(`
+      CREATE TABLE IF NOT EXISTS tobs_driver_applications (
+        driver_id TEXT PRIMARY KEY,
+        encrypted_payload TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        reviewed_at TIMESTAMPTZ,
+        reviewed_by TEXT
+      )
+    `)).then(() => databasePool.query(`
+      CREATE TABLE IF NOT EXISTS superadmin_driver_messages (
+        message_id UUID PRIMARY KEY,
+        driver_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        client_message_id UUID NOT NULL,
+        body TEXT NOT NULL CHECK (char_length(body) <= 2000),
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (sender_id, client_message_id)
+      )
+    `)).then(() => databasePool.query(`
+      CREATE INDEX IF NOT EXISTS superadmin_driver_messages_conversation_idx
+      ON superadmin_driver_messages (driver_id, sent_at, message_id)
+    `))
+    .catch(error => {
       databaseSetupPromise = null;
       throw error;
     });
@@ -244,6 +269,7 @@ async function loadDatabaseStore(client, { lock = true } = {}) {
   if (!state || typeof state !== 'object') throw new Error('The persistent application data is invalid.');
   store = {
     users: Array.isArray(state.users) ? state.users : [],
+    driverApplications: Array.isArray(state.driverApplications) ? state.driverApplications : [],
     invitations: Array.isArray(state.invitations) ? state.invitations : [],
     passwordResets: Array.isArray(state.passwordResets) ? state.passwordResets : [],
     stops: Array.isArray(state.stops) ? state.stops : [],
@@ -275,10 +301,12 @@ function persistentApiState(request, response, next) {
             AND to_regclass('public.delivery_batch_offers') IS NOT NULL
             AND to_regclass('public.delivery_messages') IS NOT NULL
             AND to_regclass('public.platform_pricing_rules') IS NOT NULL AS ready,
-              to_regclass('public.dispatch_calls') IS NOT NULL AS calls_ready
+              to_regclass('public.dispatch_calls') IS NOT NULL AS calls_ready,
+              to_regclass('public.superadmin_driver_messages') IS NOT NULL AS driver_messages_ready
         `);
         request.dispatchSchemaReady = dispatchSchema.rows[0]?.ready === true;
         request.dispatchCallsReady = dispatchSchema.rows[0]?.calls_ready === true;
+        request.driverMessagesReady = dispatchSchema.rows[0]?.driver_messages_ready === true;
         databaseRequestClient = client;
         databaseStoreDirty = false;
         let responseEnding = false;
@@ -333,13 +361,21 @@ function persistentApiState(request, response, next) {
 }
 
 function publicUser(user) {
-  const { passwordHash: _passwordHash, passwordSalt: _passwordSalt, ...safeUser } = user;
+  const {
+    passwordHash: _passwordHash,
+    passwordSalt: _passwordSalt,
+    driverApplication: _driverApplication,
+    ...safeUser
+  } = user;
   return safeUser;
 }
 
 function publicUserForViewer(user, viewer) {
   const safeUser = publicUser(user);
   if (user.id === viewer.id) return safeUser;
+  if (viewer.role === 'ADMIN' && user.role === 'DRIVER' && user.ownerAdminId !== viewer.id) {
+    delete safeUser.email;
+  }
 
   const hasActiveDelivery = viewer.role === 'ADMIN'
     && user.role === 'DRIVER'
@@ -363,6 +399,126 @@ function publicUserForViewer(user, viewer) {
 function passwordHash(password, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
   return { passwordSalt: salt, passwordHash: hash };
+}
+
+function driverApplicationEncryptionKey() {
+  const key = process.env.DRIVER_PII_ENCRYPTION_KEY || '';
+  if (!/^[a-f0-9]{64}$/i.test(key)) {
+    const error = new Error('Driver identity document encryption is not configured.');
+    error.status = 503;
+    throw error;
+  }
+  return Buffer.from(key, 'hex');
+}
+
+function encryptDriverApplication(application) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', driverApplicationEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(application), 'utf8'),
+    cipher.final()
+  ]);
+  return [iv, cipher.getAuthTag(), ciphertext].map(part => part.toString('base64url')).join('.');
+}
+
+function decryptDriverApplication(encryptedPayload) {
+  const [encodedIv, encodedTag, encodedData] = String(encryptedPayload || '').split('.');
+  if (!encodedIv || !encodedTag || !encodedData) throw new Error('Stored driver application data is invalid.');
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    driverApplicationEncryptionKey(),
+    Buffer.from(encodedIv, 'base64url')
+  );
+  decipher.setAuthTag(Buffer.from(encodedTag, 'base64url'));
+  return JSON.parse(Buffer.concat([
+    decipher.update(Buffer.from(encodedData, 'base64url')),
+    decipher.final()
+  ]).toString('utf8'));
+}
+
+function validateDriverApplication(application, vehicleType) {
+  const imageFields = ['driverPhoto', 'nextOfKinPhoto'];
+  const isImage = value => {
+    if (typeof value !== 'string') return false;
+    const match = value.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+=*)$/);
+    if (!match) return false;
+    const bytes = Buffer.from(match[2], 'base64');
+    if (bytes.length > 1_500_000) return false;
+    if (match[1] === 'jpeg') return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    if (match[1] === 'png') return bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+    return bytes.toString('ascii', 0, 4) === 'RIFF'
+      && bytes.toString('ascii', 8, 12) === 'WEBP';
+  };
+  const validIdentityNumber = (type, value) => {
+    const number = cleanText(value, 64).replace(/\s/g, '').toUpperCase();
+    if (type === 'NIN') return /^\d{11}$/.test(number);
+    if (type === 'PASSPORT') return /^[A-Z0-9]{5,20}$/.test(number);
+    return false;
+  };
+  const validPhone = value => /^\+?[0-9\s()-]{7,24}$/.test(cleanText(value, 40));
+  const normalizedName = value => cleanText(value, 100).replace(/\s+/g, ' ').toLowerCase();
+  if (!application || typeof application !== 'object'
+    || !cleanText(application.fullName, 100)
+    || !validIdentityNumber(application.identityType, application.identityNumber)
+    || !cleanText(application.motherName, 100)
+    || !cleanText(application.fatherName, 100)
+    || !validPhone(application.phone)
+    || !cleanText(application.nextOfKinName, 100)
+    || !validPhone(application.nextOfKinPhone)
+    || !validIdentityNumber(application.nextOfKinIdentityType, application.nextOfKinIdentityNumber)
+    || !cleanText(application.residentialAddress, 250)
+    || !cleanText(application.zone, 100)
+    || !['CAR', 'MOTORCYCLE', 'BICYCLE'].includes(vehicleType)
+    || (['CAR', 'MOTORCYCLE'].includes(vehicleType) && !cleanText(application.vehicle, 100))
+    || application.nextOfKinConsent !== true
+    || application.dataNoticeAccepted !== true
+    || application.termsAccepted !== true
+    || application.termsVersion !== DRIVER_TERMS_VERSION
+    || application.dataNoticeVersion !== DRIVER_DATA_NOTICE_VERSION
+    || normalizedName(application.termsSignature) !== normalizedName(application.fullName)
+    || imageFields.some(field => !isImage(application[field]))) {
+    return 'Complete the required identity and contact details, provide both photos, attest to next-of-kin consent, read the data notice, and sign the current agreement using your full legal name.';
+  }
+  if (['CAR', 'MOTORCYCLE'].includes(vehicleType)
+    && !cleanText(application.driverLicenseNumber, 64)) {
+    return 'Car and motorcycle drivers must provide a valid driver licence number.';
+  }
+  if (vehicleType === 'CAR'
+    && (!cleanText(application.vehicleMake, 80)
+      || !cleanText(application.vehicleModel, 80)
+      || !cleanText(application.vehicleYear, 4)
+      || !cleanText(application.vehicleRegistration, 64))) {
+    return 'Car drivers must provide their vehicle make, model, year, and registration.';
+  }
+  return '';
+}
+
+async function loadEncryptedDriverApplication(driverId) {
+  if (databaseRequestClient) {
+    const { rows } = await databaseRequestClient.query(
+      'SELECT encrypted_payload FROM tobs_driver_applications WHERE driver_id = $1',
+      [driverId]
+    );
+    return rows[0]?.encrypted_payload || null;
+  }
+  return store.driverApplications.find(application => application.driverId === driverId)?.encryptedPayload || null;
+}
+
+async function saveEncryptedDriverApplication(driverId, application) {
+  const encryptedPayload = encryptDriverApplication(application);
+  if (databaseRequestClient) {
+    await databaseRequestClient.query(`
+      INSERT INTO tobs_driver_applications (driver_id, encrypted_payload)
+      VALUES ($1, $2)
+      ON CONFLICT (driver_id)
+      DO UPDATE SET encrypted_payload = EXCLUDED.encrypted_payload, updated_at = NOW()
+    `, [driverId, encryptedPayload]);
+  } else {
+    const existing = store.driverApplications.find(item => item.driverId === driverId);
+    if (existing) existing.encryptedPayload = encryptedPayload;
+    else store.driverApplications.push({ driverId, encryptedPayload });
+  }
+  return encryptedPayload;
 }
 
 function verifyPassword(password, user) {
@@ -755,23 +911,41 @@ async function syncDispatchDelivery(client, stop) {
   }
 }
 
-async function findRelationalCandidates(client, deliveryId, radiusKm, selectedRiderId = null) {
+async function findRelationalCandidates(
+  client,
+  deliveryId,
+  radiusKm,
+  selectedRiderId = null,
+  businessOrigin = null
+) {
   const { rows } = await client.query(`
     SELECT profile.rider_id,
       location.latitude AS rider_lat,
       location.longitude AS rider_lng,
       delivery.pickup_lat,
       delivery.pickup_lng,
-      6371 * 2 * ASIN(SQRT(
-        POWER(SIN(RADIANS(location.latitude - delivery.pickup_lat) / 2), 2)
-        + COS(RADIANS(delivery.pickup_lat)) * COS(RADIANS(location.latitude))
-        * POWER(SIN(RADIANS(location.longitude - delivery.pickup_lng) / 2), 2)
-      )) AS distance_km
+      search_distance.distance_km
     FROM dispatch_deliveries AS delivery
     JOIN rider_dispatch_profiles AS profile
       ON profile.is_active = TRUE AND profile.is_available = TRUE
     JOIN rider_current_locations AS location
       ON location.rider_id = profile.rider_id AND location.sharing_enabled = TRUE
+    CROSS JOIN LATERAL (
+      SELECT LEAST(
+        6371 * 2 * ASIN(SQRT(
+          POWER(SIN(RADIANS(location.latitude - delivery.pickup_lat) / 2), 2)
+          + COS(RADIANS(delivery.pickup_lat)) * COS(RADIANS(location.latitude))
+          * POWER(SIN(RADIANS(location.longitude - delivery.pickup_lng) / 2), 2)
+        )),
+        CASE WHEN $4::double precision IS NULL THEN 999999
+          ELSE 6371 * 2 * ASIN(SQRT(
+            POWER(SIN(RADIANS(location.latitude - $4::double precision) / 2), 2)
+            + COS(RADIANS($4::double precision)) * COS(RADIANS(location.latitude))
+            * POWER(SIN(RADIANS(location.longitude - $5::double precision) / 2), 2)
+          ))
+        END
+      ) AS distance_km
+    ) AS search_distance
     WHERE delivery.delivery_id = $1
       AND delivery.pickup_lat IS NOT NULL AND delivery.pickup_lng IS NOT NULL
       AND location.recorded_at >= NOW() - INTERVAL '90 seconds'
@@ -798,21 +972,23 @@ async function findRelationalCandidates(client, deliveryId, radiusKm, selectedRi
         WHERE rider_assignment.rider_id = profile.rider_id
           AND rider_assignment.status = 'ACTIVE'
       )
-      AND location.latitude BETWEEN delivery.pickup_lat - ($2 / 110.574)
-        AND delivery.pickup_lat + ($2 / 110.574)
-      AND location.longitude BETWEEN delivery.pickup_lng
-        - $2 / (111.320 * GREATEST(0.1, ABS(COS(RADIANS(delivery.pickup_lat)))))
-        AND delivery.pickup_lng
-        + $2 / (111.320 * GREATEST(0.1, ABS(COS(RADIANS(delivery.pickup_lat)))))
-      AND 6371 * 2 * ASIN(SQRT(
-        POWER(SIN(RADIANS(location.latitude - delivery.pickup_lat) / 2), 2)
-        + COS(RADIANS(delivery.pickup_lat)) * COS(RADIANS(location.latitude))
-        * POWER(SIN(RADIANS(location.longitude - delivery.pickup_lng) / 2), 2)
-      )) <= $2
-    ORDER BY distance_km, profile.rider_id
-  `, [deliveryId, radiusKm, selectedRiderId]);
+      AND search_distance.distance_km <= $2
+    ORDER BY search_distance.distance_km, profile.rider_id
+  `, [
+    deliveryId,
+    radiusKm,
+    selectedRiderId,
+    businessOrigin?.lat ?? null,
+    businessOrigin?.lng ?? null
+  ]);
   if (!rows.length) return rows;
-  const cells = cellsWithinRadius(Number(rows[0].pickup_lat), Number(rows[0].pickup_lng), radiusKm);
+  const searchPoints = [
+    { lat: Number(rows[0].pickup_lat), lng: Number(rows[0].pickup_lng) },
+    ...(businessOrigin ? [businessOrigin] : [])
+  ];
+  const cells = new Set(searchPoints.flatMap(point =>
+    [...cellsWithinRadius(point.lat, point.lng, radiusKm)]
+  ));
   return rows.filter(row =>
     Number(row.distance_km) <= radiusKm
     && isWithinSearchCells(cells, Number(row.rider_lat), Number(row.rider_lng))
@@ -867,11 +1043,6 @@ async function claimDeliveryAssignment({ deliveryId, offerId, ownerAdminId, ride
               WHEN 'SMALL' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LARGE' THEN 3 ELSE 99 END
               <= CASE upper(profile.max_package_size)
               WHEN 'SMALL' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LARGE' THEN 3 ELSE 0 END)
-          AND 6371 * 2 * ASIN(SQRT(
-            POWER(SIN(RADIANS(location.latitude - delivery.pickup_lat) / 2), 2)
-            + COS(RADIANS(delivery.pickup_lat)) * COS(RADIANS(location.latitude))
-            * POWER(SIN(RADIANS(location.longitude - delivery.pickup_lng) / 2), 2)
-          )) <= offer.search_radius_km
           AND NOT EXISTS (
             SELECT 1 FROM delivery_assignments AS active_assignment
             WHERE active_assignment.rider_id = offer.rider_id
@@ -1290,6 +1461,29 @@ app.get('/api/super-admin/overview', requireUser, requireSuperAdmin, (request, r
   });
 });
 
+app.get('/api/super-admin/drivers/:id/application', requireUser, requireSuperAdmin, async (request, response) => {
+  const driver = store.users.find(user => user.id === request.params.id && user.role === 'DRIVER');
+  if (!driver) return response.status(404).json({ error: 'Driver application not found.' });
+  try {
+    const encryptedPayload = databaseRequestClient
+      ? (await databaseRequestClient.query(
+        'SELECT encrypted_payload FROM tobs_driver_applications WHERE driver_id = $1',
+        [driver.id]
+      )).rows[0]?.encrypted_payload
+      : store.driverApplications.find(application => application.driverId === driver.id)?.encryptedPayload;
+    if (!encryptedPayload) return response.status(404).json({ error: 'No driver identity application was found.' });
+    response.setHeader('Cache-Control', 'private, no-store');
+    return response.json({ application: decryptDriverApplication(encryptedPayload) });
+  } catch (error) {
+    console.error('Could not read the protected driver application:', error.message);
+    return response.status(error.status || 503).json({
+      error: error.status === 503
+        ? error.message
+        : 'The protected driver application could not be opened.'
+    });
+  }
+});
+
 app.post('/api/super-admin/drivers/:id/verification', requireUser, requireSuperAdmin, async (request, response) => {
   const action = request.body.action;
   if (!['approve', 'reject'].includes(action)) {
@@ -1332,6 +1526,19 @@ app.post('/api/super-admin/drivers/:id/verification', requireUser, requireSuperA
   driver.verifiedBy = action === 'approve' ? request.user.id : null;
   driver.isAvailable = false;
   driver.availabilityUpdatedAt = new Date().toISOString();
+  if (databaseRequestClient) {
+    await databaseRequestClient.query(`
+      UPDATE tobs_driver_applications
+      SET reviewed_at = NOW(), reviewed_by = $2, updated_at = NOW()
+      WHERE driver_id = $1
+    `, [driver.id, request.user.id]);
+  } else {
+    const application = store.driverApplications.find(item => item.driverId === driver.id);
+    if (application) {
+      application.reviewedAt = new Date().toISOString();
+      application.reviewedBy = request.user.id;
+    }
+  }
   writeStore();
   return response.json({ driver: {
     id: driver.id,
@@ -1339,6 +1546,91 @@ app.post('/api/super-admin/drivers/:id/verification', requireUser, requireSuperA
     verificationStatus: driver.verificationStatus,
     verifiedAt: driver.verifiedAt
   } });
+});
+
+app.delete('/api/super-admin/drivers/:id', requireUser, requireSuperAdmin, async (request, response) => {
+  const driver = store.users.find(user => user.id === request.params.id && user.role === 'DRIVER');
+  if (!driver) return response.status(404).json({ error: 'Driver account not found.' });
+  const directConversationId = `driver:${driver.id}`;
+  const relatedSupportThreads = store.supportThreads
+    .filter(thread => thread.userId === driver.id)
+    .map(thread => thread.id);
+  try {
+    if (request.dispatchSchemaReady) {
+      const { rows: activeAssignments } = await databaseRequestClient.query(`
+        UPDATE delivery_assignments
+        SET status = 'CANCELLED', ended_at = NOW(), end_reason = 'CANCELLED_BY_PLATFORM'
+        WHERE rider_id = $1 AND status = 'ACTIVE'
+        RETURNING assignment_id, delivery_id, business_id
+      `, [driver.id]);
+      for (const assignment of activeAssignments) {
+        await databaseRequestClient.query(`
+          INSERT INTO delivery_assignment_history (assignment_id, delivery_id, event_type, actor_id)
+          VALUES ($1, $2, 'CANCELLED', $3)
+        `, [assignment.assignment_id, assignment.delivery_id, request.user.id]);
+        await databaseRequestClient.query(`
+          UPDATE dispatch_deliveries SET status = 'FINDING_RIDER', updated_at = NOW()
+          WHERE delivery_id = $1
+            AND status NOT IN ('DELIVERED', 'FAILED', 'CANCELLED')
+        `, [assignment.delivery_id]);
+      }
+      await databaseRequestClient.query(`
+        UPDATE dispatch_offers SET status = 'CANCELLED', responded_at = NOW()
+        WHERE rider_id = $1 AND status IN ('PENDING', 'ACCEPTED')
+      `, [driver.id]);
+      await databaseRequestClient.query(`
+        UPDATE dispatch_business_riders SET active = FALSE
+        WHERE rider_id = $1
+      `, [driver.id]);
+      await databaseRequestClient.query(`
+        UPDATE rider_dispatch_profiles SET is_active = FALSE, is_available = FALSE, updated_at = NOW()
+        WHERE rider_id = $1
+      `, [driver.id]);
+      await databaseRequestClient.query('DELETE FROM rider_current_locations WHERE rider_id = $1', [driver.id]);
+      await databaseRequestClient.query('DELETE FROM delivery_messages WHERE rider_id = $1', [driver.id]);
+      await databaseRequestClient.query(`
+        DELETE FROM dispatch_calls
+        WHERE caller_id = $1 OR recipient_id = $1 OR rider_id = $1
+          OR support_thread_id = $2 OR support_thread_id = ANY($3::text[])
+      `, [driver.id, directConversationId, relatedSupportThreads]);
+      await databaseRequestClient.query('DELETE FROM dispatch_notifications WHERE recipient_id = $1', [driver.id]);
+      await databaseRequestClient.query('DELETE FROM superadmin_driver_messages WHERE driver_id = $1', [driver.id]);
+      await databaseRequestClient.query('DELETE FROM tobs_driver_applications WHERE driver_id = $1', [driver.id]);
+    } else {
+      store.driverApplications = store.driverApplications.filter(application => application.driverId !== driver.id);
+      store.deliveryAssignments = store.deliveryAssignments.map(assignment =>
+        assignment.riderId === driver.id && assignment.status === 'ACTIVE'
+          ? { ...assignment, status: 'CANCELLED', endReason: 'CANCELLED_BY_PLATFORM' }
+          : assignment
+      );
+    }
+
+    store.stops = store.stops.map(stop => {
+      if (stop.assignedDriverId !== driver.id) return stop;
+      const isTerminal = ['DELIVERED', 'FAILED', 'CANCELLED'].includes(
+        String(stop.dispatchStatus || stop.status || '').toUpperCase()
+      );
+      return {
+        ...stop,
+        assignedDriverId: null,
+        ...(isTerminal ? {} : { dispatchStatus: 'FINDING_RIDER' })
+      };
+    });
+    store.deliveryOffers = store.deliveryOffers.filter(offer => offer.riderId !== driver.id);
+    store.invitations = store.invitations.filter(invite => invite.email !== driver.email);
+    store.supportThreads = store.supportThreads.filter(thread => thread.userId !== driver.id);
+    store.sessions = store.sessions.filter(session => session.userId !== driver.id);
+    for (const [token, session] of sessions) {
+      if (session.userId === driver.id) sessions.delete(token);
+    }
+    store.users = store.users.filter(user => user.id !== driver.id);
+    writeStore();
+    io.in(`user:${driver.id}`).disconnectSockets(true);
+    return response.json({ deleted: true });
+  } catch (error) {
+    console.error('Could not permanently delete the driver account:', error);
+    return response.status(503).json({ error: 'The driver account could not be deleted right now.' });
+  }
 });
 
 app.post('/api/auth/logout', (request, response) => {
@@ -1454,17 +1746,12 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
   if (token && !invite) {
     return response.status(400).json({ error: 'This invitation link is invalid or has already been used.' });
   }
-  const zone = cleanText(request.body.zone, 100);
-  const vehicle = cleanText(request.body.vehicle, 100);
-  const vehicleType = cleanText(request.body.vehicleType, 32).toUpperCase();
-  if (!name || !validEmail(email) || typeof password !== 'string' || password.length < 12
-    || !zone || !vehicle || !['CAR', 'MOTORCYCLE', 'BICYCLE'].includes(vehicleType)) {
-    return response.status(400).json({ error: 'Enter your name, valid email, password (at least 12 characters), operating zone, vehicle type, and vehicle plate number.' });
+  if (!name || !validEmail(email) || typeof password !== 'string' || password.length < 12) {
+    return response.status(400).json({ error: 'Enter your full name, a valid email address, and a password of at least 12 characters.' });
   }
   if (store.users.some(user => user.email === email)) {
     return response.status(409).json({ error: 'An account already exists for this email.' });
   }
-
   const user = {
     id: crypto.randomUUID(),
     name,
@@ -1473,12 +1760,9 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
     role: 'DRIVER',
     orgName: invite?.orgName || 'Tobs Circuit Driver Network',
     ...(invite?.ownerAdminId ? { ownerAdminId: invite.ownerAdminId } : {}),
-    zone,
-    vehicle,
-    vehicleType,
-    phone: cleanText(request.body.phone, 40),
-    status: 'PENDING',
-    verificationStatus: 'PENDING',
+    status: 'ACTIVE',
+    verificationStatus: 'PROFILE_INCOMPLETE',
+    driverProfileComplete: false,
     isAvailable: false,
     isTracking: false,
     routeStatus: 'IDLE',
@@ -1489,20 +1773,185 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
     invite.registeredAt = new Date().toISOString();
   }
   store.users.push(user);
-  writeStore();
+  const publicAccount = issueSession(response, user);
   return response.status(201).json({
-    pendingApproval: true,
-    message: 'Your driver application has been submitted. You can sign in after platform verification and approval.',
-    user: publicUser(user)
+    user: publicAccount,
+    onboardingRequired: true,
+    message: 'Your account is ready. Complete your driver profile and sign the agreement to start receiving delivery offers.'
   });
 });
 
 app.get('/api/users', requireUser, (request, response) => {
-  const ownerAdminId = request.user.role === 'ADMIN' ? request.user.id : request.user.ownerAdminId;
-  const users = store.users.filter(user =>
-    user.id === ownerAdminId || user.ownerAdminId === ownerAdminId
-  );
+  const users = request.user.role === 'ADMIN'
+    ? store.users.filter(user =>
+      user.id === request.user.id
+      || user.ownerAdminId === request.user.id
+      || (user.role === 'DRIVER' && store.stops.some(stop =>
+        stop.ownerAdminId === request.user.id
+        && stop.assignedDriverId === user.id
+        && ['RIDER_ACCEPTED', 'HEADING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'HEADING_TO_DESTINATION']
+          .includes(dispatchStatusFromStop(stop))
+      ))
+    )
+    : [
+      request.user,
+      ...store.users.filter(user =>
+        user.role === 'ADMIN'
+        && store.stops.some(stop =>
+          stop.assignedDriverId === request.user.id
+          && stop.ownerAdminId === user.id
+        )
+      )
+    ];
   return response.json({ users: users.map(user => publicUserForViewer(user, request.user)) });
+});
+
+app.get('/api/users/me/driver-application', requireUser, async (request, response) => {
+  if (request.user.role !== 'DRIVER') {
+    return response.status(403).json({ error: 'Only a driver can view a private driver application.' });
+  }
+  try {
+    const encryptedPayload = await loadEncryptedDriverApplication(request.user.id);
+    response.setHeader('Cache-Control', 'private, no-store');
+    return response.json({
+      application: encryptedPayload ? decryptDriverApplication(encryptedPayload) : null
+    });
+  } catch (error) {
+    console.error('Could not load the driver’s private application:', error.message);
+    return response.status(error.status || 503).json({
+      error: error.status === 503
+        ? error.message
+        : 'The private driver profile could not be opened.'
+    });
+  }
+});
+
+app.put('/api/users/me/driver-application', requireUser, async (request, response) => {
+  if (request.user.role !== 'DRIVER') {
+    return response.status(403).json({ error: 'Only a driver can submit a private driver application.' });
+  }
+  const driver = store.users.find(user => user.id === request.user.id && user.role === 'DRIVER');
+  if (!driver) return response.status(404).json({ error: 'Driver account not found.' });
+  if (driver.driverProfileComplete === true) {
+    return response.status(409).json({ error: 'Your driver profile is already complete. Update payout details from your profile.' });
+  }
+  const application = request.body.application;
+  const vehicleType = cleanText(request.body.vehicleType, 32).toUpperCase();
+  const applicationError = validateDriverApplication(application, vehicleType);
+  if (applicationError) return response.status(400).json({ error: applicationError });
+
+  const now = new Date().toISOString();
+  const savedApplication = {
+    ...application,
+    fullName: cleanText(application.fullName, 100),
+    identityNumber: cleanText(application.identityNumber, 64).replace(/\s/g, '').toUpperCase(),
+    nextOfKinIdentityNumber: cleanText(application.nextOfKinIdentityNumber, 64).replace(/\s/g, '').toUpperCase(),
+    phone: cleanText(application.phone, 40),
+    nextOfKinPhone: cleanText(application.nextOfKinPhone, 40),
+    zone: cleanText(application.zone, 100),
+    vehicle: cleanText(application.vehicle, 100),
+    vehicleType,
+    termsSignature: cleanText(application.termsSignature, 100),
+    termsAcceptedAt: now,
+    termsVersion: DRIVER_TERMS_VERSION,
+    dataNoticeAcceptedAt: now,
+    dataNoticeVersion: DRIVER_DATA_NOTICE_VERSION,
+    nextOfKinConsentAt: now,
+    profileCompletedAt: now
+  };
+
+  try {
+    await saveEncryptedDriverApplication(driver.id, savedApplication);
+    Object.assign(driver, {
+      name: savedApplication.fullName,
+      phone: savedApplication.phone,
+      zone: savedApplication.zone,
+      vehicle: savedApplication.vehicle,
+      vehicleType,
+      status: 'ACTIVE',
+      verificationStatus: 'SELF_REGISTERED',
+      driverProfileComplete: true,
+      isAvailable: false,
+      availabilityUpdatedAt: now,
+      routeStatus: 'IDLE'
+    });
+    if (request.dispatchSchemaReady) {
+      await databaseRequestClient.query(`
+        INSERT INTO rider_dispatch_profiles
+          (rider_id, is_active, is_available, vehicle_type, zone_id, updated_at)
+        VALUES ($1, TRUE, FALSE, $2, $3, NOW())
+        ON CONFLICT (rider_id)
+        DO UPDATE SET is_active = TRUE, is_available = FALSE,
+          vehicle_type = EXCLUDED.vehicle_type, zone_id = EXCLUDED.zone_id,
+          updated_at = NOW()
+      `, [driver.id, vehicleType, driver.zone || null]);
+    }
+    writeStore();
+    response.setHeader('Cache-Control', 'private, no-store');
+    return response.json({ user: publicUser(driver) });
+  } catch (error) {
+    console.error('Could not securely save the completed driver profile:', error.message);
+    return response.status(error.status || 503).json({
+      error: error.status === 503
+        ? error.message
+        : 'Your driver profile could not be saved securely. Please try again.'
+    });
+  }
+});
+
+app.get('/api/users/me/payout', requireUser, async (request, response) => {
+  if (request.user.role !== 'DRIVER') {
+    return response.status(403).json({ error: 'Only a driver can view private payout details.' });
+  }
+  try {
+    const encryptedPayload = await loadEncryptedDriverApplication(request.user.id);
+    if (!encryptedPayload) return response.status(404).json({ error: 'Complete your driver profile before adding payout details.' });
+    const application = decryptDriverApplication(encryptedPayload);
+    response.setHeader('Cache-Control', 'private, no-store');
+    return response.json({
+      bankName: application.bankName || '',
+      bankAccountNumber: application.bankAccountNumber || ''
+    });
+  } catch (error) {
+    console.error('Could not load the driver’s payout details:', error.message);
+    return response.status(error.status || 503).json({
+      error: error.status === 503
+        ? error.message
+        : 'Your payout details could not be opened.'
+    });
+  }
+});
+
+app.put('/api/users/me/payout', requireUser, async (request, response) => {
+  if (request.user.role !== 'DRIVER') {
+    return response.status(403).json({ error: 'Only a driver can update private payout details.' });
+  }
+  if (request.user.driverProfileComplete === false) {
+    return response.status(403).json({ error: 'Complete your driver profile before adding payout details.' });
+  }
+  const bankName = cleanText(request.body.bankName, 100);
+  const bankAccountNumber = String(request.body.bankAccountNumber || '').replace(/\s/g, '');
+  if (!bankName || !/^\d{10}$/.test(bankAccountNumber)) {
+    return response.status(400).json({ error: 'Choose a bank and enter a valid 10-digit account number.' });
+  }
+  try {
+    const encryptedPayload = await loadEncryptedDriverApplication(request.user.id);
+    if (!encryptedPayload) return response.status(404).json({ error: 'Complete your driver profile before adding payout details.' });
+    const application = decryptDriverApplication(encryptedPayload);
+    application.bankName = bankName;
+    application.bankAccountNumber = bankAccountNumber;
+    application.payoutDetailsUpdatedAt = new Date().toISOString();
+    await saveEncryptedDriverApplication(request.user.id, application);
+    response.setHeader('Cache-Control', 'private, no-store');
+    return response.json({ ok: true, bankName });
+  } catch (error) {
+    console.error('Could not securely save the driver’s payout details:', error.message);
+    return response.status(error.status || 503).json({
+      error: error.status === 503
+        ? error.message
+        : 'Your payout details could not be saved securely.'
+    });
+  }
 });
 
 app.get('/api/support/threads', requireUser, requireSupportAccess, (request, response) => {
@@ -1842,6 +2291,8 @@ app.get('/api/dispatch/map-riders', requireUser, requireAdmin, rateLimit({ windo
       .map(stop => stop.assignedDriverId));
     for (const rider of store.users) {
       if (rider.role !== 'DRIVER' || rider.status !== 'ACTIVE'
+        || rider.driverProfileComplete === false
+        || rider.ownerAdminId !== request.user.id
         || rider.isAvailable !== true || rider.isTracking !== true
         || busyRiderIds.has(rider.id) || !validCoordinates(rider.lat, rider.lng)) continue;
       const locationUpdatedAt = new Date(rider.locationUpdatedAt || '').getTime();
@@ -1923,14 +2374,25 @@ app.get('/api/dispatch/map-riders', requireUser, requireAdmin, rateLimit({ windo
 });
 
 app.get('/api/marketplace/drivers', requireUser, requireAdmin, rateLimit({ limit: 60 }), async (request, response) => {
-  const pickup = {
-    lat: request.query.lat === undefined ? null : Number(request.query.lat),
-    lng: request.query.lng === undefined ? null : Number(request.query.lng)
+  const queryPoint = (latKey, lngKey) => {
+    const latValue = request.query[latKey];
+    const lngValue = request.query[lngKey];
+    if (latValue === undefined && lngValue === undefined) return null;
+    const point = { lat: Number(latValue), lng: Number(lngValue) };
+    return validCoordinates(point.lat, point.lng) ? point : false;
   };
-  if ((pickup.lat !== null || pickup.lng !== null)
-    && !validCoordinates(pickup.lat, pickup.lng)) {
-    return response.status(400).json({ error: 'The pickup coordinates are invalid.' });
+  const businessOrigin = queryPoint('businessLat', 'businessLng');
+  const pickup = queryPoint(
+    request.query.pickupLat === undefined ? 'lat' : 'pickupLat',
+    request.query.pickupLng === undefined ? 'lng' : 'pickupLng'
+  );
+  if (businessOrigin === false || pickup === false) {
+    return response.status(400).json({ error: 'The driver search coordinates are invalid.' });
   }
+  if (!businessOrigin && !pickup) {
+    return response.status(400).json({ error: 'Set a business origin or delivery pickup before searching for drivers.' });
+  }
+  const searchPoints = [businessOrigin, pickup].filter(Boolean);
   const now = Date.now();
   const activeStatuses = new Set([
     'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'HEADING_TO_PICKUP', 'ARRIVED_AT_PICKUP',
@@ -1948,9 +2410,12 @@ app.get('/api/marketplace/drivers', requireUser, requireAdmin, rateLimit({ limit
   if (request.dispatchSchemaReady) {
     try {
       const { rows } = await databaseRequestClient.query(PUBLIC_MARKETPLACE_DRIVERS_SQL, [
-        pickup.lat ?? 0,
-        pickup.lng ?? 0,
-        pickup.lat !== null && pickup.lng !== null
+        businessOrigin?.lat ?? 0,
+        businessOrigin?.lng ?? 0,
+        pickup?.lat ?? 0,
+        pickup?.lng ?? 0,
+        Boolean(businessOrigin),
+        Boolean(pickup)
       ]);
       candidates = rows;
     } catch (error) {
@@ -1960,12 +2425,14 @@ app.get('/api/marketplace/drivers', requireUser, requireAdmin, rateLimit({ limit
   } else {
     candidates = store.users.filter(driver => {
       if (driver.role !== 'DRIVER' || driver.status !== 'ACTIVE'
+        || driver.driverProfileComplete === false
         || driver.isAvailable !== true || driver.routeStatus !== 'IDLE'
         || driver.isTracking !== true || !validCoordinates(driver.lat, driver.lng)
         || busyDriverIds.has(driver.id)) return false;
       const updatedAt = new Date(driver.locationUpdatedAt || '').getTime();
       if (!Number.isFinite(updatedAt) || now - updatedAt >= 90_000) return false;
-      return pickup.lat === null || distanceInKilometers(pickup, driver) <= 10;
+      const distanceKm = Math.min(...searchPoints.map(point => distanceInKilometers(point, driver)));
+      return distanceKm <= 5;
     }).map(driver => ({
       rider_id: driver.id,
       name: driver.name,
@@ -1975,16 +2442,17 @@ app.get('/api/marketplace/drivers', requireUser, requireAdmin, rateLimit({ limit
       lat: driver.lat,
       lng: driver.lng,
       location_updated_at: driver.locationUpdatedAt,
-      distance_km: pickup.lat === null ? null : distanceInKilometers(pickup, driver)
+      distance_km: Math.min(...searchPoints.map(point => distanceInKilometers(point, driver)))
     }));
   }
   const safeDrivers = candidates
     .filter(driver => !busyDriverIds.has(driver.rider_id)
-      && (pickup.lat === null || Number(driver.distance_km) <= 10))
+      && Number(driver.distance_km) <= 5)
     .map(driver => ({
       id: driver.rider_id,
       name: driver.name || 'Tobs Circuit driver',
       vehicle: driver.vehicle || driver.vehicle_type || '',
+      vehicleType: driver.vehicle_type || '',
       zone: driver.zone || '',
       lat: Number(driver.lat),
       lng: Number(driver.lng),
@@ -2445,6 +2913,18 @@ app.post('/api/stops/:id/offers', requireUser, requireAdmin, async (request, res
   }
 
   const now = Date.now();
+  const rawBusinessOrigin = request.body.businessOrigin;
+  let businessOrigin = null;
+  if (rawBusinessOrigin !== undefined && rawBusinessOrigin !== null) {
+    const point = {
+      lat: Number(rawBusinessOrigin.lat),
+      lng: Number(rawBusinessOrigin.lng)
+    };
+    if (!validCoordinates(point.lat, point.lng)) {
+      return response.status(400).json({ error: 'The saved business search location is invalid.' });
+    }
+    businessOrigin = point;
+  }
   const selectedRiderId = request.body.riderId === undefined
     ? null
     : cleanText(request.body.riderId, 128);
@@ -2503,7 +2983,13 @@ app.post('/api/stops/:id/offers', requireUser, requireAdmin, async (request, res
       let radiusKm = 0;
       let eligibleRiders = [];
       for (const radius of RIDER_DISCOVERY_RADIUS_ROUNDS_KM) {
-        eligibleRiders = await findRelationalCandidates(client, stop.id, radius, selectedRiderId);
+        eligibleRiders = await findRelationalCandidates(
+          client,
+          stop.id,
+          radius,
+          selectedRiderId,
+          businessOrigin
+        );
         if (eligibleRiders.length) {
           radiusKm = radius;
           break;
@@ -2547,6 +3033,7 @@ app.post('/api/stops/:id/offers', requireUser, requireAdmin, async (request, res
         rejectedByIds: [],
         status: 'OPEN',
         searchRadiusKm: radiusKm,
+        businessOrigin,
         createdAt: new Date(now).toISOString(),
         expiresAt
       });
@@ -2595,10 +3082,17 @@ app.post('/api/stops/:id/offers', requireUser, requireAdmin, async (request, res
   }
 
   const busyStatuses = new Set(['DELIVERED', 'FAILED', 'UNDELIVERED', 'DELIVERY_FAILED', 'CANCELLED']);
-  const h3Cells = cellsWithinRadius(stop.pickupLat, stop.pickupLng, 5);
+  const searchPoints = [
+    { lat: stop.pickupLat, lng: stop.pickupLng },
+    ...(businessOrigin ? [businessOrigin] : [])
+  ];
+  const h3Cells = new Set(searchPoints.flatMap(point =>
+    [...cellsWithinRadius(point.lat, point.lng, 5)]
+  ));
   const eligibleRiders = store.users.filter(rider => {
     if (rider.role !== 'DRIVER' || (selectedRiderId && rider.id !== selectedRiderId)
-      || rider.status !== 'ACTIVE' || rider.isAvailable !== true || rider.routeStatus !== 'IDLE'
+      || rider.status !== 'ACTIVE' || rider.driverProfileComplete === false
+      || rider.isAvailable !== true || rider.routeStatus !== 'IDLE'
       || !rider.isTracking || !validCoordinates(rider.lat, rider.lng)) return false;
     if (stop.requiredVehicleType
       && String(rider.vehicleType || '').toUpperCase() !== stop.requiredVehicleType) return false;
@@ -2610,18 +3104,16 @@ app.post('/api/stops/:id/offers', requireUser, requireAdmin, async (request, res
       && !busyStatuses.has(String(item.status || '').toUpperCase())
     );
     if (hasActiveDelivery) return false;
-    return distanceInKilometers(
+    return searchPoints.some(point => distanceInKilometers(
       { lat: rider.lat, lng: rider.lng },
-      { lat: stop.pickupLat, lng: stop.pickupLng }
-    ) <= 5;
+      point
+    ) <= 5);
   }).sort((left, right) =>
-    distanceInKilometers(
-      { lat: left.lat, lng: left.lng },
-      { lat: stop.pickupLat, lng: stop.pickupLng }
-    ) - distanceInKilometers(
-      { lat: right.lat, lng: right.lng },
-      { lat: stop.pickupLat, lng: stop.pickupLng }
-    )
+    Math.min(...searchPoints.map(point =>
+      distanceInKilometers({ lat: left.lat, lng: left.lng }, point)
+    )) - Math.min(...searchPoints.map(point =>
+      distanceInKilometers({ lat: right.lat, lng: right.lng }, point)
+    ))
   );
 
   store.deliveryOffers = store.deliveryOffers.map(offer =>
@@ -2641,6 +3133,8 @@ app.post('/api/stops/:id/offers', requireUser, requireAdmin, async (request, res
     riderIds: eligibleRiders.map(rider => rider.id),
     rejectedByIds: [],
     status: 'OPEN',
+    searchRadiusKm: 5,
+    businessOrigin,
     createdAt: new Date().toISOString(),
     expiresAt: new Date(now + 2 * 60 * 1000).toISOString()
   };
@@ -2903,6 +3397,108 @@ app.patch('/api/dispatch/notifications/:id/read', requireUser, async (request, r
   }
 });
 
+app.get('/api/super-admin/drivers/:id/messages', requireUser, requireSuperAdmin, async (request, response) => {
+  if (!request.driverMessagesReady) return response.status(503).json({ error: 'Rider messaging is unavailable.' });
+  const driver = store.users.find(user =>
+    user.id === request.params.id && user.role === 'DRIVER' && user.status === 'ACTIVE'
+  );
+  if (!driver) return response.status(404).json({ error: 'An active rider conversation is not available.' });
+  try {
+    const { rows } = await databaseRequestClient.query(`
+      SELECT message_id, driver_id, sender_id, body, sent_at
+      FROM superadmin_driver_messages
+      WHERE driver_id = $1
+      ORDER BY sent_at, message_id
+      LIMIT 200
+    `, [driver.id]);
+    response.setHeader('Cache-Control', 'private, no-store');
+    return response.json({ messages: rows });
+  } catch (error) {
+    console.error('Could not load Super Admin rider messages:', error);
+    return response.status(503).json({ error: 'Rider messages could not be loaded.' });
+  }
+});
+
+app.post('/api/super-admin/drivers/:id/messages', requireUser, requireSuperAdmin, rateLimit({ limit: 60 }), async (request, response) => {
+  if (!request.driverMessagesReady) return response.status(503).json({ error: 'Rider messaging is unavailable.' });
+  const driver = store.users.find(user =>
+    user.id === request.params.id && user.role === 'DRIVER' && user.status === 'ACTIVE'
+  );
+  if (!driver) return response.status(404).json({ error: 'An active rider conversation is not available.' });
+  const body = cleanText(request.body.message, 2000);
+  if (!body) return response.status(400).json({ error: 'Type a message before sending.' });
+  const clientMessageId = request.body.clientMessageId || crypto.randomUUID();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientMessageId)) {
+    return response.status(400).json({ error: 'The message retry identifier is invalid.' });
+  }
+  try {
+    const { rows } = await databaseRequestClient.query(`
+      INSERT INTO superadmin_driver_messages (
+        message_id, driver_id, sender_id, client_message_id, body
+      ) VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (sender_id, client_message_id) DO NOTHING
+      RETURNING message_id, driver_id, sender_id, body, sent_at
+    `, [crypto.randomUUID(), driver.id, request.user.id, clientMessageId, body]);
+    const message = rows[0];
+    if (!message) return response.status(409).json({ error: 'This message has already been sent.' });
+    io.to(`user:${driver.id}`).emit('dispatch:driver-message', message);
+    return response.status(201).json({ message });
+  } catch (error) {
+    console.error('Could not send a Super Admin rider message:', error);
+    return response.status(503).json({ error: 'The rider message could not be sent right now.' });
+  }
+});
+
+app.get('/api/driver/super-admin/messages', requireUser, async (request, response) => {
+  if (request.user.role !== 'DRIVER' || !request.driverMessagesReady) {
+    return response.status(403).json({ error: 'This rider conversation is not available.' });
+  }
+  try {
+    const { rows } = await databaseRequestClient.query(`
+      SELECT message_id, driver_id, sender_id, body, sent_at
+      FROM superadmin_driver_messages
+      WHERE driver_id = $1
+      ORDER BY sent_at, message_id
+      LIMIT 200
+    `, [request.user.id]);
+    response.setHeader('Cache-Control', 'private, no-store');
+    return response.json({ messages: rows });
+  } catch (error) {
+    console.error('Could not load the driver Super Admin conversation:', error);
+    return response.status(503).json({ error: 'Super Admin messages could not be loaded.' });
+  }
+});
+
+app.post('/api/driver/super-admin/messages', requireUser, rateLimit({ limit: 60 }), async (request, response) => {
+  if (request.user.role !== 'DRIVER' || !request.driverMessagesReady) {
+    return response.status(403).json({ error: 'This rider conversation is not available.' });
+  }
+  const body = cleanText(request.body.message, 2000);
+  if (!body) return response.status(400).json({ error: 'Type a message before sending.' });
+  const owner = store.users.find(isSuperAdmin);
+  if (!owner) return response.status(503).json({ error: 'The Super Admin account is unavailable.' });
+  const clientMessageId = request.body.clientMessageId || crypto.randomUUID();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientMessageId)) {
+    return response.status(400).json({ error: 'The message retry identifier is invalid.' });
+  }
+  try {
+    const { rows } = await databaseRequestClient.query(`
+      INSERT INTO superadmin_driver_messages (
+        message_id, driver_id, sender_id, client_message_id, body
+      ) VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (sender_id, client_message_id) DO NOTHING
+      RETURNING message_id, driver_id, sender_id, body, sent_at
+    `, [crypto.randomUUID(), request.user.id, request.user.id, clientMessageId, body]);
+    const message = rows[0];
+    if (!message) return response.status(409).json({ error: 'This message has already been sent.' });
+    io.to(`user:${owner.id}`).emit('dispatch:driver-message', message);
+    return response.status(201).json({ message });
+  } catch (error) {
+    console.error('Could not send a rider message to Super Admin:', error);
+    return response.status(503).json({ error: 'Your message could not be sent right now.' });
+  }
+});
+
 app.get('/api/dispatch/deliveries/:id/messages', requireUser, rateLimit({ limit: 120 }), async (request, response) => {
   if (!request.dispatchSchemaReady) return response.status(503).json({ error: 'Delivery messaging is unavailable.' });
   if (!['ADMIN', 'DRIVER'].includes(request.user.role)) {
@@ -3132,6 +3728,13 @@ async function getTwilioIceServers() {
   }));
 }
 
+function driverIdFromConversationId(conversationId) {
+  const match = typeof conversationId === 'string'
+    ? conversationId.match(/^driver:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i)
+    : null;
+  return match?.[1] || null;
+}
+
 async function resolveCallContext(request) {
   const { deliveryId, supportThreadId, targetUserId } = request.body;
   const user = request.user;
@@ -3174,7 +3777,28 @@ async function resolveCallContext(request) {
 
   if (typeof supportThreadId === 'string' && supportThreadId) {
     const thread = store.supportThreads.find(item => item.id === supportThreadId);
-    if (!thread) return null;
+    if (!thread) {
+      const driverId = driverIdFromConversationId(supportThreadId);
+      const driver = driverId && store.users.find(item =>
+        item.id === driverId && item.role === 'DRIVER' && item.status === 'ACTIVE'
+      );
+      const owner = store.users.find(isSuperAdmin);
+      if (!driver || !owner) return null;
+      const recipientId = verifiedOwner
+        ? driver.id
+        : user.role === 'DRIVER' && user.id === driver.id
+          ? owner.id
+          : null;
+      if (!recipientId) return null;
+      return {
+        deliveryId: null,
+        supportThreadId,
+        businessId: null,
+        riderId: driver.id,
+        callerId: user.id,
+        recipientId
+      };
+    }
     let recipientId;
     if (verifiedOwner) {
       recipientId = thread.userId;
@@ -3237,8 +3861,18 @@ app.get('/api/dispatch/calls', requireUser, rateLimit({ limit: 120 }), async (re
   try {
     if (supportThreadId) {
       const thread = store.supportThreads.find(item => item.id === supportThreadId);
-      if (!thread || (!verifiedOwner && thread.userId !== request.user.id)) {
-        return response.status(403).json({ error: 'This call history is not available to your account.' });
+      if (thread) {
+        if (!verifiedOwner && thread.userId !== request.user.id) {
+          return response.status(403).json({ error: 'This call history is not available to your account.' });
+        }
+      } else {
+        const driverId = driverIdFromConversationId(supportThreadId);
+        const driver = driverId && store.users.find(item =>
+          item.id === driverId && item.role === 'DRIVER' && item.status === 'ACTIVE'
+        );
+        if (!driver || (!verifiedOwner && (request.user.role !== 'DRIVER' || driver.id !== request.user.id))) {
+          return response.status(403).json({ error: 'This call history is not available to your account.' });
+        }
       }
     } else if (!verifiedOwner) {
       const participant = await databaseRequestClient.query(`
@@ -3501,14 +4135,22 @@ app.post('/api/delivery-offers/:id/accept', requireUser, async (request, respons
     && !['DELIVERED', 'FAILED', 'UNDELIVERED', 'DELIVERY_FAILED', 'CANCELLED']
       .includes(String(item.status || '').toUpperCase())
   );
+  const searchPoints = [
+    { lat: stop.pickupLat, lng: stop.pickupLng },
+    ...(offer.businessOrigin ? [offer.businessOrigin] : [])
+  ];
+  const offerRadiusKm = Number.isFinite(offer.searchRadiusKm)
+    ? Math.min(5, offer.searchRadiusKm)
+    : 5;
+  const isWithinOfferRadius = rider && searchPoints.some(point =>
+    distanceInKilometers({ lat: rider.lat, lng: rider.lng }, point) <= offerRadiusKm
+  );
   if (!rider || rider.status !== 'ACTIVE' || rider.isAvailable !== true || rider.routeStatus !== 'IDLE'
+    || rider.driverProfileComplete === false
     || !rider.isTracking || !validCoordinates(rider.lat, rider.lng)
     || !Number.isFinite(locationUpdatedAt) || now - locationUpdatedAt >= 90_000
     || riderHasActiveDelivery
-    || distanceInKilometers(
-      { lat: rider.lat, lng: rider.lng },
-      { lat: stop.pickupLat, lng: stop.pickupLng }
-    ) > (Number.isFinite(offer.searchRadiusKm) ? offer.searchRadiusKm : 5)) {
+    || !isWithinOfferRadius) {
     return response.status(409).json({
       error: 'You are no longer eligible for this offer. Confirm availability and live location, then check for another delivery.'
     });
@@ -3963,6 +4605,12 @@ app.put('/api/stops', requireUser, async (request, response) => {
   writeStore();
   const users = store.users.filter(user =>
     user.id === ownerAdminId || user.ownerAdminId === ownerAdminId
+    || (user.role === 'DRIVER' && store.stops.some(stop =>
+      stop.ownerAdminId === ownerAdminId
+      && stop.assignedDriverId === user.id
+      && ['RIDER_ACCEPTED', 'HEADING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'HEADING_TO_DESTINATION']
+        .includes(dispatchStatusFromStop(stop))
+    ))
   );
   return response.json({ stops: sanitizedStops, users: users.map(user => publicUserForViewer(user, request.user)) });
 });
@@ -3978,6 +4626,9 @@ app.patch('/api/users/me/availability', requireUser, async (request, response) =
   if (!driver) return response.status(404).json({ error: 'Driver account not found.' });
   if (request.body.isAvailable && driver.status !== 'ACTIVE') {
     return response.status(403).json({ error: 'Your driver account must be approved before going online.' });
+  }
+  if (request.body.isAvailable && driver.driverProfileComplete === false) {
+    return response.status(403).json({ error: 'Complete your driver profile before going online.' });
   }
 
   driver.isAvailable = request.body.isAvailable;
@@ -4016,6 +4667,9 @@ app.patch('/api/users/me/availability', requireUser, async (request, response) =
 app.patch('/api/users/me/dispatch-profile', requireUser, async (request, response) => {
   if (request.user.role !== 'DRIVER') {
     return response.status(403).json({ error: 'Only a rider can update dispatch capacity and consent.' });
+  }
+  if (request.user.driverProfileComplete === false) {
+    return response.status(403).json({ error: 'Complete your driver profile before updating dispatch capacity.' });
   }
   const { maxPackageCount, maxPackageWeightKg, maxPackageSize, acceptsCrossBusinessBatches } = request.body;
   const validSizes = new Set(['SMALL', 'MEDIUM', 'LARGE']);
@@ -4120,6 +4774,9 @@ app.patch('/api/users/me/location', requireUser, async (request, response) => {
   }
   const user = store.users.find(item => item.id === request.user.id);
   if (!user) return response.status(404).json({ error: 'Driver account not found.' });
+  if (isTracking && user.driverProfileComplete === false) {
+    return response.status(403).json({ error: 'Complete your driver profile before sharing live location.' });
+  }
   if (isTracking && user.status !== 'ACTIVE') {
     return response.status(403).json({ error: 'Your driver account must be approved before sharing a marketplace location.' });
   }
@@ -4190,8 +4847,6 @@ app.patch('/api/users/me/location', requireUser, async (request, response) => {
   }
   writeStore();
   const activeDelivery = store.stops.find(stop =>
-    (usesDatabase ? stop.ownerAdminId === user.ownerAdminId : true)
-    &&
     stop.assignedDriverId === user.id
     && ['RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'HEADING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'HEADING_TO_DESTINATION']
       .includes(stop.dispatchStatus)
@@ -4211,28 +4866,13 @@ app.patch('/api/users/me/location', requireUser, async (request, response) => {
     deliveryId: activeDelivery?.id || null,
     dispatchStatus: activeDelivery?.dispatchStatus || null,
     locationUpdatedAt: user.locationUpdatedAt,
-    publicMarket: user.isAvailable === true && !activeDelivery && user.isTracking
   };
-  if (user.isAvailable === true && !activeDelivery && user.isTracking) {
-    response.once('finish', () => {
-      if (response.statusCode < 400) {
-        io.to('marketplace:businesses').emit('driver:location', locationEvent);
-      }
-    });
-  } else {
-    response.once('finish', () => {
-      if (response.statusCode < 400) {
-        io.to('marketplace:businesses').emit('driver:unavailable', { id: user.id });
-      }
-    });
-  }
   if (activeDelivery) {
     response.once('finish', () => {
       if (response.statusCode < 400) {
         io.to(`business:${activeDelivery.ownerAdminId}`).emit('driver:location', {
           ...locationEvent,
-          businessId: activeDelivery.ownerAdminId,
-          publicMarket: false
+          businessId: activeDelivery.ownerAdminId
         });
       }
     });

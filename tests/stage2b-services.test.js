@@ -45,8 +45,8 @@ test('H3 search coverage includes central and nearby cells at each supported rad
   }
 });
 
-test('rider discovery includes every eligible rider within five km before expanding to ten', () => {
-  assert.deepEqual(RIDER_DISCOVERY_RADIUS_ROUNDS_KM, [5, 10]);
+test('rider discovery is limited to the five-kilometre search radius', () => {
+  assert.deepEqual(RIDER_DISCOVERY_RADIUS_ROUNDS_KM, [5]);
 });
 
 test('delivery optimizer groups at most three nearby orders and honors road-route deadlines', async () => {

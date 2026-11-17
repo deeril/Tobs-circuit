@@ -584,6 +584,55 @@ textarea {
   color: #171915 !important;
 }
 
+#root .app-shell.is-route-planner .admin-advanced-route-settings,
+#root .app-shell.is-route-planner .admin-unassigned-stops {
+  border: 1px solid var(--tc-line);
+  border-radius: 14px;
+  background: #fff;
+  color: #25271f;
+  box-shadow: 0 3px 12px rgb(22 26 15 / 4%);
+}
+
+#root .app-shell.is-route-planner .admin-advanced-route-settings {
+  padding: 10px 12px;
+  font-size: 11px;
+}
+
+#root .app-shell.is-route-planner .admin-advanced-route-settings > summary,
+#root .app-shell.is-route-planner .admin-unassigned-stops > summary {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  list-style: none;
+}
+
+#root .app-shell.is-route-planner .admin-advanced-route-settings > summary::-webkit-details-marker,
+#root .app-shell.is-route-planner .admin-unassigned-stops > summary::-webkit-details-marker {
+  display: none;
+}
+
+#root .app-shell.is-route-planner .admin-advanced-route-settings > summary::after,
+#root .app-shell.is-route-planner .admin-unassigned-stops > summary::after {
+  content: "+";
+  color: #717171;
+  font-size: 16px;
+  line-height: 1;
+}
+
+#root .app-shell.is-route-planner .admin-advanced-route-settings[open] > summary::after,
+#root .app-shell.is-route-planner .admin-unassigned-stops[open] > summary::after {
+  content: "-";
+}
+
+#root .app-shell.is-route-planner .admin-unassigned-stops {
+  color: #92400e;
+}
+
 #root .app-shell.is-route-planner .admin-route-actions > div:first-child button:first-child {
   border-color: var(--tc-business) !important;
   border-radius: 14px !important;
@@ -846,8 +895,9 @@ textarea {
   }
 
   #root .app-shell.is-route-planner .admin-fleet-card > div:last-child {
-    max-height: none;
-    overflow: visible;
+    max-height: 9rem;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   #root .app-shell.is-route-planner > .admin-dashboard-sidebar.is-collapsed {
@@ -858,6 +908,10 @@ textarea {
 }
 
 @media (max-width: 767px) {
+  #root .app-shell.is-route-planner .admin-sidebar-controls > section:first-child {
+    display: none;
+  }
+
   #root .app-shell.is-route-planner,
   #root .app-shell.driver-dashboard {
     position: relative;
@@ -874,8 +928,8 @@ textarea {
     z-index: 20;
     width: auto !important;
     max-width: none !important;
-    height: min(62dvh, 580px) !important;
-    max-height: min(62dvh, 580px) !important;
+    height: min(66dvh, 640px) !important;
+    max-height: min(66dvh, 640px) !important;
     min-height: 0;
     margin: 0;
     flex: 0 0 auto !important;
@@ -959,5 +1013,261 @@ textarea {
     height: 100dvh;
     margin: 0;
     border-radius: 0;
+  }
+}
+
+.delivery-booking-sheet {
+  padding-top: 0;
+  transition: max-height 240ms ease;
+}
+
+.delivery-booking-sheet.is-rider-directory {
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding-top: env(safe-area-inset-top);
+  border: 0;
+  border-radius: 0;
+  transition: none;
+}
+
+.delivery-booking-sheet.is-rider-directory .delivery-booking-sheet-content {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
+.delivery-booking-sheet.is-rider-profile {
+  height: 100dvh;
+  max-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  border: 0;
+  border-radius: 0;
+  transition: none;
+}
+
+.delivery-booking-sheet.is-rider-chat {
+  height: 100dvh;
+  max-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  border: 0;
+  border-radius: 0;
+  transition: none;
+}
+
+.delivery-rider-profile-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.delivery-rider-chat-content {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.delivery-rider-chat-stage {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px;
+}
+
+.delivery-chat-panel-full-page {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.delivery-chat-panel-full-page > form {
+  flex: 0 0 auto;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.delivery-chat-messages-full-page {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
+.delivery-rider-profile-header {
+  z-index: 2;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 64px;
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e8e7eb;
+  background: #fff;
+}
+
+.delivery-rider-profile-layout {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.delivery-rider-map {
+  position: relative;
+  flex: 0 0 42dvh;
+  min-height: 250px;
+  max-height: 48dvh;
+  overflow: hidden;
+  background: #eef0f3;
+}
+
+.delivery-rider-live-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid rgb(226 232 240 / 85%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 94%);
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgb(15 23 42 / 12%);
+}
+
+.delivery-rider-live-badge span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.delivery-rider-live-badge span.is-live {
+  background: #16a34a;
+  box-shadow: 0 0 0 4px rgb(22 163 74 / 14%);
+}
+
+.delivery-rider-map-notice {
+  position: absolute;
+  right: 12px;
+  bottom: 14px;
+  left: 12px;
+  padding: 11px 14px;
+  border: 1px solid rgb(226 232 240 / 85%);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 94%);
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgb(15 23 42 / 12%);
+}
+
+.delivery-rider-profile-details {
+  flex: 1 1 0%;
+  min-height: 0;
+  padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.delivery-rider-tracking-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px 0;
+  border-top: 1px solid #f1f0f3;
+  border-bottom: 1px solid #f1f0f3;
+}
+
+.delivery-rider-tracking-summary div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.delivery-rider-tracking-summary span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.delivery-rider-tracking-summary strong {
+  overflow: hidden;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 640px) {
+  .delivery-booking-sheet.is-rider-directory {
+    inset: auto 1rem 1rem;
+    width: calc(100% - 2rem);
+    max-width: 42rem;
+    height: auto;
+    max-height: 82dvh;
+    margin-inline: auto;
+    padding-top: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 1.5rem;
+  }
+
+  .delivery-booking-sheet.is-rider-profile {
+    inset: 1rem;
+    width: calc(100% - 2rem);
+    max-width: 42rem;
+    height: calc(100dvh - 2rem);
+    max-height: none;
+    margin: auto;
+    padding-top: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 1.5rem;
+  }
+
+  .delivery-booking-sheet.is-rider-chat {
+    inset: 1rem;
+    width: calc(100% - 2rem);
+    max-width: 42rem;
+    height: calc(100dvh - 2rem);
+    max-height: none;
+    margin: auto;
+    padding-top: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 1.5rem;
+  }
+}
+
+.delivery-booking-sheet-handle {
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  cursor: grab;
+}
+
+.delivery-booking-sheet-handle span {
+  width: 42px;
+  height: 5px;
+  border-radius: 999px;
+  background: #d3cedb;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .delivery-booking-sheet {
+    transition: none;
   }
 }

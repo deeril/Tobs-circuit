@@ -1,7 +1,7 @@
 import { getHexagonEdgeLengthAvg, gridDisk, latLngToCell } from 'h3-js';
 
 export const RIDER_SEARCH_RADII_KM = [3, 5, 10];
-export const RIDER_DISCOVERY_RADIUS_ROUNDS_KM = [5, 10];
+export const RIDER_DISCOVERY_RADIUS_ROUNDS_KM = [5];
 export const RIDER_H3_RESOLUTION = 7;
 
 export function cellsWithinRadius(lat, lng, radiusKm) {

@@ -387,7 +387,7 @@ button {
 }
 
 .maplibre-fleet-map .maplibre-current-location-marker {
-  z-index: 3;
+  z-index: 15;
   width: 18px;
   min-width: 18px;
   height: 18px;

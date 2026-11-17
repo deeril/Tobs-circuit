@@ -1,7 +1,5 @@
 export function applyBusinessRiderLocation(riders, event, businessId) {
-  const isPublicMarketplaceUpdate = event?.publicMarket === true && event.assigned !== true;
-  if (!event || typeof event.id !== 'string'
-    || (!isPublicMarketplaceUpdate && event.businessId !== businessId)) return riders;
+  if (!event || typeof event.id !== 'string' || event.businessId !== businessId) return riders;
 
   const existing = riders.find(rider => rider.id === event.id);
   const nextRider = {

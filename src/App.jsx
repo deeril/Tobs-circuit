@@ -8,31 +8,121 @@ import SuperAdminDashboard from './SuperAdminDashboard.jsx';
 const CustomerCareDashboard = lazy(() => import('./CustomerCareDashboard.jsx'));
 import DeliveryChatPanel from './DeliveryChatPanel.jsx';
 import DispatchCallControls from './DispatchCallControls.jsx';
+import driverTermsText from './driver-terms.md?raw';
 import { applyBusinessRiderLocation } from './dispatch-map-state.js';
 import {
-  Activity, Home, MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2, Bike, CarFront, Motorbike, Tag,
+  MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2, Tag,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
-  ChevronLeft, Target, Users, UserPlus, Shield, PenTool,
- Send, ArrowDownUp, Copy, LogOut, User, Phone, ArrowUp, ArrowDown,
+  ChevronLeft, Target, Users, Shield, PenTool,
+ ArrowDownUp, LogOut, User, Phone, ArrowUp, ArrowDown,
  MessageSquare, Menu, X,
  BellRing, Eye, EyeOff, Maximize2, Minimize2
 } from 'lucide-react';
 
 const startDepot = { id: 'depot_1', name: 'Ikeja Central Depot', lat: 6.6018, lng: 3.3515 };
+const DRIVER_TERMS_VERSION = 'tobs-driver-rider-terms-2026-11-16-v1';
+const DRIVER_DATA_NOTICE_VERSION = 'tobs-driver-data-notice-2026-11-16-v1';
+const EMPTY_DRIVER_APPLICATION = {
+  fullName: '',
+  identityType: 'NIN',
+  identityNumber: '',
+  motherName: '',
+  fatherName: '',
+  phone: '',
+  nextOfKinName: '',
+  nextOfKinPhone: '',
+  nextOfKinIdentityType: 'NIN',
+  nextOfKinIdentityNumber: '',
+  residentialAddress: '',
+  zone: '',
+  vehicleType: '',
+  vehicle: '',
+  driverLicenseNumber: '',
+  vehicleMake: '',
+  vehicleModel: '',
+  vehicleYear: '',
+  vehicleRegistration: '',
+  driverPhoto: null,
+  nextOfKinPhoto: null,
+  nextOfKinConsent: false,
+  dataNoticeAccepted: false,
+  termsAccepted: false,
+  termsSignature: ''
+};
+
+function DeliveryVehicleIcon({ vehicleType, className, style }) {
+  const accent = style?.color || '#22a65a';
+  return (
+    <svg
+      viewBox="0 0 96 64"
+      className={className}
+      style={style}
+      fill="none"
+      role="img"
+      aria-hidden="true"
+    >
+      {vehicleType === 'BICYCLE' ? (
+        <>
+          <circle cx="19" cy="47" r="11" stroke="#1f2937" strokeWidth="3" />
+          <circle cx="55" cy="47" r="11" stroke="#1f2937" strokeWidth="3" />
+          <path d="M19 47 31 27l13 20H19l10-15h20l6 15M28 32h-8m31 0h8" stroke={accent} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="m38 20 8 4 5 10-7 2-7-8-7 8-5-3 9-12Z" fill={accent} />
+          <circle cx="39" cy="15" r="5" fill="#1f2937" />
+          <path d="M68 20h15v14H68z" rx="2" fill={accent} />
+          <path d="M72 24h7m-7 4h7" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+        </>
+      ) : vehicleType === 'MOTORCYCLE' ? (
+        <>
+          <circle cx="20" cy="48" r="10" stroke="#1f2937" strokeWidth="4" />
+          <circle cx="72" cy="48" r="10" stroke="#1f2937" strokeWidth="4" />
+          <path d="m20 48 10-16h18l12 16H35l8-12h13l9-11h8" stroke={accent} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M39 24h14l8 7H36l3-7Z" fill="#1f2937" />
+          <path d="m47 23 8-10 10 5 2 10H51l-4-5Z" fill={accent} />
+          <circle cx="53" cy="10" r="5" fill="#1f2937" />
+          <path d="M65 19h17v18H65z" rx="2" fill={accent} />
+          <path d="M69 24h9m-9 5h9" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+        </>
+      ) : (
+        <>
+          <path d="M9 19h49v31H9z" rx="3" fill="#d9a25c" stroke="#805525" strokeWidth="2" />
+          <path d="M58 31h17l12 11v8H58V31Z" fill="#e7edf0" stroke="#475569" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M66 35h8l7 7H66v-7Z" fill="#9dc6d8" />
+          <path d="M15 26h36m-36 6h36m-36 6h36" stroke="#b57c38" strokeWidth="1.5" />
+          <circle cx="26" cy="51" r="6" fill="#1f2937" />
+          <circle cx="70" cy="51" r="6" fill="#1f2937" />
+          <circle cx="26" cy="51" r="2" fill="#cbd5e1" />
+          <circle cx="70" cy="51" r="2" fill="#cbd5e1" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 const DELIVERY_TYPES = [
-  { vehicleType: 'BICYCLE', label: 'Bicycle', description: 'Bicycle delivery', Icon: Bike },
-  { vehicleType: 'MOTORCYCLE', label: 'Bike', description: 'Motorcycle delivery', Icon: Motorbike },
-  { vehicleType: 'CAR', label: 'Car', description: 'Car delivery', Icon: CarFront }
+  { vehicleType: 'BICYCLE', label: 'Bicycle', description: 'Bicycle delivery', color: '#22a65a', Icon: DeliveryVehicleIcon },
+  { vehicleType: 'MOTORCYCLE', label: 'Bike', description: 'Motorcycle delivery', color: '#22a65a', Icon: DeliveryVehicleIcon },
+  { vehicleType: 'CAR', label: 'Car', description: 'Car delivery', color: '#c69a1b', Icon: DeliveryVehicleIcon }
 ];
 let csrfTokenCache = '';
 let csrfTokenRequest = null;
+
+function readImageAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('The selected photo could not be read.'));
+    reader.readAsDataURL(file);
+  });
+}
 const PREVIEW_ADDRESS_SUGGESTIONS = [
   { properties: { name: 'Ikeja', city: 'Lagos' }, geometry: { coordinates: [3.3515, 6.6018] } },
   { properties: { name: 'Yaba', city: 'Lagos' }, geometry: { coordinates: [3.3711, 6.5095] } },
   { properties: { name: 'Victoria Island', city: 'Lagos' }, geometry: { coordinates: [3.4219, 6.4281] } }
 ];
 
-function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, inputStyle, id }) {
+function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, inputStyle, id, proximity }) {
+  const proximityLat = Number.isFinite(proximity?.lat) ? proximity.lat : null;
+  const proximityLng = Number.isFinite(proximity?.lng) ? proximity.lng : null;
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -58,17 +148,28 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
         return;
       }
       try {
+        const searchLocation = proximityLat !== null && proximityLng !== null
+          ? { lat: proximityLat, lng: proximityLng }
+          : { lat: 6.5244, lng: 3.3792 };
         const params = new URLSearchParams({
           q: query,
           limit: '5',
-          lat: '6.5244',
-          lon: '3.3792'
+          lat: String(searchLocation.lat),
+          lon: String(searchLocation.lng)
         });
         const data = await apiRequest(`/api/geocode/search?${params}`, {
           method: 'GET',
           signal: controller.signal
         });
-        setSuggestions(data.features || []);
+        const features = data.features || [];
+        setSuggestions(proximityLat !== null && proximityLng !== null
+          ? [...features].sort((left, right) => {
+            const [leftLng, leftLat] = left.geometry.coordinates;
+            const [rightLng, rightLat] = right.geometry.coordinates;
+            return calcHaversineDistance(proximityLat, proximityLng, leftLat, leftLng)
+              - calcHaversineDistance(proximityLat, proximityLng, rightLat, rightLng);
+          })
+          : features);
       } catch (lookupError) {
         if (!controller.signal.aborted) {
           console.error('Address suggestion lookup error:', lookupError);
@@ -84,14 +185,14 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [value, isOpen]);
+  }, [value, isOpen, proximityLat, proximityLng]);
 
   const getSuggestionLabel = (feature) => {
     const properties = feature.properties;
+    const streetAddress = [properties.housenumber, properties.street].filter(Boolean).join(' ');
     const parts = [
       properties.name,
-      properties.housenumber,
-      properties.street,
+      streetAddress || properties.street,
       properties.district,
       properties.city,
       properties.county,
@@ -101,8 +202,31 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
     return parts.filter((part, index) => parts.indexOf(part) === index).join(', ');
   };
 
+  const getSuggestionDetails = feature => {
+    const properties = feature.properties;
+    const streetAddress = [properties.housenumber, properties.street].filter(Boolean).join(' ');
+    const primaryParts = [properties.name, streetAddress || properties.street]
+      .filter(Boolean)
+      .filter((part, index, parts) => parts.indexOf(part) === index);
+    const secondaryParts = [
+      properties.district,
+      properties.city,
+      properties.county,
+      properties.state,
+      properties.country
+    ]
+      .filter(Boolean)
+      .filter((part, index, parts) =>
+        parts.indexOf(part) === index && !primaryParts.includes(part)
+      );
+    return {
+      primary: primaryParts.join(', ') || getSuggestionLabel(feature),
+      secondary: secondaryParts.join(', ')
+    };
+  };
+
   return (
-    <div className="relative min-w-0 flex-1">
+    <div className="relative z-20 min-w-0 flex-1">
       <input
         id={id}
         type="text"
@@ -120,31 +244,58 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
         autoComplete="off"
         aria-autocomplete="list"
         aria-expanded={isOpen && suggestions.length > 0}
+        aria-controls={id ? `${id}-suggestions` : undefined}
         className={inputClassName}
         style={inputStyle}
       />
       {isOpen && (isLoading || error || suggestions.length > 0 || value.trim().length >= 2) && (
-        <div className="absolute z-30 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-xl">
+        <div
+          id={id ? `${id}-suggestions` : undefined}
+          role="listbox"
+          className="absolute left-0 right-0 z-50 mt-1 max-h-60 min-w-[min(100vw,18rem)] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"
+        >
           {isLoading && <p className="px-3 py-2 text-[10px] text-slate-400">Searching addresses...</p>}
           {error && <p className="px-3 py-2 text-[10px] text-rose-300">{error}</p>}
           {suggestions.map((feature, index) => {
-            const label = getSuggestionLabel(feature);
+            const details = getSuggestionDetails(feature);
+            const label = [details.primary, details.secondary].filter(Boolean).join(', ');
             return (
               <button
                 key={`${feature.properties.osm_type}-${feature.properties.osm_id}-${index}`}
                 type="button"
-                onMouseDown={(event) => event.preventDefault()}
+                role="option"
+                aria-selected="false"
+                onPointerDown={(event) => event.preventDefault()}
                 onClick={() => {
                   const [lng, lat] = feature.geometry.coordinates;
                   onSelect(label, { lat, lng });
                   setIsOpen(false);
                 }}
-                className="block w-full border-b border-slate-800 px-3 py-2 text-left text-[11px] text-slate-200 last:border-0 hover:bg-slate-800"
+                className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left text-slate-800 last:border-0 hover:bg-slate-50"
               >
-                <span className="flex items-start gap-2">
-                  <MapPin className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
-                  <span>{label}</span>
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#eef0f0] text-slate-600">
+                  <MapPin className="h-5 w-5" aria-hidden="true" />
                 </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words text-[13px] font-semibold leading-snug">
+                    {details.primary}
+                  </span>
+                  {details.secondary && (
+                    <span className="mt-1 block break-words text-[11px] leading-snug text-slate-500">
+                      {details.secondary}
+                    </span>
+                  )}
+                </span>
+                {proximityLat !== null && proximityLng !== null && (
+                  <span className="shrink-0 self-start pt-1 text-[10px] font-medium text-slate-500">
+                    {calcHaversineDistance(
+                      proximityLat,
+                      proximityLng,
+                      feature.geometry.coordinates[1],
+                      feature.geometry.coordinates[0]
+                    ).toFixed(1)} km
+                  </span>
+                )}
               </button>
             );
           })}
@@ -409,13 +560,6 @@ function calcHaversineDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-function getInviteApplicationUrl(invite) {
-  if (invite.applicationUrl) return invite.applicationUrl;
-  const url = new URL(window.location.pathname, window.location.origin);
-  url.searchParams.set('invite', invite.token);
-  return url.toString();
-}
-
 const DEFAULT_MAPLIBRE_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 const MAPLIBRE_STYLE_URL = import.meta.env.VITE_MAPLIBRE_STYLE_URL || DEFAULT_MAPLIBRE_STYLE_URL;
 const MapLibreFleetMap = lazy(() => import('./MapLibreFleetMap.jsx'));
@@ -526,7 +670,6 @@ function RoutePlannerApp() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isPreviewSession, setIsPreviewSession] = useState(false);
   const [users, setUsers] = useState([]);
-  const [invites, setInvites] = useState([]);
 
   const [stops, setStops] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.STOPS);
@@ -561,7 +704,7 @@ function RoutePlannerApp() {
 
   // Auth Form State
   const [authTab, setAuthTab] = useState(invitationToken ? 'REGISTER' : 'LOGIN'); // 'LOGIN' or 'REGISTER'
-  const [authRole, setAuthRole] = useState(invitationToken ? 'DRIVER' : 'ADMIN'); // 'ADMIN' or 'DRIVER'
+  const [authRole, setAuthRole] = useState('DRIVER'); // 'ADMIN' or 'DRIVER'
   const [rememberLogin, setRememberLogin] = useState(true);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [showLoginPassword, setShowLoginPassword] = useState(false);
@@ -592,6 +735,13 @@ const [registerForm, setRegisterForm] = useState(() => ({
   vehicleType: '',
   phone: ''
 }));
+const [driverApplicationForm, setDriverApplicationForm] = useState(EMPTY_DRIVER_APPLICATION);
+const [driverApplicationSaving, setDriverApplicationSaving] = useState(false);
+const [driverApplicationError, setDriverApplicationError] = useState('');
+const [payoutForm, setPayoutForm] = useState({ bankName: '', bankAccountNumber: '' });
+const [payoutSaving, setPayoutSaving] = useState(false);
+const [payoutNotice, setPayoutNotice] = useState('');
+const [payoutError, setPayoutError] = useState('');
 
 const [showRegisterPassword, setShowRegisterPassword] = useState(false);
 const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -639,10 +789,6 @@ const [authError, setAuthError] = useState('');
             ? previous
             : routeData.stops);
           setRouteDataReady(true);
-        }
-        if (currentUser.role === 'ADMIN') {
-          const { invitations } = await apiRequest('/api/invitations');
-          if (!cancelled) setInvites(invitations);
         }
       } catch (error) {
         console.error('Could not refresh account data:', error);
@@ -964,10 +1110,18 @@ const [authError, setAuthError] = useState('');
   }, []);
 
   // Modals
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [showDeliveryTypePicker, setShowDeliveryTypePicker] = useState(false);
+  const [showDeliveryTypePicker, setShowDeliveryTypePicker] = useState(true);
   const [deliveryBannerVisible, setDeliveryBannerVisible] = useState(true);
   const [showAddStopModal, setShowAddStopModal] = useState(false);
+  const [showDeliveryMap, setShowDeliveryMap] = useState(false);
+  const [deliveryBookingStep, setDeliveryBookingStep] = useState('RIDE');
+  const [deliveryBookingStopId, setDeliveryBookingStopId] = useState('');
+  const [deliveryBookingSheetExpanded, setDeliveryBookingSheetExpanded] = useState(true);
+  const [selectedBookingRiderId, setSelectedBookingRiderId] = useState('');
+  const [riderProfileReturnToFleet, setRiderProfileReturnToFleet] = useState(false);
+  const [selectedRiderChatDeliveryId, setSelectedRiderChatDeliveryId] = useState('');
+  const [riderDirectoryFilter, setRiderDirectoryFilter] = useState('OUT_FOR_DELIVERY');
+  const deliverySheetPointerYRef = useRef(null);
   const [deliveryOfferError, setDeliveryOfferError] = useState('');
   const [creatingDelivery, setCreatingDelivery] = useState(false);
   const [deliveryOffers, setDeliveryOffers] = useState([]);
@@ -975,11 +1129,10 @@ const [authError, setAuthError] = useState('');
   const [cancellingAssignmentId, setCancellingAssignmentId] = useState('');
   const [dispatchMapRiders, setDispatchMapRiders] = useState([]);
   const [dispatchMapError, setDispatchMapError] = useState('');
+  const [marketplaceResult, setMarketplaceResult] = useState({ key: '', drivers: [] });
+  const [marketplaceError, setMarketplaceError] = useState('');
   const [routeSequenceSaving, setRouteSequenceSaving] = useState(false);
   const [routeSequenceSummary, setRouteSequenceSummary] = useState(null);
-  const [deliveryEstimate, setDeliveryEstimate] = useState(null);
-  const [deliveryEstimateError, setDeliveryEstimateError] = useState('');
-  const estimateRequestKeyRef = useRef('');
   const [deliverySearchFeedback, setDeliverySearchFeedback] = useState(null);
   const [respondingOfferId, setRespondingOfferId] = useState('');
   const [dispatchNotifications, setDispatchNotifications] = useState([]);
@@ -1009,13 +1162,6 @@ const [authError, setAuthError] = useState('');
     acceptsCrossBusinessBatches: currentUser?.acceptsCrossBusinessBatches === true
   });
   const [podStop, setPodStop] = useState(null);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [generatedInviteId, setGeneratedInviteId] = useState('');
-  const [inviteError, setInviteError] = useState('');
-  const [inviteNotice, setInviteNotice] = useState('');
-  const [inviteEmailFailed, setInviteEmailFailed] = useState(false);
-  const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [newStopForm, setNewStopForm] = useState({
     name: '',
     receiverPhone: '',
@@ -1036,6 +1182,8 @@ const [authError, setAuthError] = useState('');
     riderEarningsNgn: '',
     deadlineAt: ''
   });
+  const [pickupLocationLoading, setPickupLocationLoading] = useState(false);
+  const [pickupLocationError, setPickupLocationError] = useState('');
   const selectedDeliveryType = DELIVERY_TYPES.find(
     deliveryType => deliveryType.vehicleType === newStopForm.requiredVehicleType
   ) || null;
@@ -1056,62 +1204,6 @@ const [authError, setAuthError] = useState('');
       })
       .slice(0, 3);
   }, [stops]);
-  const estimateCoordinatesKey = [
-    newStopForm.pickupLat, newStopForm.pickupLng, newStopForm.lat, newStopForm.lng
-  ].join(':');
-  const estimateCoordinatesAreValid = [
-    newStopForm.pickupLat, newStopForm.pickupLng, newStopForm.lat, newStopForm.lng
-  ].every(Number.isFinite);
-  const currentDeliveryEstimate = showAddStopModal
-    && currentUser?.role === 'ADMIN'
-    && !isPreviewSession
-    && estimateCoordinatesAreValid
-    && deliveryEstimate?.coordinatesKey === estimateCoordinatesKey
-    ? deliveryEstimate
-    : null;
-
-  useEffect(() => {
-    if (!showAddStopModal || currentUser?.role !== 'ADMIN' || isPreviewSession
-      || !estimateCoordinatesAreValid) {
-      estimateRequestKeyRef.current = '';
-      return undefined;
-    }
-    const requestKey = estimateCoordinatesKey;
-    estimateRequestKeyRef.current = requestKey;
-    let cancelled = false;
-    const timerId = window.setTimeout(async () => {
-      setDeliveryEstimateError('');
-      try {
-        const quote = await apiRequest('/api/pricing/estimate', {
-          method: 'POST',
-          body: JSON.stringify({
-            from: { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng },
-            to: { lat: newStopForm.lat, lng: newStopForm.lng }
-          })
-        });
-        if (cancelled || estimateRequestKeyRef.current !== requestKey) return;
-        setDeliveryEstimate({ ...quote, coordinatesKey: requestKey });
-      } catch (error) {
-        if (cancelled || estimateRequestKeyRef.current !== requestKey) return;
-        setDeliveryEstimate(null);
-        setDeliveryEstimateError(error.message);
-      }
-    }, 350);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timerId);
-    };
-  }, [
-    currentUser?.role,
-    estimateCoordinatesAreValid,
-    estimateCoordinatesKey,
-    isPreviewSession,
-    showAddStopModal,
-    newStopForm.lat,
-    newStopForm.lng,
-    newStopForm.pickupLat,
-    newStopForm.pickupLng
-  ]);
   const [driverNameQuery, setDriverNameQuery] = useState('');
   const [isDriverSuggestionOpen, setIsDriverSuggestionOpen] = useState(false);
   const [riderDiscoveryZone, setRiderDiscoveryZone] = useState('ALL');
@@ -1128,6 +1220,82 @@ const [authError, setAuthError] = useState('');
   const [currentLocationPoint, setCurrentLocationPoint] = useState(null);
   const routeOriginLookupRef = useRef(0);
   const routeOriginAddress = currentUser ? routeOrigins[currentUser.id] || '' : '';
+  const marketplaceBusinessOrigin = currentUser ? routeOriginCoordinates[currentUser.id] : null;
+  const marketplacePickup = Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
+    ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
+    : null;
+  const marketplaceQuery = new URLSearchParams();
+  if (marketplaceBusinessOrigin) {
+    marketplaceQuery.set('businessLat', String(marketplaceBusinessOrigin.lat));
+    marketplaceQuery.set('businessLng', String(marketplaceBusinessOrigin.lng));
+  }
+  if (marketplacePickup) {
+    marketplaceQuery.set('pickupLat', String(marketplacePickup.lat));
+    marketplaceQuery.set('pickupLng', String(marketplacePickup.lng));
+  }
+  const marketplaceQueryString = marketplaceQuery.toString();
+  const marketplaceResultKey = `${currentUser?.id || ''}:${marketplaceQueryString}`;
+  const marketplaceDrivers = useMemo(() => {
+    if (currentUser?.role !== 'ADMIN' || isPreviewSession || !marketplaceQueryString
+      || marketplaceResult.key !== marketplaceResultKey) return [];
+    return marketplaceResult.drivers;
+  }, [
+    currentUser?.role, isPreviewSession, marketplaceQueryString,
+    marketplaceResult.key, marketplaceResult.drivers, marketplaceResultKey
+  ]);
+  useEffect(() => {
+    if (currentUser?.role !== 'ADMIN' || isPreviewSession) {
+      return undefined;
+    }
+    if (!marketplaceQueryString) return undefined;
+    let cancelled = false;
+    let refreshing = false;
+    const refreshMarketplace = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const { drivers } = await apiRequest(`/api/marketplace/drivers?${marketplaceQueryString}`);
+        if (cancelled) return;
+        setMarketplaceResult({
+          key: marketplaceResultKey,
+          drivers: Array.isArray(drivers) ? drivers : []
+        });
+        setMarketplaceError('');
+      } catch (error) {
+        console.error('Could not refresh nearby marketplace drivers:', error);
+        if (!cancelled) setMarketplaceError(`Nearby driver search is unavailable: ${error.message}`);
+      } finally {
+        refreshing = false;
+      }
+    };
+    refreshMarketplace();
+    const intervalId = window.setInterval(refreshMarketplace, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    currentUser?.id, currentUser?.role, isPreviewSession, marketplaceQueryString,
+    marketplaceResultKey
+  ]);
+  useEffect(() => {
+    if (currentUser?.role !== 'DRIVER' || currentUser.driverProfileComplete !== true || isPreviewSession) return;
+    let cancelled = false;
+    apiRequest('/api/users/me/payout')
+      .then(details => {
+        if (!cancelled) setPayoutForm({
+          bankName: details.bankName || '',
+          bankAccountNumber: details.bankAccountNumber || ''
+        });
+      })
+      .catch(error => {
+        console.error('Could not load private payout details:', error);
+        if (!cancelled) setPayoutError(error.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, currentUser?.role, currentUser?.driverProfileComplete, isPreviewSession]);
   const [customerName, setCustomerName] = useState('');
   const [customerPhoto, setCustomerPhoto] = useState('');
   const [podError, setPodError] = useState('');
@@ -1145,7 +1313,6 @@ const [authError, setAuthError] = useState('');
   const driversList = useMemo(() => {
     return users.filter(u => u.role === 'DRIVER');
   }, [users]);
-  const generatedInvite = invites.find(invite => invite.id === generatedInviteId) || null;
   const driverSuggestions = useMemo(() => {
     const query = driverNameQuery.trim().toLowerCase();
     return driversList.filter(driver => {
@@ -1163,10 +1330,31 @@ const [authError, setAuthError] = useState('');
     const pickup = Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
       ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
       : routeOriginCoordinates[currentUser?.id];
-    if (!pickup) return [];
+    const businessOrigin = routeOriginCoordinates[currentUser?.id];
+    const searchPoints = [businessOrigin, pickup].filter(point =>
+      Number.isFinite(point?.lat) && Number.isFinite(point?.lng)
+    );
+    if (!searchPoints.length) return [];
     const unavailableStatuses = new Set(['DELIVERED', 'FAILED', 'UNDELIVERED', 'DELIVERY_FAILED', 'CANCELLED']);
     const mapRidersById = new Map(dispatchMapRiders.map(rider => [rider.id, rider]));
     const allDriversById = new Map(driversList.map(driver => [driver.id, driver]));
+    for (const rider of marketplaceDrivers) {
+      if (!allDriversById.has(rider.id)) {
+        allDriversById.set(rider.id, {
+          ...rider,
+          status: 'ACTIVE',
+          routeStatus: 'IDLE',
+          isAvailable: true,
+          isTracking: true,
+          vehicleType: rider.vehicleType
+        });
+        mapRidersById.set(rider.id, {
+          ...rider,
+          isAvailable: true,
+          isTracking: true
+        });
+      }
+    }
     for (const mapRider of dispatchMapRiders) {
       if (!allDriversById.has(mapRider.id)) {
         allDriversById.set(mapRider.id, {
@@ -1196,10 +1384,14 @@ const [authError, setAuthError] = useState('');
           || String(current.zone || '').trim().toLowerCase() === riderDiscoveryZone.toLowerCase();
         const vehicleTypeMatches = !newStopForm.requiredVehicleType
           || String(current.vehicleType || current.vehicle_type || '').toUpperCase() === newStopForm.requiredVehicleType;
+        const withinSearchRadius = searchPoints.some(point =>
+          calcHaversineDistance(point.lat, point.lng, current.lat, current.lng) <= 5
+        );
         return (current.status === 'ACTIVE' || current.status === undefined)
           && current.isAvailable === true
           && driver.routeStatus === 'IDLE'
           && locationIsFresh
+          && withinSearchRadius
           && !hasActiveDelivery
           && zoneMatches
           && vehicleTypeMatches;
@@ -1208,7 +1400,9 @@ const [authError, setAuthError] = useState('');
         const current = mapRidersById.has(driver.id)
           ? { ...driver, ...mapRidersById.get(driver.id) }
           : driver;
-        const distanceKm = calcHaversineDistance(pickup.lat, pickup.lng, current.lat, current.lng);
+        const distanceKm = Math.min(...searchPoints.map(point =>
+          calcHaversineDistance(point.lat, point.lng, current.lat, current.lng)
+        ));
         return {
           ...current,
           status: driver.status,
@@ -1221,11 +1415,81 @@ const [authError, setAuthError] = useState('');
         ? right.distanceKm - left.distanceKm
         : left.distanceKm - right.distanceKm);
   }, [
-    clockNow, currentUser?.id, dispatchMapRiders, driversList, newStopForm.pickupLat,
+    clockNow, currentUser?.id, dispatchMapRiders, driversList, marketplaceDrivers, newStopForm.pickupLat,
     newStopForm.pickupLng, newStopForm.requiredVehicleType, riderDiscoveryZone,
     riderDistanceSort, routeOriginCoordinates, stops
   ]);
-
+  const bookingRiders = useMemo(() => {
+    const ridersById = new Map(driversList.map(driver => [driver.id, driver]));
+    for (const rider of dispatchMapRiders) {
+      ridersById.set(rider.id, { ...ridersById.get(rider.id), ...rider });
+    }
+    for (const rider of marketplaceDrivers) {
+      ridersById.set(rider.id, {
+        ...ridersById.get(rider.id),
+        ...rider,
+        status: 'ACTIVE',
+        routeStatus: 'IDLE',
+        isAvailable: true,
+        isTracking: true
+      });
+    }
+    const pickup = {
+      lat: newStopForm.pickupLat,
+      lng: newStopForm.pickupLng
+    };
+    return [...ridersById.values()]
+      .map(rider => ({
+        ...rider,
+        distanceKm: Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng)
+          && Number.isFinite(rider.lat) && Number.isFinite(rider.lng)
+          ? calcHaversineDistance(pickup.lat, pickup.lng, rider.lat, rider.lng)
+          : null
+      }))
+      .sort((left, right) => (left.distanceKm ?? Infinity) - (right.distanceKm ?? Infinity));
+  }, [dispatchMapRiders, driversList, marketplaceDrivers, newStopForm.pickupLat, newStopForm.pickupLng]);
+  const bookingRiderSummaries = useMemo(() => {
+    const completedStatuses = new Set([
+      'DELIVERED', 'COMPLETED', 'FAILED', 'UNDELIVERED', 'DELIVERY_FAILED', 'CANCELLED'
+    ]);
+    return bookingRiders.map(rider => {
+      const activeDeliveryStops = stops.filter(stop =>
+        stop.assignedDriverId === rider.id
+        && !completedStatuses.has(String(stop.dispatchStatus || '').toUpperCase())
+        && !completedStatuses.has(String(stop.status || '').toUpperCase())
+      );
+      const routeStatus = String(rider.routeStatus || '').toUpperCase();
+      return {
+        ...rider,
+        activeDeliveryStops,
+        activeDeliveryCount: activeDeliveryStops.length,
+        isOutForDelivery: activeDeliveryStops.length > 0 || routeStatus === 'IN_PROGRESS'
+      };
+    });
+  }, [bookingRiders, stops]);
+  const ridersOutForDelivery = bookingRiderSummaries.filter(rider => rider.isOutForDelivery);
+  const visibleBookingRiders = riderDirectoryFilter === 'OUT_FOR_DELIVERY'
+    ? ridersOutForDelivery
+    : bookingRiderSummaries;
+  const selectedBookingRider = bookingRiderSummaries.find(rider => rider.id === selectedBookingRiderId);
+  const selectedRiderChatStop = selectedBookingRider?.activeDeliveryStops.find(stop =>
+    stop.id === selectedRiderChatDeliveryId
+  ) || selectedBookingRider?.activeDeliveryStops[0] || null;
+  const selectedBookingRiderHasLocation = Number.isFinite(selectedBookingRider?.lat)
+    && Number.isFinite(selectedBookingRider?.lng);
+  const selectedBookingRiderLocationTimestamp = new Date(selectedBookingRider?.locationUpdatedAt || '').getTime();
+  const selectedBookingRiderIsLive = selectedBookingRiderHasLocation
+    && selectedBookingRider?.isTracking === true
+    && Number.isFinite(selectedBookingRiderLocationTimestamp)
+    && clockNow - selectedBookingRiderLocationTimestamp < 90_000;
+  const selectedBookingRiderMapCenter = selectedBookingRiderHasLocation
+    ? { lat: selectedBookingRider.lat, lng: selectedBookingRider.lng }
+    : selectedBookingRider?.activeDeliveryStops?.[0]
+      ? {
+        lat: selectedBookingRider.activeDeliveryStops[0].pickupLat ?? selectedBookingRider.activeDeliveryStops[0].lat ?? startDepot.lat,
+        lng: selectedBookingRider.activeDeliveryStops[0].pickupLng ?? selectedBookingRider.activeDeliveryStops[0].lng ?? startDepot.lng
+      }
+      : { lat: startDepot.lat, lng: startDepot.lng };
   // Current Selected Driver Object
   const selectedDriver = useMemo(() => {
     return driversList.find(d => d.id === activeDriverId) || driversList[0] || null;
@@ -1255,6 +1519,15 @@ const [authError, setAuthError] = useState('');
   const activeChatBusiness = activeChatStop?.ownerAdminId
     ? users.find(user => user.id === activeChatStop.ownerAdminId)
     : null;
+  const bookingAcceptedOffer = deliveryOffers.find(offer =>
+    offer.stop?.id === deliveryBookingStopId
+    && offer.status === 'ACCEPTED'
+  );
+  const bookingStop = stops.find(stop => stop.id === deliveryBookingStopId);
+  const activeDeliveryBookingStep = bookingAcceptedOffer
+    && !['CHAT', 'RIDER_CHAT', 'RIDERS'].includes(deliveryBookingStep)
+    ? 'MATCHED'
+    : deliveryBookingStep;
 
   // Filtered Stops for Active Driver
   const activeDriverStops = useMemo(() => {
@@ -1279,7 +1552,11 @@ const [authError, setAuthError] = useState('');
     || activeDriverStops.find(stop => stop.status !== 'DELIVERED')
     || activeDriverStops[0]
     || null;
-  const selectedMapRider = dispatchMapRiders.find(driver => driver.id === activeDriverId);
+  const selectedMapRider = dispatchMapRiders.find(driver => driver.id === activeDriverId)
+    || (() => {
+      const rider = marketplaceDrivers.find(driver => driver.id === activeDriverId);
+      return rider ? { ...rider, isTracking: true, isAvailable: true } : undefined;
+    })();
   const mapDriver = currentUser?.role === 'ADMIN'
     ? selectedMapRider ? { ...selectedDriver, ...selectedMapRider } : selectedDriver
     : currentUser;
@@ -1295,7 +1572,7 @@ const [authError, setAuthError] = useState('');
   const mapCenterStops = selectedStopId && mapStopHasCoordinates
     ? [mapStop]
     : mapRouteStops.filter(stop => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
-  const mapCenter = (showAddStopModal || showCandidateMap)
+  const mapCenter = (showAddStopModal || showDeliveryMap || showCandidateMap)
     && Number.isFinite(newStopForm.pickupLat) && Number.isFinite(newStopForm.pickupLng)
     ? { lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }
     : currentLocationPoint
@@ -1318,16 +1595,38 @@ const [authError, setAuthError] = useState('');
     setCurrentLocationPoint(null);
     setActiveDriverId(driverId);
   };
+  const openFleetRiderProfile = driverId => {
+    setActiveDriverId(driverId);
+    setSelectedStopId(null);
+    setRiderProfileReturnToFleet(true);
+    setSelectedBookingRiderId(driverId);
+    setRiderDirectoryFilter('ALL');
+    setDeliveryBookingStep('RIDERS');
+    setDeliveryBookingSheetExpanded(true);
+    setShowDeliveryTypePicker(false);
+    setShowAddStopModal(false);
+    setShowDeliveryMap(true);
+    setMapExpanded(false);
+    setMobileSidebarOpen(false);
+  };
   const openStreetMapUrl = mapStop && !mapStopHasCoordinates
     ? openStreetMapSearchUrl(mapStop.address)
     : openStreetMapLocationUrl(mapCenter);
   const liveMapDrivers = useMemo(() => (
     currentUser?.role === 'ADMIN'
-      ? driversList
+      ? [...driversList, ...marketplaceDrivers.filter(driver =>
+        !driversList.some(ownedDriver => ownedDriver.id === driver.id)
+      ).map(driver => ({
+        ...driver,
+        status: 'ACTIVE',
+        routeStatus: 'IDLE',
+        isAvailable: true,
+        isTracking: true
+      }))]
       : currentUser?.role === 'DRIVER' && currentUser
         ? [currentUser]
         : []
-  ), [currentUser, driversList]);
+  ), [currentUser, driversList, marketplaceDrivers]);
   const mapDisplayDrivers = useMemo(() => {
     const driversById = new Map(liveMapDrivers.map(driver => [driver.id, driver]));
     for (const rider of dispatchMapRiders) {
@@ -1348,7 +1647,7 @@ const [authError, setAuthError] = useState('');
     return [...driversById.values()];
   }, [dispatchMapRiders, liveMapDrivers, nearbyAvailableRiders, showAddStopModal, showCandidateMap]);
   const mapVisibleStops = useMemo(() => {
-    if (!showAddStopModal && !showCandidateMap) return stops;
+    if (!showAddStopModal && !showDeliveryMap && !showCandidateMap) return stops;
     return [
       ...stops,
       {
@@ -1366,7 +1665,7 @@ const [authError, setAuthError] = useState('');
   }, [
     newStopForm.address, newStopForm.lat, newStopForm.lng, newStopForm.name,
     newStopForm.pickupAddress, newStopForm.pickupLat, newStopForm.pickupLng,
-    showAddStopModal, showCandidateMap, stops
+    showAddStopModal, showDeliveryMap, showCandidateMap, stops
   ]);
   const dashboardMappedStops = stops.filter(stop =>
     Number.isFinite(stop.lat) && Number.isFinite(stop.lng)
@@ -1493,23 +1792,77 @@ const [authError, setAuthError] = useState('');
           name: registerForm.name,
           email: registerForm.email,
           password: registerForm.password,
-          inviteToken: registerForm.inviteToken,
-          zone: registerForm.zone,
-          vehicle: registerForm.vehicle,
-          vehicleType: registerForm.vehicleType,
-          phone: registerForm.phone
+          inviteToken: registerForm.inviteToken
         };
-      const { user } = await apiRequest(endpoint, {
+      const registrationResponse = await apiRequest(endpoint, {
         method: 'POST',
         body: JSON.stringify(registration)
       });
-      if (user.role === 'ADMIN') setActiveAdminView('ROUTES');
-      setCurrentUser(user);
-      setRegisterForm(prev => ({ ...prev, password: '' }));
+      const { user } = registrationResponse;
+      if (user.role === 'ADMIN') {
+        setActiveAdminView('ROUTES');
+        setCurrentUser(user);
+      } else {
+        setDriverApplicationForm(previous => ({
+          ...previous,
+          fullName: user.name || registerForm.name,
+          phone: user.phone || previous.phone
+        }));
+        setCurrentUser(user);
+      }
+      setRegisterForm(previous => ({ ...previous, password: '' }));
+      setConfirmPassword('');
       setAuthError('');
-      if (user.role === 'DRIVER') setActiveDriverId(user.id);
     } catch (error) {
       setAuthError(error.message);
+    }
+  };
+
+  const handleDriverApplicationSubmit = async event => {
+    event.preventDefault();
+    setDriverApplicationSaving(true);
+    setDriverApplicationError('');
+    try {
+      const application = {
+        ...driverApplicationForm,
+        driverPhoto: await readImageAsDataUrl(driverApplicationForm.driverPhoto),
+        nextOfKinPhoto: await readImageAsDataUrl(driverApplicationForm.nextOfKinPhoto),
+        termsVersion: DRIVER_TERMS_VERSION,
+        dataNoticeVersion: DRIVER_DATA_NOTICE_VERSION
+      };
+      const { user } = await apiRequest('/api/users/me/driver-application', {
+        method: 'PUT',
+        body: JSON.stringify({
+          application,
+          vehicleType: driverApplicationForm.vehicleType
+        })
+      });
+      setCurrentUser(user);
+      setDriverApplicationForm(EMPTY_DRIVER_APPLICATION);
+      setPayoutNotice('');
+    } catch (error) {
+      setDriverApplicationError(error.message);
+    } finally {
+      setDriverApplicationSaving(false);
+    }
+  };
+
+  const handlePayoutSubmit = async event => {
+    event.preventDefault();
+    setPayoutSaving(true);
+    setPayoutError('');
+    setPayoutNotice('');
+    try {
+      const { bankName } = await apiRequest('/api/users/me/payout', {
+        method: 'PUT',
+        body: JSON.stringify(payoutForm)
+      });
+      setPayoutForm(previous => ({ ...previous, bankName }));
+      setPayoutNotice('Private payout details saved securely.');
+    } catch (error) {
+      setPayoutError(error.message);
+    } finally {
+      setPayoutSaving(false);
     }
   };
 
@@ -1573,13 +1926,16 @@ const [authError, setAuthError] = useState('');
     }
     setCurrentUser(null);
     setUsers([]);
-    setInvites([]);
+    setDriverApplicationForm(EMPTY_DRIVER_APPLICATION);
+    setPayoutForm({ bankName: '', bankAccountNumber: '' });
+    setPayoutError('');
+    setPayoutNotice('');
     setSupportThreads([]);
     setSupportThreadId('');
     setRouteDataReady(false);
     setIsPreviewSession(false);
     setAuthTab('LOGIN');
-    setAuthRole('ADMIN');
+    setAuthRole('DRIVER');
   };
 
   const sendSupportMessage = async (event) => {
@@ -1773,18 +2129,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  setShowInviteModal(true);
-                  setProfileMenuOpen(false);
-                }}
-                className="profile-menu-item"
-              >
-                <UserPlus className="h-4 w-4" />
-                <span>Invite drivers</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
                   setActiveAdminView('SETTINGS');
                   setProfileMenuOpen(false);
                 }}
@@ -1942,6 +2286,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
   const openAddStopModal = () => {
     setShowCandidateMap(false);
+    setShowDeliveryMap(false);
+    setMapExpanded(false);
     const assignedDriverId = currentUser.role === 'DRIVER' ? currentUser.id : '';
     const assignedDriver = driversList.find(driver => driver.id === assignedDriverId);
     const pickupAddress = routeOriginAddress.trim();
@@ -1965,19 +2311,122 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     setShowDeliveryTypePicker(true);
   };
 
+  const useCurrentLocationForPickup = async () => {
+    setPickupLocationError('');
+    if (!navigator.geolocation) {
+      setPickupLocationError('Location access is not supported by this browser.');
+      return;
+    }
+
+    routeOriginLookupRef.current += 1;
+    if (routeOriginWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(routeOriginWatchIdRef.current);
+      routeOriginWatchIdRef.current = null;
+    }
+    setPickupLocationLoading(true);
+    let detectedLocation = null;
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          maximumAge: 5000,
+          timeout: 10000
+        });
+      });
+      const location = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude
+      };
+      detectedLocation = location;
+      setNewStopForm(previous => ({
+        ...previous,
+        pickupAddress: 'Finding your current address…',
+        pickupLat: location.lat,
+        pickupLng: location.lng
+      }));
+      setCurrentLocationPoint(location);
+      const params = new URLSearchParams({
+        lat: String(location.lat),
+        lon: String(location.lng)
+      });
+      const result = await apiRequest(`/api/geocode/reverse?${params}`);
+      const properties = result.features?.[0]?.properties;
+      const address = properties
+        ? [
+          properties.name,
+          [properties.housenumber, properties.street].filter(Boolean).join(' '),
+          properties.district,
+          properties.city,
+          properties.county,
+          properties.state,
+          properties.country
+        ].filter((part, index, parts) => part && parts.indexOf(part) === index).join(', ')
+        : '';
+      if (!address) throw new Error('No readable address was found for your location.');
+
+      setNewStopForm(previous => ({
+        ...previous,
+        pickupAddress: address,
+        pickupLat: location.lat,
+        pickupLng: location.lng
+      }));
+      setRouteOrigins(previous => ({ ...previous, [currentUser.id]: address }));
+      setRouteOriginCoordinates(previous => ({ ...previous, [currentUser.id]: location }));
+    } catch (error) {
+      console.error('Could not set the pickup to the current location:', error);
+      if (detectedLocation) {
+        const fallbackAddress = `GPS location (${detectedLocation.lat.toFixed(5)}, ${detectedLocation.lng.toFixed(5)})`;
+        setNewStopForm(previous => {
+          return { ...previous, pickupAddress: fallbackAddress };
+        });
+        setRouteOrigins(previous => ({ ...previous, [currentUser.id]: fallbackAddress }));
+        setRouteOriginCoordinates(previous => ({ ...previous, [currentUser.id]: detectedLocation }));
+      }
+      setPickupLocationError(
+        error.code === 1
+          ? 'Location permission was denied. Allow location access or enter the pickup address.'
+          : `Could not find your current address: ${error.message}`
+      );
+    } finally {
+      setPickupLocationLoading(false);
+    }
+  };
+
   const selectDeliveryType = vehicleType => {
     setNewStopForm(previous => ({ ...previous, requiredVehicleType: vehicleType }));
     setDeliveryOfferError('');
+    setShowDeliveryMap(false);
+    setMapExpanded(false);
     setShowDeliveryTypePicker(false);
     setShowAddStopModal(true);
   };
 
+  const openDeliveryMap = () => {
+    if (!newStopForm.pickupAddress.trim() || !newStopForm.address.trim()) {
+      setDeliveryOfferError('Add both pickup and delivery addresses before opening the map.');
+      return;
+    }
+
+    setDeliveryOfferError('');
+    setShowAddStopModal(false);
+    setShowDeliveryTypePicker(false);
+    setShowCandidateMap(false);
+    setShowDeliveryMap(true);
+    setRiderProfileReturnToFleet(false);
+    setDeliveryBookingStep('RIDE');
+    setSelectedBookingRiderId('');
+    setDeliveryBookingSheetExpanded(true);
+    setMapExpanded(true);
+  };
+
   const requestRidersForStop = async (stop, riderId = '') => {
+    setDeliveryBookingStopId(stop.id);
     if (isPreviewSession || IS_GITHUB_PAGES_DEMO) {
       const sampleRiders = driversList.filter(driver =>
         driver.isPreviewFixture && driver.isAvailable && driver.routeStatus === 'IDLE'
         && (!riderId || driver.id === riderId)
       );
+      setDeliveryBookingStep(sampleRiders.length > 0 ? 'SEARCHING' : 'RIDERS');
       setDeliverySearchFeedback({
         stopId: stop.id,
         state: sampleRiders.length > 0 ? 'offered' : 'empty',
@@ -1991,7 +2440,12 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     try {
       const { riderCount } = await apiRequest(`/api/stops/${encodeURIComponent(stop.id)}/offers`, {
         method: 'POST',
-        body: JSON.stringify(riderId ? { riderId } : {})
+        body: JSON.stringify({
+          ...(riderId ? { riderId } : {}),
+          ...(routeOriginCoordinates[currentUser.id]
+            ? { businessOrigin: routeOriginCoordinates[currentUser.id] }
+            : {})
+        })
       });
       setDeliverySearchFeedback({
         stopId: stop.id,
@@ -2000,6 +2454,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           ? `Offer sent to ${riderCount} ${riderId ? 'selected' : 'nearby'} driver${riderCount === 1 ? '' : 's'}. The driver appears on the live map after accepting.`
           : 'No eligible drivers were found within the current search radius. Check availability and live location, then search again.'
       });
+      setDeliveryBookingStep(riderCount > 0 ? 'SEARCHING' : 'RIDERS');
     } catch (error) {
       console.error('Could not send rider offers:', error);
       setDeliverySearchFeedback({ stopId: stop.id, state: 'error', message: `Driver search failed: ${error.message}` });
@@ -2051,11 +2506,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       setDeliveryOfferError('Select both pickup and delivery addresses from the map suggestions to send accurate rider offers.');
       return;
     }
-    if (findRider && !isPreviewSession && !currentDeliveryEstimate?.quoteToken) {
-      setDeliveryOfferError(deliveryEstimateError
-        || 'Wait for a current delivery price estimate before confirming this delivery.');
-      return;
-    }
     const riderEarningsNgn = newStopForm.riderEarningsNgn === ''
       ? null
       : Number(newStopForm.riderEarningsNgn);
@@ -2099,21 +2549,18 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       riderEarningsNgn,
       deliveryDeadlineAt,
       status: 'PENDING',
-      assignedDriverId: findRider ? '' : newStopForm.assignedDriverId,
-      ...(findRider && currentDeliveryEstimate ? {
-        pricingQuoteToken: currentDeliveryEstimate.quoteToken,
-        estimatedPriceNgn: currentDeliveryEstimate.estimate.amount,
-        pricingCurrency: currentDeliveryEstimate.estimate.currency,
-        pricingRuleVersion: currentDeliveryEstimate.estimate.ruleVersion,
-        routeDistanceKm: currentDeliveryEstimate.route.distanceKm,
-        routeDurationMinutes: currentDeliveryEstimate.route.durationMinutes
-      } : {})
+      assignedDriverId: findRider ? '' : newStopForm.assignedDriverId
     };
     if (!findRider && !stopPayload.assignedDriverId) {
       setDeliveryOfferError('Choose an existing route assignment or select “Save & Find Riders”.');
       return;
     }
 
+    if (findRider) {
+      setDeliveryBookingStopId(stopPayload.id);
+      setDeliveryBookingStep('SEARCHING');
+      setDeliveryBookingSheetExpanded(true);
+    }
     setCreatingDelivery(true);
     setDeliveryOfferError('');
     setDeliverySearchFeedback(findRider
@@ -2128,6 +2575,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           const sampleRiders = nearbyAvailableRiders.filter(rider =>
             !newStopForm.assignedDriverId || rider.id === newStopForm.assignedDriverId
           );
+          setDeliveryBookingStep(sampleRiders.length > 0 ? 'SEARCHING' : 'RIDERS');
           setDeliverySearchFeedback({
             stopId: stopPayload.id,
             state: sampleRiders.length > 0 ? 'offered' : 'empty',
@@ -2137,6 +2585,10 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           });
         }
         setShowAddStopModal(false);
+        if (!findRider) {
+          setShowDeliveryMap(false);
+          setMapExpanded(false);
+        }
         return;
       }
 
@@ -2152,7 +2604,10 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         const { riderCount } = await apiRequest(`/api/stops/${encodeURIComponent(stopPayload.id)}/offers`, {
           method: 'POST',
           body: JSON.stringify({
-            ...(newStopForm.assignedDriverId ? { riderId: newStopForm.assignedDriverId } : {})
+            ...(newStopForm.assignedDriverId ? { riderId: newStopForm.assignedDriverId } : {}),
+            ...(routeOriginCoordinates[currentUser.id]
+              ? { businessOrigin: routeOriginCoordinates[currentUser.id] }
+              : {})
           })
         });
         setDeliverySearchFeedback({
@@ -2162,6 +2617,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             ? `Searching live: offer sent to ${riderCount} eligible driver${riderCount === 1 ? '' : 's'}. When one accepts, their live approach will appear on the map.`
             : 'Delivery saved. No eligible drivers were found within the current search radius; you can retry from Unassigned Stops.'
         });
+        setDeliveryBookingStep(riderCount > 0 ? 'SEARCHING' : 'RIDERS');
       }
       setNewStopForm({
         name: '',
@@ -2183,18 +2639,22 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         riderEarningsNgn: '',
         deadlineAt: ''
       });
-      setDeliveryEstimate(null);
-      setDeliveryEstimateError('');
       setDriverNameQuery(driversList.find(driver => driver.id === activeDriverId)?.name || '');
       setShowAddStopModal(false);
+      if (!findRider) {
+        setShowDeliveryMap(false);
+        setMapExpanded(false);
+      }
     } catch (error) {
       console.error(savedStops ? 'Delivery saved, but rider offers could not be sent:' : 'Could not create the delivery:', error);
       if (savedStops) {
         setDeliverySearchFeedback({
           stopId: stopPayload.id,
           state: 'error',
-          message: `Delivery saved, but live driver search failed: ${error.message}. Retry from Unassigned Stops.`
+          message: `Delivery saved, but live driver search failed: ${error.message}. Retry the search here.`
         });
+        setDeliveryBookingStopId(stopPayload.id);
+        setDeliveryBookingStep('SEARCHING');
         setStops(savedStops);
         if (Array.isArray(savedUsers)) setUsers(savedUsers);
         setNewStopForm(previous => ({
@@ -2285,55 +2745,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       console.error('Could not confirm delivery pickup:', error);
       setDeliveryOfferError(error.message);
     }
-  };
-
-  const handleGenerateInvite = async () => {
-    const email = inviteEmail.trim().toLowerCase();
-    setInviteError('');
-    setInviteEmailFailed(false);
-    if (IS_GITHUB_PAGES_DEMO || isPreviewSession) {
-      setInviteError('Generating a reusable driver link needs the live account service. Connect a deployed API to enable invitations.');
-      return;
-    }
-    setIsSendingInvite(true);
-    try {
-      const { invite, sent, emailWarning } = await apiRequest('/api/invitations', {
-        method: 'POST',
-        body: JSON.stringify({ email })
-      });
-      setInvites(prev => [invite, ...prev.filter(item => !invite.email || item.email !== invite.email)]);
-      setGeneratedInviteId(invite.id);
-      setInviteEmailFailed(Boolean(email && !sent));
-      setInviteNotice(emailWarning || (email && sent
-        ? `The mail server accepted the invitation for ${invite.email}. Delivery may take a few minutes; check spam if needed. You can copy the link below as a backup.`
-        : 'Link created. Copy and share it with your driver.'));
-      setInviteError('');
-    } catch (error) {
-      setInviteError(error.message);
-    } finally {
-      setIsSendingInvite(false);
-    }
-  };
-
-  const copyInviteLinkToClipboard = (token) => {
-    const invite = invites.find(item => item.token === token);
-    if (!invite) {
-      console.error('Cannot copy application link because the invitation was not found.');
-      setInviteError('This invitation is no longer available.');
-      return;
-    }
-    const fullLink = getInviteApplicationUrl(invite);
-    if (!navigator.clipboard?.writeText) {
-      window.prompt('Copy this application link:', fullLink);
-      return;
-    }
-    navigator.clipboard.writeText(fullLink).then(() => {
-      setCopiedLink(true);
-      window.setTimeout(() => setCopiedLink(false), 3000);
-    }).catch(error => {
-      console.error('Could not copy the application link:', error);
-      window.prompt('Copy this application link:', fullLink);
-    });
   };
 
   // --- "CLOSEST TO FARTHEST" ROUTE OPTIMIZATION ENGINE ---
@@ -3022,7 +3433,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             <p className="text-center text-[10px] text-slate-500">
               {IS_GITHUB_PAGES_DEMO
                 ? 'This GitHub Pages preview uses sample data stored only in this browser.'
-                : 'Accounts and driver invitations are securely managed by your fleet.'}
+                : 'Create a driver account, then complete onboarding from your dashboard.'}
             </p>
           )}
 
@@ -3367,59 +3778,9 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   />
                 </div>
               ) : (
-                /* DRIVER REGISTRATION: INVITE DETAILS & VEHICLE */
-                <div className="space-y-2">
-                  <p className="rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-900">
-                    Complete your driver profile. An email tied to this link is locked; otherwise enter the email you use for your account.
-                  </p>
-                  <fieldset>
-                    <legend className="mb-1.5 block text-[10px] font-semibold text-slate-400">Vehicle type</legend>
-                    <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Vehicle type">
-                      {[
-                        { value: 'CAR', label: 'Car', icon: CarFront },
-                        { value: 'MOTORCYCLE', label: 'Motorcycle', icon: Motorbike },
-                        { value: 'BICYCLE', label: 'Bicycle', icon: Bike }
-                      ].map(({ value, label, icon: VehicleIcon }) => {
-                        const selected = registerForm.vehicleType === value;
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            role="radio"
-                            aria-checked={selected}
-                            onClick={() => setRegisterForm(previous => ({ ...previous, vehicleType: value }))}
-                            className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border px-1.5 py-2 text-[9px] font-bold transition-colors ${selected
-                              ? 'border-emerald-500 bg-emerald-500/15 text-emerald-800 ring-1 ring-emerald-500'
-                              : 'border-slate-700 bg-slate-950 text-slate-400 hover:border-slate-500'}`}
-                          >
-                            <VehicleIcon className="h-5 w-5" aria-hidden="true" />
-                            <span>{label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </fieldset>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      required
-                      aria-label="Operating zone"
-                      placeholder="Operating Zone (e.g. Lekki / VI)"
-                      value={registerForm.zone}
-                      onChange={(e) => setRegisterForm({ ...registerForm, zone: e.target.value })}
-                      className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none"
-                    />
-                    <input
-                      type="text"
-                      required
-                      aria-label="Vehicle plate number"
-                      placeholder="Vehicle Plate Number"
-                      value={registerForm.vehicle}
-                      onChange={(e) => setRegisterForm({ ...registerForm, vehicle: e.target.value })}
-                      className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none"
-                    />
-                  </div>
-                </div>
+                <p className="rounded-xl border border-violet-200 bg-violet-50 p-2.5 text-[10px] leading-relaxed text-violet-900">
+                  Create your driver account first. You will be signed in and guided through your private profile and agreement before you can receive offers.
+                </p>
               )}
 
               <button
@@ -3453,6 +3814,208 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       <React.Suspense fallback={<main className="cc-loading" role="status">Loading Customer Care…</main>}>
         <CustomerCareDashboard currentUser={currentUser} onLogout={handleLogout} request={apiRequest} />
       </React.Suspense>
+    );
+  }
+
+  if (currentUser.role === 'DRIVER' && currentUser.driverProfileComplete === false) {
+    const updateApplication = (field, value) => {
+      setDriverApplicationForm(previous => ({ ...previous, [field]: value }));
+    };
+    const handleApplicationPhoto = (field, file) => {
+      if (!file) return;
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 1_500_000) {
+        setDriverApplicationError('Choose a JPEG, PNG, or WebP photo smaller than 1.5 MB.');
+        return;
+      }
+      setDriverApplicationError('');
+      updateApplication(field, file);
+    };
+    const textField = (field, label, options = {}) => (
+      <label className="block text-xs font-semibold text-slate-700">
+        {label}
+        <input
+          type={options.type || 'text'}
+          required={options.required !== false}
+          maxLength={options.maxLength || 100}
+          value={driverApplicationForm[field]}
+          onChange={event => updateApplication(field, event.target.value)}
+          className="mt-1 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900 focus:border-violet-500 focus:outline-none"
+        />
+      </label>
+    );
+    const photoField = (field, label) => (
+      <label className="block text-xs font-semibold text-slate-700">
+        {label}
+        <input
+          type="file"
+          required
+          accept="image/jpeg,image/png,image/webp"
+          onChange={event => handleApplicationPhoto(field, event.target.files?.[0])}
+          className="mt-1 block w-full rounded-xl border border-slate-300 bg-white p-2 text-xs text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-700 file:px-3 file:py-2 file:font-bold file:text-white"
+        />
+        {driverApplicationForm[field] && (
+          <span className="mt-1 block text-[10px] font-medium text-emerald-700">
+            {driverApplicationForm[field].name}
+          </span>
+        )}
+      </label>
+    );
+    return (
+      <main className="min-h-dvh overflow-y-auto bg-slate-100 px-4 py-8 text-slate-900">
+        <section className="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-5 shadow-xl sm:p-8">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-wide text-violet-700">Driver onboarding</p>
+              <h1 className="mt-1 text-2xl font-black">Complete your driver profile</h1>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                Your account is ready. Complete this private profile and sign the agreement to activate your driver profile and receive nearby offers.
+              </p>
+            </div>
+            <button type="button" onClick={handleLogout} className="shrink-0 rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">
+              Log out
+            </button>
+          </div>
+
+          <form onSubmit={handleDriverApplicationSubmit} className="mt-6 space-y-6">
+            <section className="space-y-3">
+              <h2 className="text-sm font-extrabold text-slate-900">Personal and identity details</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {textField('fullName', 'Full legal name')}
+                <label className="block text-xs font-semibold text-slate-700">
+                  Account email
+                  <input
+                    type="email"
+                    value={currentUser.email || ''}
+                    readOnly
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-slate-100 p-3 text-sm text-slate-700"
+                  />
+                </label>
+                {textField('phone', 'Phone number', { type: 'tel', maxLength: 40 })}
+                <label className="block text-xs font-semibold text-slate-700">
+                  Identity document
+                  <select
+                    value={driverApplicationForm.identityType}
+                    onChange={event => updateApplication('identityType', event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900"
+                  >
+                    <option value="NIN">NIN</option>
+                    <option value="PASSPORT">Passport</option>
+                  </select>
+                </label>
+                {textField('identityNumber', 'NIN / passport number', { maxLength: 64 })}
+                {textField('motherName', "Mother's full name")}
+                {textField('fatherName', "Father's full name")}
+                {textField('residentialAddress', 'Residential address', { maxLength: 250 })}
+                {textField('zone', 'Operating area / zone')}
+                {photoField('driverPhoto', 'Recent driver photograph')}
+              </div>
+            </section>
+
+            <section className="space-y-3 border-t border-slate-200 pt-5">
+              <h2 className="text-sm font-extrabold text-slate-900">Next of kin</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {textField('nextOfKinName', 'Next of kin full name')}
+                {textField('nextOfKinPhone', 'Next of kin phone number', { type: 'tel', maxLength: 40 })}
+                <label className="block text-xs font-semibold text-slate-700">
+                  Next of kin identity document
+                  <select
+                    value={driverApplicationForm.nextOfKinIdentityType}
+                    onChange={event => updateApplication('nextOfKinIdentityType', event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900"
+                  >
+                    <option value="NIN">NIN</option>
+                    <option value="PASSPORT">Passport</option>
+                  </select>
+                </label>
+                {textField('nextOfKinIdentityNumber', 'Next of kin NIN / passport number', { maxLength: 64 })}
+                {photoField('nextOfKinPhoto', 'Next of kin photograph')}
+              </div>
+              <label className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-700">
+                <input
+                  type="checkbox"
+                  required
+                  checked={driverApplicationForm.nextOfKinConsent}
+                  onChange={event => updateApplication('nextOfKinConsent', event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-violet-700"
+                />
+                <span>I confirm that my next of kin has agreed to my providing their contact, identity, and photograph information for emergency contact purposes.</span>
+              </label>
+            </section>
+
+            <section className="space-y-3 border-t border-slate-200 pt-5">
+              <h2 className="text-sm font-extrabold text-slate-900">Vehicle and delivery details</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Vehicle type
+                  <select
+                    required
+                    value={driverApplicationForm.vehicleType}
+                    onChange={event => updateApplication('vehicleType', event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm text-slate-900"
+                  >
+                    <option value="">Choose vehicle type</option>
+                    <option value="MOTORCYCLE">Motorcycle</option>
+                    <option value="CAR">Car</option>
+                    <option value="BICYCLE">Bicycle</option>
+                  </select>
+                </label>
+                {driverApplicationForm.vehicleType !== 'BICYCLE' && textField('vehicle', 'Vehicle registration / plate number')}
+                {driverApplicationForm.vehicleType !== 'BICYCLE' && textField('driverLicenseNumber', "Driver's licence number", { maxLength: 64 })}
+                {driverApplicationForm.vehicleType === 'CAR' && textField('vehicleMake', 'Vehicle make', { maxLength: 80 })}
+                {driverApplicationForm.vehicleType === 'CAR' && textField('vehicleModel', 'Vehicle model', { maxLength: 80 })}
+                {driverApplicationForm.vehicleType === 'CAR' && textField('vehicleYear', 'Vehicle year', { maxLength: 4 })}
+                {driverApplicationForm.vehicleType === 'CAR' && textField('vehicleRegistration', 'Vehicle registration document / number', { maxLength: 64 })}
+              </div>
+            </section>
+
+            <section className="space-y-3 border-t border-slate-200 pt-5">
+              <h2 className="text-sm font-extrabold text-slate-900">Terms and privacy</h2>
+              <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <summary className="cursor-pointer text-xs font-extrabold text-violet-800">Read the Driver & Rider Terms and Conditions Agreement</summary>
+                <pre className="mt-3 max-h-80 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-slate-700">{driverTermsText}</pre>
+              </details>
+              <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <summary className="cursor-pointer text-xs font-extrabold text-violet-800">Read the driver data notice</summary>
+                <p className="mt-3 text-xs leading-relaxed text-slate-700">
+                  We collect your identity and contact details, photographs, vehicle information, next-of-kin details, agreement signature, bank account details, and—only when you enable it—live location. These details are used for onboarding, identity and safety checks, emergency contact, delivery matching, operations, and payouts. Private identity, family, photo, and payout details are encrypted and are not included in the business-facing driver profile. Businesses can see your limited dispatch profile and live location while you are sharing location and eligible for nearby offers within 5 km of a business origin or delivery pickup. Your profile and payout details are accessible to you and authorized platform personnel for operational and payout purposes. Location sharing can be stopped from your dashboard; doing so removes you from live nearby discovery.
+                </p>
+              </details>
+              <label className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-700">
+                <input
+                  type="checkbox"
+                  required
+                  checked={driverApplicationForm.dataNoticeAccepted}
+                  onChange={event => updateApplication('dataNoticeAccepted', event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-violet-700"
+                />
+                <span>I have read and understand the driver data notice.</span>
+              </label>
+              <label className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-700">
+                <input
+                  type="checkbox"
+                  required
+                  checked={driverApplicationForm.termsAccepted}
+                  onChange={event => updateApplication('termsAccepted', event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-violet-700"
+                />
+                <span>I have read and agree to the Driver & Rider Terms and Conditions Agreement.</span>
+              </label>
+              {textField('termsSignature', 'Type your full legal name as your signature')}
+            </section>
+
+            {driverApplicationError && (
+              <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs font-semibold text-rose-800">{driverApplicationError}</p>
+            )}
+            <button
+              type="submit"
+              disabled={driverApplicationSaving}
+              className="w-full rounded-xl bg-violet-700 px-4 py-3 text-sm font-extrabold text-white hover:bg-violet-800 disabled:cursor-wait disabled:opacity-50"
+            >
+              {driverApplicationSaving ? 'Saving securely...' : 'Complete profile and activate driver account'}
+            </button>
+          </form>
+        </section>
+      </main>
     );
   }
 
@@ -3589,8 +4152,11 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               <>
               <div className="admin-fleet-card p-2.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5">
                 <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  <span>Step 1: Select Driver Fleet</span>
+                  <span>Riders</span>
+                  <span className="flex items-center gap-1.5">
+                    <span>{driversList.length}</span>
                   <Users className="w-3.5 h-3.5 text-emerald-400" />
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto">
@@ -3602,9 +4168,9 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       <div key={d.id} className="flex items-center gap-1">
                         <button
                           onClick={() => {
-                            setActiveDriverId(d.id);
-                            setSelectedStopId(null);
+                            openFleetRiderProfile(d.id);
                           }}
+                          aria-label={`View ${d.name}'s details and tracking`}
                           className={`min-w-0 flex-1 p-2 rounded-lg text-left transition-all flex items-center justify-between border ${
                             isSelected
                               ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 font-bold'
@@ -3643,24 +4209,27 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   })}
                 </div>
               </div>
-              <label className="flex items-start gap-2 rounded-xl border border-sky-500/30 bg-sky-950/30 p-2.5 text-[9px] text-sky-100">
-                <input
-                  type="checkbox"
-                  checked={businessBatchConsent}
-                  onChange={event => updateBusinessBatchConsent(event.target.checked)}
-                  disabled={isPreviewSession}
-                  className="mt-0.5 accent-sky-500"
-                />
-                <span>
-                  Allow cross-business delivery batches. Other businesses and the rider must also opt in.
-                </span>
-              </label>
+              <details className="admin-advanced-route-settings">
+                <summary>{businessBatchConsent ? 'Cross-business batches enabled' : 'Route settings'}</summary>
+                <label className="flex items-start gap-2 rounded-xl border border-sky-500/30 bg-sky-950/30 p-2.5 text-[9px] text-sky-100">
+                  <input
+                    type="checkbox"
+                    checked={businessBatchConsent}
+                    onChange={event => updateBusinessBatchConsent(event.target.checked)}
+                    disabled={isPreviewSession}
+                    className="mt-0.5 accent-sky-500"
+                  />
+                  <span>
+                    Allow cross-business delivery batches. Other businesses and the rider must also opt in.
+                  </span>
+                </label>
+              </details>
               {stops.some(stop => !stop.assignedDriverId) && (
-                <div className="rounded-xl border border-amber-500/30 bg-slate-950 p-2.5">
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-300">
-                    Unassigned Stops
-                  </p>
-                  <div className="space-y-1.5">
+                <details className="admin-unassigned-stops rounded-xl border border-amber-500/30 bg-slate-950 p-2.5">
+                  <summary>
+                    Unassigned stops ({stops.filter(stop => !stop.assignedDriverId).length})
+                  </summary>
+                  <div className="mt-2 space-y-1.5">
                     {stops.filter(stop => !stop.assignedDriverId).map(stop => (
                       <div key={stop.id} className="space-y-1">
                         <div className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 p-2">
@@ -3713,7 +4282,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       </div>
                     ))}
                   </div>
-                </div>
+                </details>
               )}
               </>
             ) : (
@@ -3723,6 +4292,61 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     {deliveryOfferError}
                   </p>
                 )}
+                <section className="rounded-2xl border border-violet-200 bg-white p-3">
+                  <h3 className="text-xs font-extrabold text-violet-950">Private payout details</h3>
+                  <p className="mt-1 text-[9px] leading-relaxed text-slate-500">
+                    Your bank name and account number are encrypted and visible only to you and authorized platform personnel. Businesses cannot view them.
+                  </p>
+                  <form onSubmit={handlePayoutSubmit} className="mt-3 space-y-2">
+                    <label className="block text-[10px] font-semibold text-slate-600">
+                      Bank name
+                      <input
+                        type="text"
+                        required
+                        maxLength={100}
+                        list="driver-bank-options"
+                        value={payoutForm.bankName}
+                        onChange={event => setPayoutForm(previous => ({ ...previous, bankName: event.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs text-slate-900"
+                      />
+                      <datalist id="driver-bank-options">
+                        {[
+                          'Access Bank', 'Ecobank Nigeria', 'Fidelity Bank', 'First Bank of Nigeria',
+                          'First City Monument Bank', 'Guaranty Trust Bank', 'Keystone Bank',
+                          'Kuda Bank', 'Moniepoint MFB', 'OPay', 'PalmPay', 'Polaris Bank',
+                          'Providus Bank', 'Stanbic IBTC Bank', 'Sterling Bank', 'Union Bank',
+                          'United Bank for Africa', 'Wema Bank', 'Zenith Bank'
+                        ].map(bank => <option key={bank} value={bank} />)}
+                      </datalist>
+                    </label>
+                    <label className="block text-[10px] font-semibold text-slate-600">
+                      10-digit account number
+                      <input
+                        type="text"
+                        required
+                        inputMode="numeric"
+                        autoComplete="off"
+                        maxLength={10}
+                        pattern="[0-9]{10}"
+                        value={payoutForm.bankAccountNumber}
+                        onChange={event => setPayoutForm(previous => ({
+                          ...previous,
+                          bankAccountNumber: event.target.value.replace(/\D/g, '').slice(0, 10)
+                        }))}
+                        className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs text-slate-900"
+                      />
+                    </label>
+                    {payoutError && <p role="alert" className="text-[9px] font-semibold text-rose-700">{payoutError}</p>}
+                    {payoutNotice && <p role="status" className="text-[9px] font-semibold text-emerald-700">{payoutNotice}</p>}
+                    <button
+                      type="submit"
+                      disabled={payoutSaving}
+                      className="w-full rounded-lg bg-violet-700 py-2 text-[10px] font-extrabold text-white disabled:opacity-50"
+                    >
+                      {payoutSaving ? 'Saving securely...' : 'Save payout details'}
+                    </button>
+                  </form>
+                </section>
                 {deliveryOffers.length > 0 && (
                   <section className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-3">
                     <div className="flex items-center justify-between gap-2">
@@ -4114,27 +4738,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     </button>
                   )}
                 </div>
-                {currentUser.role === 'ADMIN' && activeChatDriver?.phone && (
-                  <a
-                    href={`tel:${activeChatDriver.phone}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-[10px] font-extrabold text-slate-950 hover:bg-emerald-400"
-                  >
-                    <Phone className="h-3.5 w-3.5" /> Call rider
-                  </a>
-                )}
                 {assignmentActionError && <p role="alert" className="text-[9px] font-semibold text-rose-300">{assignmentActionError}</p>}
-                {isPreviewSession ? (
-                  <div className="rounded-xl border border-slate-700 bg-slate-900 p-3">
-                    <p className="text-[10px] font-bold text-slate-200">Chat and voice call preview</p>
-                    <p className="mt-1 text-[9px] leading-relaxed text-slate-400">
-                      Messaging and calls activate for authenticated deliveries in the connected dispatch service.
-                    </p>
-                    <div className="mt-2 flex gap-2">
-                      <button type="button" disabled className="rounded-lg bg-slate-700 px-3 py-2 text-[9px] font-bold text-slate-400">Message</button>
-                      <button type="button" disabled className="rounded-lg bg-slate-700 px-3 py-2 text-[9px] font-bold text-slate-400">Voice call</button>
-                    </div>
-                  </div>
-                ) : (
+                {!isPreviewSession && !['CHAT', 'RIDER_CHAT'].includes(activeDeliveryBookingStep) && (
                   <DeliveryChatPanel
                     key={activeChatStop.id}
                     deliveryId={activeChatStop.id}
@@ -4598,15 +5203,23 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           <button
             type="button"
             onClick={() => {
+              if (showDeliveryMap) {
+                setShowDeliveryMap(false);
+                setShowAddStopModal(true);
+                setMapExpanded(false);
+                return;
+              }
               if (mapExpanded) setShowCandidateMap(false);
               setMapExpanded(!mapExpanded);
             }}
-            aria-label={mapExpanded ? 'Return to route' : 'Expand map'}
-            title={mapExpanded ? 'Return to route' : 'Expand map'}
+            aria-label={showDeliveryMap ? 'Back to delivery details' : mapExpanded ? 'Return to route' : 'Expand map'}
+            title={showDeliveryMap ? 'Back to delivery details' : mapExpanded ? 'Return to route' : 'Expand map'}
             className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] font-bold text-slate-800 hover:bg-slate-50"
           >
-            {mapExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            <span>{mapExpanded ? 'Back' : 'Expand map'}</span>
+            {showDeliveryMap || mapExpanded
+              ? <Minimize2 className="h-3.5 w-3.5" />
+              : <Maximize2 className="h-3.5 w-3.5" />}
+            <span>{showDeliveryMap ? 'Edit details' : mapExpanded ? 'Back' : 'Expand map'}</span>
           </button>
           <div className="admin-map-actions flex items-center gap-2">
             <a
@@ -4646,118 +5259,657 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       </>
       )}
 
-      {/* --- MODAL 1: DRIVER INVITATION GENERATOR --- */}
-      {showInviteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg space-y-5 overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 text-xs shadow-2xl sm:p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="flex items-center gap-2 text-base font-extrabold text-slate-950">
-                  <UserPlus className="h-5 w-5 text-violet-700" />
-                  <span>Invite a driver</span>
-                </h3>
-                <p className="mt-1 text-[11px] text-slate-500">Generate a one-use driver application link for {currentUser.orgName}. Email is optional.</p>
-              </div>
-              <button onClick={() => setShowInviteModal(false)} aria-label="Close invite window" className="text-slate-400 hover:text-slate-900">
-                <XCircle className="h-5 w-5" />
-              </button>
-            </div>
-
-            <form
-              onSubmit={event => {
-                event.preventDefault();
-                handleGenerateInvite();
+      {showDeliveryMap && (
+        <section
+          aria-labelledby="delivery-map-title"
+          className={`delivery-booking-sheet fixed inset-x-0 bottom-0 z-[60] mx-auto flex w-full max-w-2xl flex-col overflow-hidden border border-slate-200 bg-white text-slate-900 shadow-2xl ${
+            activeDeliveryBookingStep === 'RIDER_CHAT'
+              ? 'is-rider-chat'
+              : activeDeliveryBookingStep === 'RIDERS' && selectedBookingRider
+              ? 'is-rider-profile'
+              : activeDeliveryBookingStep === 'RIDERS'
+              ? 'is-rider-directory'
+              : `rounded-t-3xl sm:bottom-4 sm:rounded-3xl ${deliveryBookingSheetExpanded ? 'max-h-[82dvh]' : 'max-h-[43dvh]'}`
+          }`}
+        >
+          {!['RIDERS', 'RIDER_CHAT'].includes(activeDeliveryBookingStep) && (
+            <button
+              type="button"
+              className="delivery-booking-sheet-handle mx-auto mt-2 h-7 w-16 shrink-0 rounded-full"
+              aria-label={deliveryBookingSheetExpanded ? 'Collapse delivery panel' : 'Expand delivery panel'}
+              aria-expanded={deliveryBookingSheetExpanded}
+              onPointerDown={event => {
+                deliverySheetPointerYRef.current = event.clientY;
+                event.currentTarget.setPointerCapture(event.pointerId);
               }}
-              className="space-y-3"
+              onPointerUp={event => {
+                const startY = deliverySheetPointerYRef.current;
+                deliverySheetPointerYRef.current = null;
+                if (startY === null) return;
+                const movement = event.clientY - startY;
+                setDeliveryBookingSheetExpanded(Math.abs(movement) > 24
+                  ? movement < 0
+                  : expanded => !expanded);
+              }}
+              onPointerCancel={() => { deliverySheetPointerYRef.current = null; }}
             >
-              <label htmlFor="driver-invite-email" className="block font-bold text-slate-700">Driver email address (optional)</label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  id="driver-invite-email"
-                  type="email"
-                  value={inviteEmail}
-                  onChange={event => {
-                    setInviteEmail(event.target.value);
-                    setInviteError('');
-                    setInviteNotice('');
-                    setInviteEmailFailed(false);
-                    setGeneratedInviteId('');
-                  }}
-                  placeholder="driver@example.com"
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-slate-900 outline-none focus:border-violet-500"
-                />
-                <button
-                  type="submit"
-                  disabled={isSendingInvite}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 font-extrabold text-white hover:bg-violet-800 disabled:cursor-wait disabled:opacity-60"
-                >
-                  <Send className="h-4 w-4" />
-                  {isSendingInvite ? 'Generating...' : 'Generate link'}
-                </button>
-              </div>
-              {inviteError && <p role="alert" className="text-[11px] font-semibold text-rose-700">{inviteError}</p>}
-              {inviteNotice && (
-                <p
-                  role={inviteEmailFailed ? 'alert' : 'status'}
-                  className={`text-[11px] font-semibold ${inviteEmailFailed ? 'text-rose-700' : 'text-emerald-700'}`}
-                >
-                  {inviteNotice}
-                </p>
-              )}
-            </form>
-
-            {generatedInvite && (
-              <div className="space-y-3 rounded-2xl border border-violet-200 bg-violet-50 p-3.5">
-                <div>
-                  <p className="font-extrabold text-violet-950">Driver application link ready</p>
-                  <p className="mt-1 text-[10px] text-violet-800">
-                    {generatedInvite.email
-                      ? `This link is reserved for ${generatedInvite.email}.`
-                      : 'Share this link with your driver. They will enter their own email address.'}
+              <span />
+            </button>
+          )}
+          <div className={`delivery-booking-sheet-content min-h-0 overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 sm:px-5 sm:pb-5 ${
+            activeDeliveryBookingStep === 'RIDERS' ? 'flex-1' : ''
+          } ${
+            activeDeliveryBookingStep === 'RIDERS' && selectedBookingRider ? 'delivery-rider-profile-content' : ''
+          } ${
+            activeDeliveryBookingStep === 'RIDER_CHAT' ? 'delivery-rider-chat-content' : ''
+          }`}>
+            <div className={`mb-4 flex items-start justify-between gap-3 ${
+              activeDeliveryBookingStep === 'RIDER_CHAT'
+                ? 'delivery-rider-profile-header'
+                : activeDeliveryBookingStep === 'RIDERS' && selectedBookingRider
+                ? 'delivery-rider-profile-header'
+                : activeDeliveryBookingStep === 'RIDERS'
+                  ? 'sticky top-0 z-10 -mx-4 bg-white px-4 pb-3 pt-1 sm:-mx-5 sm:px-5'
+                  : ''
+            }`}>
+              {activeDeliveryBookingStep === 'RIDER_CHAT' ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryBookingStep('RIDERS')}
+                    aria-label="Back to rider tracking"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-slate-700 hover:bg-slate-100"
+                  >
+                    <ChevronLeft className="h-6 w-6" />
+                  </button>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700">Delivery conversation</p>
+                    <h2 id="delivery-map-title" className="truncate text-lg font-extrabold">
+                      Chat with {selectedBookingRider?.name || 'rider'}
+                    </h2>
+                  </div>
+                </div>
+              ) : activeDeliveryBookingStep === 'RIDERS' && selectedBookingRider ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedBookingRiderId('');
+                      if (riderProfileReturnToFleet) {
+                        setShowDeliveryMap(false);
+                        setMapExpanded(false);
+                        setRiderProfileReturnToFleet(false);
+                      }
+                    }}
+                    aria-label="Back to rider list"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-slate-700 hover:bg-slate-100"
+                  >
+                    <ChevronLeft className="h-6 w-6" />
+                  </button>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700">Rider tracking</p>
+                    <h2 id="delivery-map-title" className="truncate text-lg font-extrabold">
+                      {selectedBookingRider.name}
+                    </h2>
+                  </div>
+                </div>
+              ) : (
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700">
+                    {activeDeliveryBookingStep === 'RIDE' ? 'Choose a delivery' : activeDeliveryBookingStep === 'PICKUP' ? 'Confirm your route' : activeDeliveryBookingStep === 'SEARCHING' ? 'Finding a rider' : activeDeliveryBookingStep === 'MATCHED' ? 'Rider found' : activeDeliveryBookingStep === 'CHAT' ? 'Delivery chat' : 'Page 3 · Rider directory'}
                   </p>
+                  <h2 id="delivery-map-title" className="mt-1 text-lg font-extrabold">
+                    {activeDeliveryBookingStep === 'RIDE' ? 'Select your ride' : activeDeliveryBookingStep === 'PICKUP' ? 'Confirm pickup location' : activeDeliveryBookingStep === 'SEARCHING' ? 'Searching nearby riders' : activeDeliveryBookingStep === 'MATCHED' ? bookingAcceptedOffer?.rider?.name || 'Your rider accepted' : activeDeliveryBookingStep === 'CHAT' ? `Message ${bookingAcceptedOffer?.rider?.name || 'your rider'}` : riderDirectoryFilter === 'OUT_FOR_DELIVERY' ? 'Riders out for delivery' : 'All riders'}
+                  </h2>
+                  {activeDeliveryBookingStep === 'RIDERS' && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {ridersOutForDelivery.length} rider{ridersOutForDelivery.length === 1 ? '' : 's'} on active delivery routes
+                    </p>
+                  )}
                 </div>
-                <div className="break-all rounded-lg border border-violet-100 bg-white p-2.5 font-mono text-[10px] text-slate-600">
-                  {getInviteApplicationUrl(generatedInvite)}
-                </div>
+              )}
+              <div className="flex shrink-0 items-center gap-2">
+                {['RIDERS', 'RIDER_CHAT'].includes(activeDeliveryBookingStep) && selectedBookingRider && (
+                  selectedBookingRider.phone ? (
+                    <a
+                      href={`tel:${selectedBookingRider.phone}`}
+                      aria-label={`Call ${selectedBookingRider.name}`}
+                      className="grid h-10 w-10 place-items-center rounded-full bg-emerald-600 text-white shadow-sm hover:bg-emerald-700"
+                    >
+                      <Phone className="h-5 w-5" />
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      aria-label="Rider phone number unavailable"
+                      className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-400"
+                    >
+                      <Phone className="h-5 w-5" />
+                    </button>
+                  )
+                )}
+                {activeDeliveryBookingStep === 'RIDERS' && selectedBookingRider && (
+                  <button
+                    type="button"
+                    disabled={!selectedRiderChatStop}
+                    onClick={() => {
+                      if (!selectedRiderChatStop) return;
+                      setSelectedRiderChatDeliveryId(selectedRiderChatStop.id);
+                      setDeliveryBookingStep('RIDER_CHAT');
+                    }}
+                    aria-label={selectedRiderChatStop
+                      ? `Chat with ${selectedBookingRider.name}`
+                      : `Chat unavailable for ${selectedBookingRider.name} without an active delivery`}
+                    title={selectedRiderChatStop ? 'Chat with rider' : 'Chat is available for active deliveries'}
+                    className="grid h-10 w-10 place-items-center rounded-full bg-violet-700 text-white shadow-sm hover:bg-violet-800 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
+                  >
+                    <MessageSquare className="h-5 w-5" />
+                  </button>
+                )}
+                {['RIDE', 'PICKUP'].includes(activeDeliveryBookingStep) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDeliveryMap(false);
+                      setShowAddStopModal(true);
+                      setMapExpanded(false);
+                    }}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    Edit details
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => copyInviteLinkToClipboard(generatedInvite.token)}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-violet-200 bg-white py-2.5 font-bold text-violet-800 hover:bg-violet-100"
+                  onClick={() => {
+                    setShowDeliveryMap(false);
+                    setMapExpanded(false);
+                    setRiderProfileReturnToFleet(false);
+                  }}
+                  aria-label="Close delivery panel"
+                  className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
                 >
-                  <Copy className="h-3.5 w-3.5" />
-                  {copiedLink ? 'Copied' : 'Copy application link'}
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {activeDeliveryBookingStep === 'RIDE' && (
+              <>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {DELIVERY_TYPES.map(deliveryType => {
+                    const selected = newStopForm.requiredVehicleType === deliveryType.vehicleType;
+                    return (
+                      <button
+                        key={deliveryType.vehicleType}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => setNewStopForm(previous => ({
+                          ...previous,
+                          requiredVehicleType: deliveryType.vehicleType
+                        }))}
+                        className={`flex min-h-20 items-center gap-3 rounded-2xl border p-3 text-left transition-colors ${selected ? 'border-violet-600 bg-violet-50 ring-1 ring-violet-600' : 'border-slate-200 bg-white hover:border-violet-300'}`}
+                      >
+                        <deliveryType.Icon vehicleType={deliveryType.vehicleType} className="h-10 w-14 shrink-0" style={{ color: deliveryType.color }} />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-extrabold text-slate-900">{deliveryType.label}</span>
+                          <span className="block text-[10px] text-slate-500">{deliveryType.description}</span>
+                        </span>
+                        {selected && <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-violet-700" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3">
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Delivery route</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-800">{newStopForm.pickupAddress}</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-800">To: {newStopForm.address}</p>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDeliveryMap(false);
+                      setShowCandidateMap(false);
+                      setShowAddStopModal(false);
+                      setMapExpanded(false);
+                      setDeliveryOfferError('');
+                      setShowDeliveryTypePicker(true);
+                    }}
+                    className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:order-2"
+                  >
+                    Add Stop Manually
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!newStopForm.requiredVehicleType}
+                    onClick={() => {
+                      setDeliveryOfferError('');
+                      setDeliveryBookingStep('PICKUP');
+                      setDeliveryBookingSheetExpanded(true);
+                    }}
+                    className="flex-1 rounded-xl bg-violet-700 px-4 py-3 text-sm font-extrabold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Select ride
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeDeliveryBookingStep === 'PICKUP' && (
+              <>
+                <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <div className="flex gap-3">
+                    <div className="flex flex-col items-center pt-1">
+                      <span className="h-3 w-3 rounded-full border-[3px] border-violet-700" />
+                      <span className="my-1 h-8 border-l-2 border-dashed border-slate-300" />
+                      <span className="h-3 w-3 rounded-sm bg-orange-500" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Pickup</p>
+                        <p className="break-words text-sm font-bold text-slate-900">{newStopForm.pickupAddress}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Drop-off</p>
+                        <p className="break-words text-sm font-bold text-slate-900">{newStopForm.address}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-900">
+                      {DELIVERY_TYPES.find(item => item.vehicleType === newStopForm.requiredVehicleType)?.label || 'Delivery'}
+                    </p>
+                    <p className="text-[10px] text-slate-500">{newStopForm.packages} package(s)</p>
+                  </div>
+                </div>
+                {deliveryOfferError && (
+                  <p role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">
+                    {deliveryOfferError}
+                  </p>
+                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryBookingStep('RIDE')}
+                    className="rounded-xl border border-slate-300 px-3 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDeliveryMap(false);
+                      setShowCandidateMap(false);
+                      setShowAddStopModal(false);
+                      setMapExpanded(false);
+                      setDeliveryOfferError('');
+                      setShowDeliveryTypePicker(true);
+                    }}
+                    className="rounded-xl border border-slate-300 px-3 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    Add Stop Manually
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => createDeliveryStop(true)}
+                    disabled={creatingDelivery
+                      || !Number.isFinite(newStopForm.pickupLat)
+                      || !Number.isFinite(newStopForm.pickupLng)
+                      || !Number.isFinite(newStopForm.lat)
+                      || !Number.isFinite(newStopForm.lng)}
+                    className="min-w-32 flex-1 rounded-xl bg-violet-700 px-4 py-3 text-sm font-extrabold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {creatingDelivery ? 'Confirming pickup…' : 'Confirm pickup'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeDeliveryBookingStep === 'SEARCHING' && (
+              <div className="space-y-4">
+                <div className="rounded-2xl bg-violet-50 p-5 text-center">
+                  <div className="relative mx-auto mb-3 grid h-16 w-16 place-items-center">
+                    <span className="absolute inset-0 animate-ping rounded-full bg-violet-200 opacity-70" />
+                    <span className="relative grid h-14 w-14 place-items-center rounded-full bg-violet-700 text-white">
+                      <Truck className="h-7 w-7" />
+                    </span>
+                  </div>
+                  <p className="text-base font-extrabold text-slate-900">
+                    {bookingAcceptedOffer ? 'Rider found' : 'Looking for a nearby rider'}
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    {deliverySearchFeedback?.stopId === deliveryBookingStopId
+                      ? deliverySearchFeedback.message
+                      : `Sending your delivery request near ${bookingStop?.pickupAddress || newStopForm.pickupAddress}.`}
+                  </p>
+                </div>
+                {deliverySearchFeedback?.stopId === deliveryBookingStopId && deliverySearchFeedback.state === 'error' && bookingStop && (
+                  <button
+                    type="button"
+                    disabled={creatingDelivery}
+                    onClick={() => requestRidersForStop(bookingStop)}
+                    className="w-full rounded-xl border border-violet-200 px-4 py-3 text-sm font-bold text-violet-800 hover:bg-violet-50 disabled:opacity-50"
+                  >
+                    Retry rider search
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedBookingRiderId('');
+                    setDeliveryBookingStep('RIDERS');
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  View rider list
                 </button>
               </div>
             )}
 
-            <div className="space-y-2 border-t border-slate-100 pt-4">
-              <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">Recent invitations</span>
-              {invites.map(inv => (
-                <div key={inv.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2.5">
-                  <div>
-                    <span className="block truncate font-bold text-slate-800">{inv.email || 'Legacy invitation'}</span>
-                    <span className="text-[9px] text-slate-500">
-                      {inv.status === 'REGISTERED' ? 'Application completed' : 'Link created · awaiting application'}
-                    </span>
+            {activeDeliveryBookingStep === 'MATCHED' && (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-emerald-100 text-lg font-extrabold text-emerald-800">
+                      {(bookingAcceptedOffer?.rider?.name || 'R').slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-base font-extrabold text-slate-900">{bookingAcceptedOffer?.rider?.name || 'Rider accepted'}</p>
+                      <p className="text-xs text-slate-600">
+                        {[bookingAcceptedOffer?.rider?.vehicle, bookingAcceptedOffer?.rider?.zone].filter(Boolean).join(' · ') || 'Your rider is preparing for pickup'}
+                      </p>
+                      <p className="mt-1 text-[10px] font-bold text-emerald-800">Accepted your delivery request</p>
+                    </div>
                   </div>
-                  {inv.status === 'PENDING' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGeneratedInviteId(inv.id);
-                        setInviteEmail(inv.email);
-                      }}
-                      className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[10px] font-bold text-violet-800 hover:bg-violet-50"
-                    >
-                      View link
-                    </button>
+                  <p className="mt-3 text-xs text-slate-600">{bookingStop?.pickupAddress || 'Pickup'} → {bookingStop?.address || 'Drop-off'}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryBookingStep('CHAT')}
+                    className="flex-1 rounded-xl bg-violet-700 px-4 py-3 text-sm font-extrabold text-white hover:bg-violet-800"
+                  >
+                    <MessageSquare className="mr-2 inline h-4 w-4" />Message rider
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryBookingStep('CHAT')}
+                    className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm font-extrabold text-slate-800 hover:bg-slate-50"
+                  >
+                    <Phone className="mr-2 inline h-4 w-4" />Voice call
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedBookingRiderId('');
+                    setDeliveryBookingStep('RIDERS');
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  See all riders
+                </button>
+              </div>
+            )}
+
+            {activeDeliveryBookingStep === 'CHAT' && (
+              <div className="space-y-3">
+                {bookingStop && bookingAcceptedOffer?.rider?.id ? (
+                  <DeliveryChatPanel
+                    key={bookingStop.id}
+                    deliveryId={bookingStop.id}
+                    currentUserId={currentUser.id}
+                    request={apiRequest}
+                    autoOpen
+                    conversationTitle={`Chat with ${bookingAcceptedOffer.rider.name}`}
+                  />
+                ) : (
+                  <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Chat becomes available when a rider accepts the delivery.</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDeliveryBookingStep('MATCHED')}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Back to rider
+                </button>
+              </div>
+            )}
+
+            {activeDeliveryBookingStep === 'RIDER_CHAT' && (
+              <div className="delivery-rider-chat-stage">
+                {selectedBookingRider && selectedRiderChatStop ? (
+                  <DeliveryChatPanel
+                    key={`${selectedBookingRider.id}-${selectedRiderChatStop.id}`}
+                    deliveryId={selectedRiderChatStop.id}
+                    currentUserId={currentUser.id}
+                    request={apiRequest}
+                    autoOpen
+                    fullPage
+                    conversationTitle={`Chat with ${selectedBookingRider.name}`}
+                  />
+                ) : (
+                  <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                    Chat is available when the rider has an active delivery conversation.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {activeDeliveryBookingStep === 'RIDERS' && selectedBookingRider && (
+              <div className="delivery-rider-profile-layout">
+                <div className="delivery-rider-map">
+                  <FleetMap
+                    center={selectedBookingRiderMapCenter}
+                    currentLocation={null}
+                    followDriverLocation={selectedBookingRiderIsLive}
+                    drivers={selectedBookingRiderHasLocation ? [selectedBookingRider] : []}
+                    stops={selectedBookingRider.activeDeliveryStops}
+                    now={clockNow}
+                    selectedDriverId={selectedBookingRider.id}
+                    selectedStopId={selectedBookingRider.activeDeliveryStops[0]?.id || null}
+                    onDriverSelect={selectDriverToTrack}
+                    onStopSelect={setSelectedStopId}
+                  />
+                  <div className="delivery-rider-live-badge">
+                    <span className={selectedBookingRiderIsLive ? 'is-live' : ''} />
+                    {selectedBookingRiderIsLive ? 'Live tracking' : selectedBookingRiderHasLocation ? 'Last known location' : 'Location unavailable'}
+                  </div>
+                  {!selectedBookingRiderHasLocation && (
+                    <div className="delivery-rider-map-notice">
+                      This rider has not shared a location yet.
+                    </div>
                   )}
                 </div>
-              ))}
-              {invites.length === 0 && <p className="text-[10px] text-slate-500">Invitations you create will appear here.</p>}
-            </div>
+
+                <div className="delivery-rider-profile-details">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-violet-100 text-lg font-extrabold text-violet-800">
+                      {(selectedBookingRider.name || 'R').slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-base font-extrabold text-slate-900">{selectedBookingRider.name}</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {[selectedBookingRider.vehicle || selectedBookingRider.vehicleType, selectedBookingRider.zone]
+                          .filter(Boolean)
+                          .join(' · ') || 'Delivery rider'}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                      selectedBookingRider.isOutForDelivery
+                        ? 'bg-amber-100 text-amber-800'
+                        : selectedBookingRider.isAvailable
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {selectedBookingRider.isOutForDelivery
+                        ? 'On delivery'
+                        : selectedBookingRider.isAvailable ? 'Available' : 'Unavailable'}
+                    </span>
+                  </div>
+
+                  <div className="delivery-rider-tracking-summary">
+                    <div>
+                      <span>Distance to pickup</span>
+                      <strong>
+                        {selectedBookingRider.distanceKm == null
+                          ? 'Unavailable'
+                          : `${selectedBookingRider.distanceKm.toFixed(1)} km`}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Location update</span>
+                      <strong>
+                        {Number.isFinite(selectedBookingRiderLocationTimestamp)
+                          ? new Date(selectedBookingRiderLocationTimestamp).toLocaleTimeString([], {
+                            hour: 'numeric',
+                            minute: '2-digit'
+                          })
+                          : 'Not shared'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {selectedBookingRider.activeDeliveryStops.length > 0 ? (
+                    <section className="mt-5">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-extrabold text-slate-900">Delivery route</h3>
+                        <span className="text-xs font-semibold text-slate-500">
+                          {selectedBookingRider.activeDeliveryCount} active
+                        </span>
+                      </div>
+                      <ol className="space-y-2">
+                        {selectedBookingRider.activeDeliveryStops.map((stop, index) => (
+                          <li key={stop.id} className="flex gap-3 rounded-xl bg-slate-50 p-3">
+                            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-violet-100 text-xs font-extrabold text-violet-800">
+                              {index + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-bold text-slate-900">
+                                {stop.name || `Delivery ${index + 1}`}
+                              </p>
+                              <p className="mt-1 text-[11px] leading-snug text-slate-600">
+                                {stop.address || 'Drop-off address unavailable'}
+                              </p>
+                              <p className="mt-1 text-[10px] font-semibold text-violet-700">
+                                {String(stop.dispatchStatus || stop.status || 'IN_PROGRESS').replaceAll('_', ' ')}
+                              </p>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                  ) : (
+                    <p className="mt-5 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                      No active delivery stops are assigned to this rider.
+                    </p>
+                  )}
+
+                  {bookingStop && !selectedBookingRider.isOutForDelivery && (
+                    <button
+                      type="button"
+                      onClick={() => requestRidersForStop(bookingStop, selectedBookingRider.id)}
+                      className="mt-4 w-full rounded-xl bg-violet-700 px-4 py-3 text-sm font-extrabold text-white hover:bg-violet-800"
+                    >
+                      Send delivery offer
+                    </button>
+                  )}
+                  {selectedBookingRider.isOutForDelivery && (
+                    <p className="mt-4 text-xs text-slate-500">
+                      This rider is already completing an active route.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeDeliveryBookingStep === 'RIDERS' && !selectedBookingRider && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1" role="group" aria-label="Filter rider list">
+                  <button
+                    type="button"
+                    aria-pressed={riderDirectoryFilter === 'OUT_FOR_DELIVERY'}
+                    onClick={() => setRiderDirectoryFilter('OUT_FOR_DELIVERY')}
+                    className={`rounded-lg px-2 py-2 text-xs font-bold ${
+                      riderDirectoryFilter === 'OUT_FOR_DELIVERY'
+                        ? 'bg-white text-violet-800 shadow-sm'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    Out for delivery ({ridersOutForDelivery.length})
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={riderDirectoryFilter === 'ALL'}
+                    onClick={() => setRiderDirectoryFilter('ALL')}
+                    className={`rounded-lg px-2 py-2 text-xs font-bold ${
+                      riderDirectoryFilter === 'ALL'
+                        ? 'bg-white text-violet-800 shadow-sm'
+                        : 'text-slate-600'
+                    }`}
+                  >
+                    All riders ({bookingRiderSummaries.length})
+                  </button>
+                </div>
+                {visibleBookingRiders.length === 0 && (
+                  <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+                    {riderDirectoryFilter === 'OUT_FOR_DELIVERY'
+                      ? 'No riders are currently out on active deliveries. Check All riders to view the rider roster.'
+                      : 'No rider profiles are available yet.'}
+                  </p>
+                )}
+                {visibleBookingRiders.map(rider => (
+                  <button
+                    key={rider.id}
+                    type="button"
+                    onClick={() => setSelectedBookingRiderId(rider.id)}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left hover:border-violet-300 hover:bg-violet-50"
+                  >
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-violet-100 font-extrabold text-violet-800">
+                      {(rider.name || 'R').slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-extrabold text-slate-900">{rider.name}</span>
+                      <span className="block truncate text-[10px] text-slate-500">{rider.vehicle || rider.vehicleType || 'Delivery rider'}{rider.zone ? ` · ${rider.zone}` : ''}</span>
+                      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                        rider.isOutForDelivery
+                          ? 'bg-amber-100 text-amber-800'
+                          : rider.isAvailable
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {rider.isOutForDelivery
+                          ? `${rider.activeDeliveryCount} active ${rider.activeDeliveryCount === 1 ? 'delivery' : 'deliveries'}`
+                          : rider.isAvailable ? 'Available' : 'Not available'}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-xs font-bold text-slate-800">
+                        {rider.distanceKm == null ? '—' : `${rider.distanceKm.toFixed(1)} km`}
+                      </span>
+                      <span className="block text-[9px] text-slate-500">to nearest search point</span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setDeliveryBookingStep(bookingAcceptedOffer ? 'MATCHED' : 'SEARCHING')}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Back to delivery
+                </button>
+              </div>
+            )}
           </div>
-        </div>
+        </section>
       )}
 
       {/* --- BUSINESS DELIVERY HOME --- */}
@@ -4769,7 +5921,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           aria-modal="true"
           aria-labelledby="delivery-type-picker-title"
         >
-          <main className="mx-auto min-h-full w-full max-w-[500px] px-5 pb-28 pt-5">
+          <main className="mx-auto min-h-full w-full max-w-[500px] px-5 pb-8 pt-5">
             {deliveryBannerVisible && (
               <aside
                 className="mb-7 flex items-center gap-3 rounded-2xl px-4 py-3"
@@ -4777,7 +5929,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               >
                 <span
                   className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
-                  style={{ background: '#5867e8', color: '#fff' }}
+                  style={{ background: '#fff0e4', color: '#e87924' }}
                 >
                   <Tag className="h-6 w-6" aria-hidden="true" />
                 </span>
@@ -4805,7 +5957,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             </h2>
 
             <div className="mb-5 grid grid-cols-3 gap-2">
-              {DELIVERY_TYPES.map(({ vehicleType, label, description, Icon }) => (
+              {DELIVERY_TYPES.map(({ vehicleType, label, description, color, Icon }) => (
                 <button
                   key={vehicleType}
                   type="button"
@@ -4818,7 +5970,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     className="flex h-[68px] w-full items-center justify-center"
                     aria-hidden="true"
                   >
-                    <Icon className="h-12 w-12" strokeWidth={1.8} />
+                    <Icon vehicleType={vehicleType} className="h-16 w-24" style={{ color }} />
                   </span>
                   <span className="block text-base font-semibold leading-tight">{label}</span>
                   <span className="block text-xs leading-tight text-slate-600">{description}</span>
@@ -4837,6 +5989,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 onSelect={(address, location) =>
                   setNewStopForm(previous => ({ ...previous, address, ...location }))
                 }
+                proximity={{ lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }}
                 placeholder="Where to?"
                 inputClassName="w-full border-0 bg-transparent p-0 text-base font-semibold outline-none"
                 inputStyle={{ background: 'transparent', border: 0, color: '#111', minHeight: 44 }}
@@ -4852,84 +6005,49 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               </button>
             </div>
 
-            <section aria-label="Recent delivery destinations" className="space-y-2">
-              {recentDeliveryStops.length > 0 ? recentDeliveryStops.map(stop => (
-                <button
-                  key={stop.id}
-                  type="button"
-                  onClick={() => setNewStopForm(previous => ({
-                    ...previous,
-                    address: stop.address,
-                    lat: stop.lat,
-                    lng: stop.lng
-                  }))}
-                  className="flex w-full items-center gap-3 rounded-xl py-1 text-left transition hover:bg-slate-50"
-                  style={{ color: '#171717' }}
-                >
-                  <span
-                    className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl"
-                    style={{ background: '#eef0f0', color: '#4b4b4b' }}
+            {!newStopForm.address.trim() && (
+              <section aria-label="Recent delivery destinations" className="space-y-2">
+                {recentDeliveryStops.length > 0 ? recentDeliveryStops.map(stop => (
+                  <button
+                    key={stop.id}
+                    type="button"
+                    onClick={() => setNewStopForm(previous => ({
+                      ...previous,
+                      address: stop.address,
+                      lat: stop.lat,
+                      lng: stop.lng
+                    }))}
+                    className="flex w-full items-center gap-3 rounded-xl py-1 text-left transition hover:bg-slate-50"
+                    style={{ color: '#171717' }}
                   >
-                    <Clock className="h-6 w-6" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-base font-medium">{stop.address}</span>
-                    <span className="mt-1 block truncate text-sm text-slate-600">
-                      {stop.name || stop.pickupAddress || 'Recent delivery'}
+                    <span
+                      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl"
+                      style={{ background: '#eef0f0', color: '#4b4b4b' }}
+                    >
+                      <Clock className="h-6 w-6" aria-hidden="true" />
                     </span>
-                  </span>
-                </button>
-              )) : (
-                <p className="px-1 py-3 text-sm text-slate-500">
-                  Recent delivery addresses will appear here.
-                </p>
-              )}
-            </section>
+                    <span className="min-w-0">
+                      <span className="block truncate text-base font-medium">{stop.address}</span>
+                      <span className="mt-1 block truncate text-sm text-slate-600">
+                        {stop.name || stop.pickupAddress || 'Recent delivery'}
+                      </span>
+                    </span>
+                  </button>
+                )) : (
+                  <p className="px-1 py-3 text-sm text-slate-500">
+                    Recent delivery addresses will appear here.
+                  </p>
+                )}
+              </section>
+            )}
           </main>
 
-          <nav
-            aria-label="Business dashboard navigation"
-            className="fixed bottom-4 left-1/2 z-[61] grid w-[calc(100%-2.5rem)] max-w-[350px] -translate-x-1/2 grid-cols-3 rounded-full p-1 shadow-lg"
-            style={{ background: '#fff', boxShadow: '0 4px 24px rgb(0 0 0 / 12%)' }}
-          >
-            <button
-              type="button"
-              aria-current="page"
-              className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-full text-xs font-semibold"
-              style={{ background: '#f0f0f0', color: '#111' }}
-            >
-              <Home className="h-5 w-5" aria-hidden="true" />
-              Home
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowDeliveryTypePicker(false);
-                setActiveAdminView('DELIVERIES');
-              }}
-              className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-full text-xs font-medium text-slate-600"
-            >
-              <Activity className="h-5 w-5" aria-hidden="true" />
-              Activity
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowDeliveryTypePicker(false);
-                setProfileMenuOpen(true);
-              }}
-              className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-full text-xs font-medium text-slate-600"
-            >
-              <User className="h-5 w-5" aria-hidden="true" />
-              Account
-            </button>
-          </nav>
         </div>
       )}
 
       {showAddStopModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900 p-5 text-xs shadow-2xl sm:p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:p-4">
+          <div className="max-h-[calc(100dvh-1rem)] w-full max-w-lg space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-3xl border border-slate-800 bg-slate-900 p-4 text-xs shadow-2xl sm:max-h-[90dvh] sm:p-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-1.5">
                 <Plus className="w-4 h-4 text-emerald-400" />
@@ -4954,23 +6072,44 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
             <div className="space-y-3">
               <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Pickup Address</label>
-                <AddressAutocomplete
-                  value={newStopForm.pickupAddress}
-                  onChange={pickupAddress => setNewStopForm(previous => ({
-                    ...previous,
-                    pickupAddress,
-                    pickupLat: null,
-                    pickupLng: null
-                  }))}
-                  onSelect={(pickupAddress, location) => {
-                    setNewStopForm(previous => ({ ...previous, pickupAddress, pickupLat: location.lat, pickupLng: location.lng }));
-                    setRouteOrigins(previous => ({ ...previous, [currentUser.id]: pickupAddress }));
-                    setRouteOriginCoordinates(previous => ({ ...previous, [currentUser.id]: location }));
-                  }}
-                  placeholder="Search and select the package pickup location"
-                  inputClassName="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
-                />
+                <label className="mb-1 block font-semibold text-slate-400">Pickup Address</label>
+                <div className="flex min-w-0 items-stretch gap-2">
+                  <AddressAutocomplete
+                    value={newStopForm.pickupAddress}
+                    onChange={pickupAddress => {
+                      setPickupLocationError('');
+                      setNewStopForm(previous => ({
+                        ...previous,
+                        pickupAddress,
+                        pickupLat: null,
+                        pickupLng: null
+                      }));
+                    }}
+                    onSelect={(pickupAddress, location) => {
+                      setPickupLocationError('');
+                      setNewStopForm(previous => ({ ...previous, pickupAddress, pickupLat: location.lat, pickupLng: location.lng }));
+                      setRouteOrigins(previous => ({ ...previous, [currentUser.id]: pickupAddress }));
+                      setRouteOriginCoordinates(previous => ({ ...previous, [currentUser.id]: location }));
+                    }}
+                    placeholder="Search and select the package pickup location"
+                    inputClassName="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-slate-200 focus:border-emerald-500 focus:outline-none"
+                    proximity={{ lat: currentLocationPoint?.lat, lng: currentLocationPoint?.lng }}
+                  />
+                  <button
+                    type="button"
+                    onClick={useCurrentLocationForPickup}
+                    disabled={pickupLocationLoading}
+                    className="flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 text-[10px] font-bold text-blue-800 disabled:cursor-wait disabled:opacity-60 sm:text-xs"
+                  >
+                    <Target className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>{pickupLocationLoading ? 'Locating…' : 'Use my location'}</span>
+                  </button>
+                </div>
+                {pickupLocationError && (
+                  <p role="alert" className="mt-1 text-[10px] font-semibold text-rose-600">
+                    {pickupLocationError}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -5004,6 +6143,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   onSelect={(address, location) =>
                     setNewStopForm(prev => ({ ...prev, address, ...location }))
                   }
+                  proximity={{ lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }}
                   placeholder="Type the full delivery address here before navigating..."
                   inputClassName="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
                 />
@@ -5020,7 +6160,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                         Nearby available {selectedDeliveryType?.label.toLowerCase()} riders
                       </h4>
                       <p className="mt-1 text-[9px] leading-relaxed text-slate-400">
-                        Live candidates are ranked from the selected pickup. Only available {selectedDeliveryType?.description.toLowerCase()} drivers with a fresh location and no active route are shown.
+                        Available {selectedDeliveryType?.description.toLowerCase()} drivers with a fresh location and no active route are shown when they are within 5 km of this pickup or your business origin.
                       </p>
                     </div>
                   </div>
@@ -5032,14 +6172,14 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       className="min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-slate-200"
                     >
                       <option value="ALL">All zones</option>
-                      {[...new Set([...driversList, ...dispatchMapRiders]
+                      {[...new Set([...driversList, ...dispatchMapRiders, ...marketplaceDrivers]
                         .map(driver => String(driver.zone || '').trim())
                         .filter(Boolean))]
                         .sort((left, right) => left.localeCompare(right))
                         .map(zone => <option key={zone} value={zone}>{zone}</option>)}
                     </select>
                     <select
-                      aria-label="Sort drivers by distance from pickup"
+                      aria-label="Sort drivers by distance from the nearest search point"
                       value={riderDistanceSort}
                       onChange={event => setRiderDistanceSort(event.target.value)}
                       className="min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-slate-200"
@@ -5048,6 +6188,9 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       <option value="FARTHEST">Farthest first</option>
                     </select>
                   </div>
+                  {marketplaceError && marketplaceQueryString && (
+                    <p role="status" className="mt-2 text-[10px] font-semibold text-amber-300">{marketplaceError}</p>
+                  )}
                   {nearbyAvailableRiders.length > 0 ? (
                     <div className="mt-3 space-y-2">
                       {nearbyAvailableRiders.map((rider, index) => (
@@ -5279,28 +6422,10 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               <div className="flex flex-col gap-2 sm:flex-row">
                 <button
                   type="button"
-                  onClick={() => createDeliveryStop(true)}
-                  disabled={creatingDelivery
-                    || !Number.isFinite(newStopForm.pickupLat)
-                    || !Number.isFinite(newStopForm.pickupLng)
-                    || !Number.isFinite(newStopForm.lat)
-                    || !Number.isFinite(newStopForm.lng)}
-                  className="flex-1 rounded-xl bg-emerald-500 py-2.5 text-xs font-black text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={openDeliveryMap}
+                  className="flex-1 rounded-xl bg-blue-600 py-2.5 text-xs font-black text-white hover:bg-blue-700"
                 >
-                  {creatingDelivery ? 'Saving and sending offers...' : newStopForm.assignedDriverId ? 'Save & send selected driver an offer' : 'Save & find nearby drivers'}
-                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const address = newStopForm.address.trim();
-                    if (!address) return;
-                    const origin = getNavigationOrigin();
-                    window.open(openStreetMapDirectionsUrl([origin, address]), '_blank', 'noopener,noreferrer');
-                  }}
-                  className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl"
-                >
-                  Map It
+                  View map
                 </button>
               </div>
             </div>

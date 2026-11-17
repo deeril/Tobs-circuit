@@ -18,6 +18,12 @@ describe('server route registration', () => {
 
     assert.ok(routes.includes('POST /api/super-admin/drivers/:id/verification'));
     assert.ok(routes.includes('POST /api/stops/route-sequence/:driverId'));
+    assert.ok(routes.includes('POST /api/auth/register-driver'));
+    assert.ok(routes.includes('GET /api/users/me/driver-application'));
+    assert.ok(routes.includes('PUT /api/users/me/driver-application'));
+    assert.ok(routes.includes('GET /api/users/me/payout'));
+    assert.ok(routes.includes('PUT /api/users/me/payout'));
+    assert.ok(routes.includes('GET /api/marketplace/drivers'));
   });
 
   it('accepts valid pricing quotes and rejects tampered ones', () => {
