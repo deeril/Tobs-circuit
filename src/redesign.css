@@ -1228,15 +1228,15 @@ textarea {
   }
 
   .delivery-booking-sheet.is-rider-profile {
-    inset: 1rem;
-    width: calc(100% - 2rem);
-    max-width: 42rem;
-    height: calc(100dvh - 2rem);
-    max-height: none;
-    margin: auto;
-    padding-top: 0;
-    border: 1px solid #e2e8f0;
-    border-radius: 1.5rem;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    padding-top: env(safe-area-inset-top);
+    border: 0;
+    border-radius: 0;
   }
 
   .delivery-booking-sheet.is-rider-chat {
