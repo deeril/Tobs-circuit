@@ -8,7 +8,7 @@
     "start": "node server.js",
     "build": "vite build",
     "lint": "oxlint",
-    "test": "node --test tests/dispatch.integration.test.js tests/stage2b-services.test.js tests/maplibre-markers.test.js tests/server-routes.test.js",
+    "test": "node --test tests/dispatch.integration.test.js tests/dispatch-route-sequencing.test.js tests/stage2b-services.test.js tests/maplibre-markers.test.js tests/server-routes.test.js",
     "test:pg": "node scripts/run-dispatch-postgres-tests.js",
     "cleanup:dispatch-gps": "node scripts/cleanup-dispatch-gps.js",
     "preview": "vite preview"

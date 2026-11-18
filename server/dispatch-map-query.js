@@ -70,24 +70,6 @@ export const AUTHORIZED_MAP_RIDERS_SQL = `
         'RIDER_ASSIGNED', 'RIDER_ACCEPTED', 'HEADING_TO_PICKUP',
         'ARRIVED_AT_PICKUP', 'HEADING_TO_DESTINATION'
       )
-    UNION ALL
-    SELECT NULL::text AS delivery_id,
-           NULL::text AS dispatch_status,
-           profile.rider_id,
-           location.recorded_at AS visible_since,
-           FALSE AS assigned
-    FROM rider_dispatch_profiles AS profile
-    JOIN rider_current_locations AS location
-      ON location.rider_id = profile.rider_id
-     AND location.sharing_enabled = TRUE
-     AND location.recorded_at > NOW() - INTERVAL '90 seconds'
-    WHERE profile.is_active = TRUE
-      AND profile.is_available = TRUE
-      AND NOT EXISTS (
-        SELECT 1 FROM delivery_assignments AS active_assignment
-        WHERE active_assignment.rider_id = profile.rider_id
-          AND active_assignment.status = 'ACTIVE'
-      )
   )
   SELECT DISTINCT ON (visible.rider_id)
          visible.delivery_id,

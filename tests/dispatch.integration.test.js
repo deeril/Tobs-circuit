@@ -146,6 +146,31 @@ describe('dispatch PostgreSQL integration', () => {
     await pool.query('UPDATE tobs_app_state SET state = $1::jsonb WHERE id = 1', [JSON.stringify({ stops: [] })]);
   });
 
+  it('persists route sequence and route geometry in the shared application state', { skip: !enabled }, async () => {
+    const routeState = {
+      stops: [{
+        id: randomUUID(),
+        assignedDriverId: randomUUID(),
+        routeSequence: 1,
+        routeOrder: 1,
+        routeSequenceStatus: 'READY',
+        routeLegGeometry: {
+          type: 'LineString',
+          coordinates: [[3.3, 6.5], [3.31, 6.51]]
+        }
+      }]
+    };
+    await pool.query(
+      'INSERT INTO tobs_app_state (id, state) VALUES (2, $1::jsonb)',
+      [JSON.stringify(routeState)]
+    );
+    const { rows } = await pool.query(
+      'SELECT state->\'stops\' AS stops FROM tobs_app_state WHERE id = 2'
+    );
+    assert.deepEqual(rows[0].stops, routeState.stops);
+    await pool.query('DELETE FROM tobs_app_state WHERE id = 2');
+  });
+
   after(async () => {
     if (!enabled) return;
     await pool?.end();
@@ -349,7 +374,7 @@ describe('dispatch PostgreSQL integration', () => {
     await assert.rejects(pool.query('SELECT * FROM missing_dispatch_test_relation'));
   });
 
-  it('shares fresh online public rider locations with every business while sharing is enabled', { skip: !enabled }, async () => {
+  it('keeps fresh pending-offer locations scoped to the offer business', { skip: !enabled }, async () => {
     const riderId = randomUUID();
     const businessIds = [randomUUID(), randomUUID(), randomUUID()];
     await pool.query(
@@ -390,7 +415,7 @@ describe('dispatch PostgreSQL integration', () => {
 
     assert.equal((await visibleForBusiness(businessIds[0]))[0].rider_id, riderId);
     assert.equal((await visibleForBusiness(businessIds[1]))[0].rider_id, riderId);
-    assert.equal((await visibleForBusiness(businessIds[2]))[0].rider_id, riderId);
+    assert.deepEqual(await visibleForBusiness(businessIds[2]), []);
 
     await pool.query(`
       INSERT INTO rider_current_locations (rider_id, latitude, longitude, recorded_at, sharing_enabled)
@@ -490,17 +515,23 @@ describe('dispatch PostgreSQL integration', () => {
       VALUES ($1, $2, $3, $4, 'ACTIVE')
     `, [randomUUID(), assignedDeliveryId, riderIds.assigned, businessId]);
 
-    const { rows } = await pool.query(PUBLIC_MARKETPLACE_DRIVERS_SQL, [6.5244, 3.3792, true]);
+    const { rows } = await pool.query(PUBLIC_MARKETPLACE_DRIVERS_SQL, [
+      6.8, 3.8, 6.5244, 3.3792, true, true
+    ]);
     assert.deepEqual(rows.map(row => row.rider_id), [riderIds.public]);
     assert.equal(rows[0].name, 'Unlinked public rider');
     assert.equal(rows[0].zone, 'Ikeja');
+    const outsideBothSearchPoints = await pool.query(PUBLIC_MARKETPLACE_DRIVERS_SQL, [
+      6.8, 3.8, 6.9, 3.9, true, true
+    ]);
+    assert.deepEqual(outsideBothSearchPoints.rows, []);
     await pool.query(
       'UPDATE rider_dispatch_profiles SET is_available = FALSE WHERE rider_id = ANY($1::text[])',
       [Object.values(riderIds)]
     );
   });
 
-  it('shares public availability globally while keeping pending offer details business scoped', { skip: !enabled }, async () => {
+  it('keeps pending offer map visibility business scoped', { skip: !enabled }, async () => {
     const [businessId, unrelatedBusinessId] = [randomUUID(), randomUUID()];
     const riderId = randomUUID();
     const deliveryId = randomUUID();
@@ -539,9 +570,7 @@ describe('dispatch PostgreSQL integration', () => {
     assert.equal(visible.length, 1);
     assert.equal(visible[0].rider_id, riderId);
     const publicAvailability = await visibleForBusiness(unrelatedBusinessId);
-    assert.equal(publicAvailability.length, 1);
-    assert.equal(publicAvailability[0].rider_id, riderId);
-    assert.equal(publicAvailability[0].delivery_id, null);
+    assert.deepEqual(publicAvailability, []);
 
     await pool.query(
       'UPDATE rider_dispatch_profiles SET is_available = FALSE WHERE rider_id = $1',

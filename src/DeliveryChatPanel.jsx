@@ -6,8 +6,15 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '
 const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL
   || (import.meta.env.DEV ? API_BASE_URL || window.location.origin : '');
 
-export default function DeliveryChatPanel({ deliveryId, currentUserId, request }) {
-  const [open, setOpen] = useState(false);
+export default function DeliveryChatPanel({
+  deliveryId,
+  currentUserId,
+  request,
+  autoOpen = false,
+  fullPage = false,
+  conversationTitle = 'Delivery chat'
+}) {
+  const [open, setOpen] = useState(autoOpen);
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
@@ -100,18 +107,27 @@ export default function DeliveryChatPanel({ deliveryId, currentUserId, request }
   ).length;
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(previous => !previous)}
-        className="flex w-full items-center justify-between gap-2 text-left"
-      >
-        <span className="text-xs font-extrabold text-slate-900">Delivery chat</span>
-        <span className="rounded-full bg-violet-100 px-2 py-1 text-[9px] font-bold text-violet-800">
-          {unreadCount ? `${unreadCount} unread` : open ? 'Close' : 'Open'}
-        </span>
-      </button>
+    <section className={fullPage ? 'delivery-chat-panel-full-page' : 'rounded-2xl border border-slate-200 bg-white p-3 shadow-sm'}>
+      {fullPage ? (
+        <div className="flex shrink-0 items-center justify-between gap-2">
+          <span className="text-xs font-extrabold text-slate-900">{conversationTitle}</span>
+          <span className="rounded-full bg-violet-100 px-2 py-1 text-[9px] font-bold text-violet-800">
+            {unreadCount ? `${unreadCount} unread` : 'Private chat'}
+          </span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(previous => !previous)}
+          className="flex w-full items-center justify-between gap-2 text-left"
+        >
+          <span className="text-xs font-extrabold text-slate-900">{conversationTitle}</span>
+          <span className="rounded-full bg-violet-100 px-2 py-1 text-[9px] font-bold text-violet-800">
+            {unreadCount ? `${unreadCount} unread` : open ? 'Close' : 'Open'}
+          </span>
+        </button>
+      )}
       {open && (
         <>
           <DispatchCallControls
@@ -122,7 +138,9 @@ export default function DeliveryChatPanel({ deliveryId, currentUserId, request }
           <div
             ref={listRef}
             aria-live="polite"
-            className="mt-3 max-h-56 space-y-2 overflow-y-auto rounded-xl bg-slate-50 p-2"
+            className={`mt-3 space-y-2 overflow-y-auto rounded-xl bg-slate-50 p-2 ${
+              fullPage ? 'delivery-chat-messages-full-page' : 'max-h-56'
+            }`}
           >
             {messages.length === 0 && (
               <p className="py-4 text-center text-[10px] text-slate-500">No messages yet.</p>

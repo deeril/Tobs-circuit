@@ -9,6 +9,11 @@ const VALID_ROUTE_PROFILES = new Map([
   ['pedestrian', 'pedestrian'],
   ['motorcycle', 'motorcycle']
 ]);
+const DEFAULT_PHOTON_BASE_URL = 'https://photon.komoot.io';
+
+export function resolvePhotonBaseUrl(configuredBaseUrl) {
+  return String(configuredBaseUrl || '').trim() || DEFAULT_PHOTON_BASE_URL;
+}
 
 export function validCoordinates(lat, lng) {
   return Number.isFinite(lat) && lat >= -90 && lat <= 90
@@ -129,6 +134,66 @@ function buildValhallaRequest(baseUrl, from, to, profile) {
     units: 'kilometers'
   };
   return { root, requestBody };
+}
+
+function buildValhallaMatrixRequest(baseUrl, sources, destinations, profile) {
+  const root = new URL(baseUrl);
+  root.pathname = `${root.pathname.replace(/\/+$/, '')}/sources_to_targets`;
+  root.search = '';
+  return {
+    root,
+    requestBody: {
+      sources: sources.map(point => ({ lat: point.lat, lon: point.lng })),
+      targets: destinations.map(point => ({ lat: point.lat, lon: point.lng })),
+      costing: normalizeRouteProfile(profile),
+      units: 'kilometers'
+    }
+  };
+}
+
+export async function getRoadRouteMatrix({
+  baseUrl,
+  profile = 'auto',
+  from,
+  sources = from ? [from] : null,
+  destinations,
+  signal
+}) {
+  if (!Array.isArray(sources) || sources.length === 0
+    || sources.some(point => !validCoordinates(point?.lat, point?.lng))
+    || !Array.isArray(destinations)
+    || destinations.some(point => !validCoordinates(point?.lat, point?.lng))) {
+    throw new TypeError('The route matrix coordinates are invalid.');
+  }
+  if (!baseUrl) throw new Error('Road routing is not configured on this server.');
+  if (destinations.length === 0) return [];
+
+  const { root, requestBody } = buildValhallaMatrixRequest(baseUrl, sources, destinations, profile);
+  const result = await fetchJson(root, {
+    signal,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+    timeoutMs: 15_000
+  });
+  const rows = result?.sources_to_targets;
+  if (!Array.isArray(rows) || rows.length !== sources.length
+    || rows.some(row => !Array.isArray(row) || row.length !== destinations.length)) {
+    throw new Error('The road-routing provider returned an invalid distance matrix.');
+  }
+  return rows.map(row => row.map(cell => {
+    const distanceKm = Number(cell?.distance);
+    const durationSeconds = Number(cell?.time);
+    if (!Number.isFinite(distanceKm) || distanceKm < 0
+      || !Number.isFinite(durationSeconds) || durationSeconds < 0) {
+      return { mode: 'unavailable', distanceKm: null, durationMinutes: null };
+    }
+    return {
+      mode: 'road',
+      distanceKm,
+      durationMinutes: durationSeconds / 60
+    };
+  }));
 }
 
 export async function getRoadRoute({ baseUrl, profile = 'auto', from, to, signal }) {
