@@ -238,7 +238,7 @@
 .cc-loading { display: grid; min-height: 100dvh; place-items: center; background: #f5f7fb; color: #596579; font-size: 12px; font-weight: 700; }
 @keyframes cc-spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (min-width: 768px) {
   .cc-header { min-height: 58px; padding: 0 13px; }
   .cc-agent { max-width: 140px; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
   .cc-main { display: block; }
