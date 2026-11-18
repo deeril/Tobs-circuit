@@ -252,7 +252,7 @@ button {
   border-color: #d8c8ed;
 }
 
-@media all {
+@media (max-width: 767px) {
   .app-shell {
     flex-direction: column;
     overflow: hidden;
@@ -851,7 +851,7 @@ button {
   }
 }
 
-@media all {
+@media (max-width: 767px) {
   #root .admin-dashboard > .admin-dashboard-sidebar {
     order: 2;
     width: 100%;
