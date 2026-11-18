@@ -6,7 +6,6 @@ import AdminDashboard from './AdminDashboard.jsx';
 import { ADMIN_NAV_ITEMS } from './adminNavigation.js';
 import SuperAdminDashboard from './SuperAdminDashboard.jsx';
 const CustomerCareDashboard = lazy(() => import('./CustomerCareDashboard.jsx'));
-import DeliveryChatPanel from './DeliveryChatPanel.jsx';
 import DispatchCallControls from './DispatchCallControls.jsx';
 import { applyBusinessRiderLocation } from './dispatch-map-state.js';
 import {
@@ -1148,14 +1147,6 @@ const [authError, setAuthError] = useState('');
   const hasPendingDriverRoute = currentUser?.role === 'DRIVER'
     && driverRouteStatus === 'PENDING'
     && driverRouteStops.length > 0;
-  const activeChatStop = currentUser?.role === 'DRIVER'
-    ? driverRouteStops.find(stop => stop.assignedDriverId === currentUser.id
-      && !['DELIVERED', 'FAILED', 'CANCELLED'].includes(stop.dispatchStatus))
-    : stops.find(stop => stop.id === selectedStopId && stop.assignedDriverId
-      && !['DELIVERED', 'FAILED', 'CANCELLED'].includes(stop.dispatchStatus))
-      || stops.find(stop => stop.assignedDriverId === activeDriverId
-        && !['DELIVERED', 'FAILED', 'CANCELLED'].includes(stop.dispatchStatus));
-
   // Filtered Stops for Active Driver
   const activeDriverStops = useMemo(() => {
     const targetDriverId = currentUser?.role === 'DRIVER' ? currentUser.id : activeDriverId;
@@ -3840,11 +3831,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             </div>
             )}
 
-            <DeliveryChatPanel
-              deliveryId={activeChatStop?.id}
-              currentUserId={currentUser.id}
-              request={apiRequest}
-            />
 
             {/* STOP LIST */}
             <div className="admin-stop-list space-y-2">
