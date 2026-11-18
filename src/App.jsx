@@ -838,16 +838,6 @@ const [authError, setAuthError] = useState('');
   const [dashboardSearchQuery, setDashboardSearchQuery] = useState('');
 
   useEffect(() => {
-    if (
-      currentUser?.role === 'ADMIN' &&
-      activeAdminView === 'ROUTES' &&
-      window.matchMedia('(max-width: 767px)').matches
-    ) {
-      setMobileSidebarOpen(true);
-    }
-  }, [currentUser?.role, activeAdminView]);
-
-  useEffect(() => {
     if (!profileMenuOpen) return undefined;
 
     const closeOnOutsideClick = (event) => {
@@ -3289,11 +3279,23 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             )}
 
             <button
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              type="button"
+              aria-label={currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES'
+                ? 'Back to overview'
+                : sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              onClick={() => {
+                if (currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES') {
+                  setMobileSidebarOpen(false);
+                  setActiveAdminView('OVERVIEW');
+                } else {
+                  setSidebarCollapsed(!sidebarCollapsed);
+                }
+              }}
               className="p-1.5 rounded-lg border bg-slate-800 border-slate-700 text-slate-300 hover:text-white"
             >
-              {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+              {currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES'
+                ? <ChevronLeft className="w-4 h-4" />
+                : sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
           </div>
 
