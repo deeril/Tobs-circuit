@@ -4749,18 +4749,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   )}
                 </div>
                 {assignmentActionError && <p role="alert" className="text-[9px] font-semibold text-rose-300">{assignmentActionError}</p>}
-                {!isPreviewSession && !['CHAT', 'RIDER_CHAT'].includes(activeDeliveryBookingStep) && (
-                  <DeliveryChatPanel
-                    key={activeChatStop.id}
-                    deliveryId={activeChatStop.id}
-                    currentUserId={currentUser.id}
-                    request={apiRequest}
-                    autoOpen
-                    conversationTitle={currentUser.role === 'ADMIN'
-                      ? `Chat with ${activeChatDriver?.name || 'rider'}`
-                      : `Chat with ${activeChatBusiness?.orgName || activeChatBusiness?.name || 'business'}`}
-                  />
-                )}
               </div>
             )}
 
