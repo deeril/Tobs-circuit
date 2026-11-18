@@ -1036,16 +1036,6 @@ const [authError, setAuthError] = useState('');
   const [dashboardSearchQuery, setDashboardSearchQuery] = useState('');
 
   useEffect(() => {
-    if (
-      currentUser?.role === 'ADMIN' &&
-      activeAdminView === 'ROUTES' &&
-      window.matchMedia('(max-width: 767px)').matches
-    ) {
-      setMobileSidebarOpen(true);
-    }
-  }, [currentUser?.role, activeAdminView]);
-
-  useEffect(() => {
     if (!profileMenuOpen) return undefined;
 
     const closeOnOutsideClick = (event) => {
@@ -4092,14 +4082,12 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             <button
               type="button"
               aria-label={currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES'
-                ? mobileSidebarOpen ? 'Close admin menu' : 'Open admin menu'
+                ? 'Back to overview'
                 : sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-expanded={currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES'
-                ? mobileSidebarOpen
-                : undefined}
               onClick={() => {
                 if (currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES') {
-                  setMobileSidebarOpen(open => !open);
+                  setMobileSidebarOpen(false);
+                  setActiveAdminView('OVERVIEW');
                 } else {
                   setSidebarCollapsed(!sidebarCollapsed);
                 }
@@ -4107,7 +4095,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               className="p-1.5 rounded-lg border bg-slate-800 border-slate-700 text-slate-300 hover:text-white"
             >
               {currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES'
-                ? mobileSidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />
+                ? <ChevronLeft className="w-4 h-4" />
                 : sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
           </div>

@@ -541,6 +541,10 @@ textarea {
   box-shadow: 0 14px 42px rgb(22 26 15 / 9%) !important;
 }
 
+#root .app-shell.admin-dashboard.is-route-planner .admin-sidebar-nav {
+  display: none !important;
+}
+
 #root .app-shell.is-route-planner .admin-sidebar-header,
 #root .app-shell.driver-dashboard .admin-sidebar-header {
   border-color: var(--tc-line) !important;
