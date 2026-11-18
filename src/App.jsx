@@ -3224,7 +3224,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   return (
     <>
     {brandSplash}
-    <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} ${currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES' ? 'is-route-planner' : ''} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none`}>
+    <div className={`app-shell ${currentUser.role === 'ADMIN' ? 'admin-dashboard' : 'driver-dashboard'} ${currentUser.role === 'ADMIN' && activeAdminView === 'ROUTES' ? 'is-route-planner' : ''} flex h-dvh min-h-0 w-full flex-col overflow-y-auto bg-slate-950 font-sans text-slate-100 select-none md:flex-row md:overflow-hidden`}>
       {currentUser.role === 'ADMIN' && mobileSidebarOpen && (
         <button
           type="button"
@@ -3235,7 +3235,9 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       )}
 
       {/* --- SIDEBAR PANEL (~25% WIDTH) --- */}
-      <div className={`admin-dashboard-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''} ${mobileSidebarOpen ? 'is-mobile-open' : ''} z-20 flex max-h-[55dvh] w-full shrink-0 flex-col border-b border-slate-800 bg-slate-900 shadow-2xl transition-all duration-300`}>
+      <div className={`admin-dashboard-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''} ${mobileSidebarOpen ? 'is-mobile-open' : ''} z-20 flex max-h-[55dvh] w-full shrink-0 flex-col border-b border-slate-800 bg-slate-900 shadow-2xl transition-all duration-300 md:h-full md:max-h-none md:border-b-0 md:border-r ${
+        sidebarCollapsed ? 'md:w-16' : 'md:w-80 md:max-w-[24rem]'
+      }`}>
 
         {/* SIDEBAR HEADER */}
         <div className="admin-sidebar-header p-3.5 border-b border-slate-800 space-y-2.5">
@@ -4113,7 +4115,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           }}
         />
       ) : currentUser.role === 'ADMIN' && activeAdminView === 'LEGACY_ANALYTICS' ? (
-      <main className="flex min-h-[42dvh] flex-1 flex-col overflow-y-auto bg-violet-50 p-4 text-slate-950 sm:p-6">
+      <main className="flex min-h-[42dvh] flex-1 flex-col overflow-y-auto bg-violet-50 p-4 text-slate-950 sm:p-6 md:min-h-0 md:p-8">
         <div className="mx-auto w-full max-w-6xl space-y-5">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -4129,7 +4131,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             {[
               { label: 'Delivered today', value: analytics.today },
               { label: 'Delivered this week', value: analytics.thisWeek },
@@ -4210,7 +4212,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             {analytics.byDriver.length === 0 ? (
               <p className="rounded-xl bg-violet-50 p-3 text-xs text-slate-600">No drivers have joined this fleet yet.</p>
             ) : (
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {analytics.byDriver.map(driver => (
                   <div key={driver.id} className="flex items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/60 p-3">
                     <div className="min-w-0">
@@ -4230,10 +4232,10 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       ) : (
       <>
       {/* --- COMPACT GOOGLE MAP DISPLAY --- */}
-      <div className={`admin-map-panel relative flex w-full min-w-0 flex-col overflow-hidden bg-slate-950 ${
+      <div className={`admin-map-panel relative flex w-full min-w-0 flex-col overflow-hidden bg-slate-950 md:w-auto md:flex-1 ${
         mapExpanded
           ? 'is-expanded fixed inset-0 z-50 h-dvh'
-          : 'h-[42dvh] min-h-[280px] shrink-0'
+          : 'h-[42dvh] min-h-[280px] shrink-0 md:h-full md:min-h-0'
       }`}>
 
         <div className="admin-map-toolbar z-10 flex min-h-12 items-center justify-between gap-2 border-b border-slate-800/80 bg-slate-900/90 px-3 py-2 backdrop-blur-md sm:px-4">

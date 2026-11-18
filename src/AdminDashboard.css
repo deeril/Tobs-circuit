@@ -1223,7 +1223,7 @@
   background: #111827 !important;
 }
 
-@media all {
+@media (max-width: 1100px) {
   .admin-topbar {
     padding-right: 20px;
     padding-left: 20px;
@@ -1243,7 +1243,7 @@
   }
 }
 
-@media all {
+@media (max-width: 767px) {
   #root .app-shell.admin-dashboard {
     display: block !important;
     position: relative;
