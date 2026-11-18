@@ -1377,6 +1377,35 @@
     display: none;
   }
 
+  #root .app-shell.admin-dashboard.is-route-planner > .admin-dashboard-sidebar.is-mobile-open {
+    z-index: 30 !important;
+  }
+
+  .app-shell.admin-dashboard.is-route-planner .admin-dashboard-sidebar.is-mobile-open .admin-sidebar-nav {
+    position: fixed;
+    top: max(76px, env(safe-area-inset-top));
+    right: 16px;
+    left: 16px;
+    z-index: 40;
+    display: flex;
+    max-height: calc(100dvh - 92px);
+    overflow-y: auto;
+    padding: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 12px 32px rgb(0 0 0 / 16%);
+  }
+
+  .app-shell.admin-dashboard.is-route-planner .admin-dashboard-sidebar.is-mobile-open .admin-sidebar-nav button {
+    color: #4b5563;
+  }
+
+  .app-shell.admin-dashboard.is-route-planner .admin-dashboard-sidebar.is-mobile-open .admin-sidebar-nav button[aria-current="page"] {
+    background: #171915;
+    color: #fff;
+  }
+
   .app-shell.admin-dashboard.is-route-planner .admin-sidebar-header > div > button {
     margin-left: 12px;
   }
