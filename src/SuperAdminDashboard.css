@@ -1065,7 +1065,7 @@
 .sa-support-no-selection strong { font-size: 9px; font-weight: 600; }
 .sa-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 
-@media (max-width: 900px) {
+@media all {
   .sa-sidebar {
     width: 226px;
     min-width: 226px;
@@ -1083,7 +1083,7 @@
   }
 }
 
-@media (max-width: 680px) {
+@media (max-width: 680px), (min-width: 768px) {
   .sa-sidebar {
     position: fixed;
     inset: 0 auto 0 0;

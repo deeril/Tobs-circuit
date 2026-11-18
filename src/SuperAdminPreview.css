@@ -995,7 +995,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 1180px) {
+@media all {
   .platform-metrics-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -1005,7 +1005,7 @@
   }
 }
 
-@media (max-width: 900px) {
+@media all {
   .platform-sidebar {
     width: 220px;
     min-width: 220px;
@@ -1035,7 +1035,7 @@
   }
 }
 
-@media (max-width: 680px) {
+@media (max-width: 680px), (min-width: 768px) {
   .platform-preview-shell {
     position: relative;
     display: block;

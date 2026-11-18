@@ -337,7 +337,7 @@ textarea {
   background: var(--tc-ink);
 }
 
-@media (max-width: 767px) {
+@media all {
   #root > .auth-screen {
     align-items: flex-start;
     padding: max(16px, env(safe-area-inset-top)) 14px max(16px, env(safe-area-inset-bottom));
@@ -751,7 +751,7 @@ textarea {
   }
 }
 
-@media (max-width: 767px) {
+@media all {
   #root .app-shell.is-route-planner,
   #root .app-shell.driver-dashboard {
     position: relative;
@@ -853,5 +853,89 @@ textarea {
     height: 100dvh;
     margin: 0;
     border-radius: 0;
+  }
+}
+
+@media (min-width: 768px) {
+  #root .profile-menu.sm\:right-4 {
+    right: 0.5rem !important;
+  }
+
+  #root .profile-menu.sm\:top-20 {
+    top: 4rem !important;
+  }
+
+  #root .sm\:flex-row {
+    flex-direction: column !important;
+  }
+
+  #root .sm\:items-end {
+    align-items: flex-start !important;
+  }
+
+  #root .sm\:justify-end {
+    justify-content: space-between !important;
+  }
+
+  #root .sm\:grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  #root .sm\:inline {
+    display: none !important;
+  }
+
+  #root .sm\:hidden {
+    display: inline !important;
+  }
+
+  #root .sm\:p-8 {
+    padding: 22px 18px !important;
+  }
+
+  #root .sm\:p-5 {
+    padding: 1rem !important;
+  }
+
+  #root .sm\:p-6 {
+    padding: 1.25rem !important;
+  }
+
+  #root .app-shell > main.sm\:p-6 {
+    padding: 1rem !important;
+  }
+
+  #root .sm\:h-56 {
+    height: 12rem !important;
+  }
+
+  #root .sm\:h-44 {
+    height: 9rem !important;
+  }
+
+  #root .sm\:gap-4 {
+    gap: 0.5rem !important;
+  }
+
+  #root .sm\:px-4 {
+    padding-right: 0.75rem !important;
+    padding-left: 0.75rem !important;
+  }
+
+  #root .sm\:px-2\.5 {
+    padding-right: 0.5rem !important;
+    padding-left: 0.5rem !important;
+  }
+
+  #root .sm\:text-\[10px\] {
+    font-size: 9px !important;
+  }
+
+  #root .sm\:items-center {
+    align-items: flex-end !important;
+  }
+
+  #root .sm\:justify-center {
+    justify-content: flex-end !important;
   }
 }
