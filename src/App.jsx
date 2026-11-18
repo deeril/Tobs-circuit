@@ -1036,6 +1036,16 @@ const [authError, setAuthError] = useState('');
   const [dashboardSearchQuery, setDashboardSearchQuery] = useState('');
 
   useEffect(() => {
+    if (
+      currentUser?.role === 'ADMIN' &&
+      activeAdminView === 'ROUTES' &&
+      window.matchMedia('(max-width: 767px)').matches
+    ) {
+      setMobileSidebarOpen(true);
+    }
+  }, [currentUser?.role, activeAdminView]);
+
+  useEffect(() => {
     if (!profileMenuOpen) return undefined;
 
     const closeOnOutsideClick = (event) => {
