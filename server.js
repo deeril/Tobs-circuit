@@ -301,10 +301,22 @@ function persistentApiState(request, response, next) {
             AND to_regclass('public.delivery_batch_offers') IS NOT NULL
             AND to_regclass('public.delivery_messages') IS NOT NULL
             AND to_regclass('public.platform_pricing_rules') IS NOT NULL AS ready,
+                to_regclass('public.dispatch_deliveries') IS NOT NULL
+              AND to_regclass('public.delivery_assignments') IS NOT NULL
+              AND to_regclass('public.delivery_messages') IS NOT NULL
+              AND to_regclass('public.dispatch_notifications') IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'delivery_messages'
+                  AND column_name = 'client_message_id'
+              ) AS messaging_ready,
+
               to_regclass('public.dispatch_calls') IS NOT NULL AS calls_ready,
               to_regclass('public.superadmin_driver_messages') IS NOT NULL AS driver_messages_ready
         `);
         request.dispatchSchemaReady = dispatchSchema.rows[0]?.ready === true;
+        request.deliveryMessagingReady = dispatchSchema.rows[0]?.messaging_ready === true;
         request.dispatchCallsReady = dispatchSchema.rows[0]?.calls_ready === true;
         request.driverMessagesReady = dispatchSchema.rows[0]?.driver_messages_ready === true;
         databaseRequestClient = client;
@@ -3500,7 +3512,7 @@ app.post('/api/driver/super-admin/messages', requireUser, rateLimit({ limit: 60 
 });
 
 app.get('/api/dispatch/deliveries/:id/messages', requireUser, rateLimit({ limit: 120 }), async (request, response) => {
-  if (!request.dispatchSchemaReady) return response.status(503).json({ error: 'Delivery messaging is unavailable.' });
+  if (!request.deliveryMessagingReady) return response.status(503).json({ error: 'Delivery messaging is unavailable.' });
   if (!['ADMIN', 'DRIVER'].includes(request.user.role)) {
     return response.status(403).json({ error: 'This account cannot access delivery conversations.' });
   }
@@ -3578,7 +3590,7 @@ app.get('/api/dispatch/deliveries/:id/messages', requireUser, rateLimit({ limit:
 });
 
 app.post('/api/dispatch/deliveries/:id/messages', requireUser, rateLimit({ limit: 60 }), async (request, response) => {
-  if (!request.dispatchSchemaReady) return response.status(503).json({ error: 'Delivery messaging is unavailable.' });
+  if (!request.deliveryMessagingReady) return response.status(503).json({ error: 'Delivery messaging is unavailable.' });
   if (!['ADMIN', 'DRIVER'].includes(request.user.role)) {
     return response.status(403).json({ error: 'This account cannot send delivery messages.' });
   }
@@ -3596,9 +3608,8 @@ app.post('/api/dispatch/deliveries/:id/messages', requireUser, rateLimit({ limit
       JOIN delivery_assignments AS assignment
         ON assignment.delivery_id = delivery.delivery_id
        AND assignment.business_id = delivery.business_id
-       AND assignment.status = 'ACTIVE'
+       AND assignment.status IN ('ACTIVE', 'COMPLETED')
       WHERE delivery.delivery_id = $1
-        AND delivery.status NOT IN ('DELIVERED', 'FAILED', 'CANCELLED')
         AND (
           ($2 = 'ADMIN' AND delivery.business_id = $3)
           OR ($2 = 'DRIVER' AND assignment.rider_id = $3)
@@ -3606,7 +3617,7 @@ app.post('/api/dispatch/deliveries/:id/messages', requireUser, rateLimit({ limit
       LIMIT 1
     `, [request.params.id, request.user.role, request.user.id]);
     if (!authorized.rowCount) {
-      return response.status(404).json({ error: 'No active delivery conversation is available to this account.' });
+      return response.status(404).json({ error: 'No delivery conversation is available to this account.' });
     }
     await databaseRequestClient.query('SAVEPOINT dispatch_message_send');
     messageSavepoint = true;
@@ -3619,9 +3630,8 @@ app.post('/api/dispatch/deliveries/:id/messages', requireUser, rateLimit({ limit
       JOIN delivery_assignments AS assignment
         ON assignment.delivery_id = delivery.delivery_id
        AND assignment.business_id = delivery.business_id
-       AND assignment.status = 'ACTIVE'
+       AND assignment.status IN ('ACTIVE', 'COMPLETED')
       WHERE delivery.delivery_id = $5
-        AND delivery.status NOT IN ('DELIVERED', 'FAILED', 'CANCELLED')
         AND (
           ($6 = 'ADMIN' AND delivery.business_id = $3)
           OR ($6 = 'DRIVER' AND assignment.rider_id = $3)

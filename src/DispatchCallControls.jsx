@@ -4,7 +4,8 @@ import { Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL
-  || (import.meta.env.DEV ? API_BASE_URL || window.location.origin : '');
+  || API_BASE_URL
+  || (import.meta.env.DEV ? window.location.origin : '');
 
 function callStatusLabel(status) {
   return String(status || '').toLowerCase().replaceAll('_', ' ');
