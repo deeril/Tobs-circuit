@@ -53,7 +53,6 @@ export default function DeliveryChatPanel({
     const timerId = window.setInterval(refresh, 4_000);
     const socket = createSocketClient(SOCKET_BASE_URL, {
       withCredentials: true,
-      transports: ['websocket'],
       reconnection: true
     });
     const refreshForMessage = message => {
