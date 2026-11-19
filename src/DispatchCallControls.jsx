@@ -162,7 +162,6 @@ export default function DispatchCallControls({
     const refreshTimer = window.setInterval(refreshCalls, 12_000);
     const socket = createSocketClient(SOCKET_BASE_URL, {
       withCredentials: true,
-      transports: ['websocket'],
       reconnection: true
     });
     socketRef.current = socket;
