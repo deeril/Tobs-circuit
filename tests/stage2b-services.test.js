@@ -296,6 +296,35 @@ test('Photon searches validate input, bound results, and preserve provider prope
   await assert.rejects(() => searchPhoton({ baseUrl: 'https://photon.example.test', query: 'x' }), TypeError);
 });
 
+test('Photon reverse geocoding allows a slow provider response', async t => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, { signal, headers }) => {
+    assert.equal(headers['User-Agent'], 'TobsCircuit/1.0 (+https://tobs-circuit.vercel.app)');
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(resolve, 5500);
+      signal.addEventListener('abort', () => {
+        clearTimeout(timeout);
+        reject(signal.reason);
+      }, { once: true });
+    });
+    return new Response(JSON.stringify({
+      features: [{
+        geometry: { type: 'Point', coordinates: [3.3, 6.5] },
+        properties: { name: 'Lagos' }
+      }]
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const results = await searchPhoton({
+    baseUrl: 'https://photon.example.test',
+    lat: 6.5,
+    lng: 3.3,
+    reverse: true
+  });
+  assert.equal(results[0].properties.name, 'Lagos');
+});
+
 test('Photon configuration defaults to the live provider and accepts an override', async t => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async url => {
