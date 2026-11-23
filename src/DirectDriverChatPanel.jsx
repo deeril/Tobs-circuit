@@ -5,6 +5,7 @@ import { createRealtimeSocket } from './realtime-socket.js';
 
 export default function DirectDriverChatPanel({
   driverId,
+  adminId,
   currentUserId,
   role,
   request
@@ -16,11 +17,14 @@ export default function DirectDriverChatPanel({
   const listRef = useRef(null);
 
   const messagesPath = role === 'DRIVER'
-    ? '/api/driver/super-admin/messages'
-    : `/api/super-admin/drivers/${encodeURIComponent(driverId)}/messages`;
+    ? '/api/driver/business-admin/messages'
+    : `/api/admin/drivers/${encodeURIComponent(driverId)}/messages`;
+  const conversationId = adminId && driverId
+    ? `business-driver:${adminId}:${driverId}`
+    : '';
 
   useEffect(() => {
-    if (!driverId || !currentUserId) return undefined;
+    if (!driverId || !adminId || !currentUserId) return undefined;
     let active = true;
     const refresh = async () => {
       try {
@@ -46,7 +50,7 @@ export default function DirectDriverChatPanel({
       window.clearInterval(timerId);
       socket.disconnect();
     };
-  }, [currentUserId, driverId, messagesPath, request]);
+  }, [adminId, currentUserId, driverId, messagesPath, request]);
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -74,17 +78,17 @@ export default function DirectDriverChatPanel({
     }
   };
 
-  if (!driverId) return null;
+  if (!driverId || !adminId || !conversationId) return null;
   return (
     <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-3" aria-label="Direct rider conversation">
       <header className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-extrabold text-slate-900">
-          {role === 'DRIVER' ? 'Chat with Super Admin' : 'Direct rider chat'}
+          {role === 'DRIVER' ? 'Chat with your business admin' : 'Direct rider chat'}
         </h3>
         <span className="text-[9px] font-semibold text-emerald-700">Live</span>
       </header>
       <DispatchCallControls
-        supportThreadId={`driver:${driverId}`}
+        supportThreadId={conversationId}
         currentUserId={currentUserId}
         request={request}
       />

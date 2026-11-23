@@ -19,6 +19,7 @@ import {
   X
 } from 'lucide-react';
 import { ADMIN_NAV_ITEMS } from './adminNavigation.js';
+import DirectDriverChatPanel from './DirectDriverChatPanel.jsx';
 import './AdminDashboard.css';
 
 const FAILED_STATUSES = new Set(['FAILED', 'UNDELIVERED', 'DELIVERY_FAILED']);
@@ -453,6 +454,8 @@ function PlaceholderPage({ page, stops, onNavigate }) {
 export default function AdminDashboard({
   page = 'OVERVIEW',
   currentUser,
+  request,
+  isPreviewSession,
   stops,
   drivers,
   now,
@@ -645,6 +648,16 @@ export default function AdminDashboard({
               >
                 Track driver on map
               </button>
+            )}
+            {!isPreviewSession && selectedDriver.ownerAdminId === currentUser.id && (
+              <DirectDriverChatPanel
+                key={selectedDriver.id}
+                driverId={selectedDriver.id}
+                adminId={currentUser.id}
+                currentUserId={currentUser.id}
+                role="ADMIN"
+                request={request}
+              />
             )}
           </section>
         </div>

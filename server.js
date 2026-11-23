@@ -19,6 +19,10 @@ import {
   resolvePhotonBaseUrl,
   searchPhoton
 } from './server/dispatch-services.js';
+import {
+  businessDriverConversationId,
+  resolveBusinessDriverConversation
+} from './server/business-driver-conversations.js';
 import { sequenceStopsByRoad } from './server/dispatch-route-sequencing.js';
 import { AUTHORIZED_MAP_RIDERS_SQL } from './server/dispatch-map-query.js';
 import { hasActiveRiderAssignment } from './server/dispatch-assignments.js';
@@ -293,6 +297,22 @@ async function ensureDatabaseTable() {
       CREATE INDEX IF NOT EXISTS superadmin_driver_messages_conversation_idx
       ON superadmin_driver_messages (driver_id, sent_at, message_id)
     `)).then(() => databasePool.query(`
+      CREATE TABLE IF NOT EXISTS business_driver_messages (
+        message_id UUID PRIMARY KEY,
+        business_id TEXT NOT NULL,
+        driver_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        client_message_id UUID NOT NULL,
+        body TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 2000),
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (business_id <> driver_id),
+        CHECK (sender_id IN (business_id, driver_id)),
+        UNIQUE (sender_id, client_message_id)
+      )
+    `)).then(() => databasePool.query(`
+      CREATE INDEX IF NOT EXISTS business_driver_messages_conversation_idx
+      ON business_driver_messages (business_id, driver_id, sent_at, message_id)
+    `)).then(() => databasePool.query(`
       CREATE TABLE IF NOT EXISTS tobs_realtime_events (
         event_id BIGSERIAL PRIMARY KEY,
         room TEXT NOT NULL,
@@ -383,12 +403,14 @@ function persistentApiState(request, response, next) {
               ) AS messaging_ready,
 
               to_regclass('public.dispatch_calls') IS NOT NULL AS calls_ready,
-              to_regclass('public.superadmin_driver_messages') IS NOT NULL AS driver_messages_ready
+              to_regclass('public.superadmin_driver_messages') IS NOT NULL AS driver_messages_ready,
+              to_regclass('public.business_driver_messages') IS NOT NULL AS business_driver_messages_ready
         `);
         request.dispatchSchemaReady = dispatchSchema.rows[0]?.ready === true;
         request.deliveryMessagingReady = dispatchSchema.rows[0]?.messaging_ready === true;
         request.dispatchCallsReady = dispatchSchema.rows[0]?.calls_ready === true;
         request.driverMessagesReady = dispatchSchema.rows[0]?.driver_messages_ready === true;
+        request.businessDriverMessagesReady = dispatchSchema.rows[0]?.business_driver_messages_ready === true;
         databaseRequestClient = client;
         databaseStoreDirty = false;
         let responseEnding = false;
@@ -3590,6 +3612,140 @@ app.post('/api/driver/super-admin/messages', requireUser, rateLimit({ limit: 60 
   }
 });
 
+function businessDriverConversationForUser(user, driverId) {
+  const resolvedDriverId = user.role === 'DRIVER' ? user.id : driverId;
+  const driver = store.users.find(item =>
+    item.id === resolvedDriverId && item.role === 'DRIVER' && item.status === 'ACTIVE'
+  );
+  const adminId = user.role === 'ADMIN' ? user.id : driver?.ownerAdminId;
+  const conversationId = businessDriverConversationId(adminId, driver?.id);
+  return conversationId
+    ? resolveBusinessDriverConversation(conversationId, user, store.users)
+    : null;
+}
+
+app.get('/api/admin/drivers/:id/messages', requireUser, rateLimit({ limit: 120 }), async (request, response) => {
+  if (request.user.role !== 'ADMIN' || !request.businessDriverMessagesReady) {
+    return response.status(request.user.role === 'ADMIN' ? 503 : 403)
+      .json({ error: request.user.role === 'ADMIN' ? 'Rider messaging is unavailable.' : 'This account cannot access rider conversations.' });
+  }
+  const conversation = businessDriverConversationForUser(request.user, request.params.id);
+  if (!conversation) return response.status(404).json({ error: 'An active rider conversation is not available.' });
+  try {
+    const { rows } = await databaseRequestClient.query(`
+      SELECT message_id, business_id, driver_id, sender_id, body, sent_at
+      FROM business_driver_messages
+      WHERE business_id = $1 AND driver_id = $2
+      ORDER BY sent_at, message_id
+      LIMIT 200
+    `, [conversation.adminId, conversation.driverId]);
+    response.setHeader('Cache-Control', 'private, no-store');
+    return response.json({ messages: rows });
+  } catch (error) {
+    console.error('Could not load a business rider conversation:', error);
+    return response.status(503).json({ error: 'Rider messages could not be loaded.' });
+  }
+});
+
+app.post('/api/admin/drivers/:id/messages', requireUser, rateLimit({ limit: 60 }), async (request, response) => {
+  if (request.user.role !== 'ADMIN' || !request.businessDriverMessagesReady) {
+    return response.status(request.user.role === 'ADMIN' ? 503 : 403)
+      .json({ error: request.user.role === 'ADMIN' ? 'Rider messaging is unavailable.' : 'This account cannot send rider messages.' });
+  }
+  const conversation = businessDriverConversationForUser(request.user, request.params.id);
+  if (!conversation) return response.status(404).json({ error: 'An active rider conversation is not available.' });
+  const body = cleanText(request.body.message, 2000);
+  if (!body) return response.status(400).json({ error: 'Type a message before sending.' });
+  const clientMessageId = request.body.clientMessageId || crypto.randomUUID();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientMessageId)) {
+    return response.status(400).json({ error: 'The message retry identifier is invalid.' });
+  }
+  try {
+    const { rows } = await databaseRequestClient.query(`
+      INSERT INTO business_driver_messages (
+        message_id, business_id, driver_id, sender_id, client_message_id, body
+      ) VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (sender_id, client_message_id) DO NOTHING
+      RETURNING message_id, business_id, driver_id, sender_id, body, sent_at
+    `, [
+      crypto.randomUUID(),
+      conversation.adminId,
+      conversation.driverId,
+      request.user.id,
+      clientMessageId,
+      body
+    ]);
+    const message = rows[0];
+    if (!message) return response.status(409).json({ error: 'This message has already been sent.' });
+    notifyRealtimeRoom(`user:${conversation.recipientId}`, 'dispatch:driver-message', message);
+    return response.status(201).json({ message });
+  } catch (error) {
+    console.error('Could not send a business rider message:', error);
+    return response.status(503).json({ error: 'The rider message could not be sent right now.' });
+  }
+});
+
+app.get('/api/driver/business-admin/messages', requireUser, rateLimit({ limit: 120 }), async (request, response) => {
+  if (request.user.role !== 'DRIVER' || !request.businessDriverMessagesReady) {
+    return response.status(request.user.role === 'DRIVER' ? 503 : 403)
+      .json({ error: request.user.role === 'DRIVER' ? 'Rider messaging is unavailable.' : 'This account cannot access rider conversations.' });
+  }
+  const conversation = businessDriverConversationForUser(request.user, request.user.id);
+  if (!conversation) return response.status(404).json({ error: 'Your business conversation is not available.' });
+  try {
+    const { rows } = await databaseRequestClient.query(`
+      SELECT message_id, business_id, driver_id, sender_id, body, sent_at
+      FROM business_driver_messages
+      WHERE business_id = $1 AND driver_id = $2
+      ORDER BY sent_at, message_id
+      LIMIT 200
+    `, [conversation.adminId, conversation.driverId]);
+    response.setHeader('Cache-Control', 'private, no-store');
+    return response.json({ messages: rows });
+  } catch (error) {
+    console.error('Could not load the rider business conversation:', error);
+    return response.status(503).json({ error: 'Business messages could not be loaded.' });
+  }
+});
+
+app.post('/api/driver/business-admin/messages', requireUser, rateLimit({ limit: 60 }), async (request, response) => {
+  if (request.user.role !== 'DRIVER' || !request.businessDriverMessagesReady) {
+    return response.status(request.user.role === 'DRIVER' ? 503 : 403)
+      .json({ error: request.user.role === 'DRIVER' ? 'Rider messaging is unavailable.' : 'This account cannot send rider messages.' });
+  }
+  const conversation = businessDriverConversationForUser(request.user, request.user.id);
+  if (!conversation) return response.status(404).json({ error: 'Your business conversation is not available.' });
+  const body = cleanText(request.body.message, 2000);
+  if (!body) return response.status(400).json({ error: 'Type a message before sending.' });
+  const clientMessageId = request.body.clientMessageId || crypto.randomUUID();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientMessageId)) {
+    return response.status(400).json({ error: 'The message retry identifier is invalid.' });
+  }
+  try {
+    const { rows } = await databaseRequestClient.query(`
+      INSERT INTO business_driver_messages (
+        message_id, business_id, driver_id, sender_id, client_message_id, body
+      ) VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (sender_id, client_message_id) DO NOTHING
+      RETURNING message_id, business_id, driver_id, sender_id, body, sent_at
+    `, [
+      crypto.randomUUID(),
+      conversation.adminId,
+      conversation.driverId,
+      request.user.id,
+      clientMessageId,
+      body
+    ]);
+    const message = rows[0];
+    if (!message) return response.status(409).json({ error: 'This message has already been sent.' });
+    notifyRealtimeRoom(`user:${conversation.recipientId}`, 'dispatch:driver-message', message);
+    return response.status(201).json({ message });
+  } catch (error) {
+    console.error('Could not send a rider message to the business:', error);
+    return response.status(503).json({ error: 'Your message could not be sent right now.' });
+  }
+});
+
 app.get('/api/dispatch/deliveries/:id/messages', requireUser, rateLimit({ limit: 120 }), async (request, response) => {
   if (!request.deliveryMessagingReady) return response.status(503).json({ error: 'Delivery messaging is unavailable.' });
   if (!['ADMIN', 'DRIVER'].includes(request.user.role)) {
@@ -3867,6 +4023,17 @@ async function resolveCallContext(request) {
   if (typeof supportThreadId === 'string' && supportThreadId) {
     const thread = store.supportThreads.find(item => item.id === supportThreadId);
     if (!thread) {
+      const businessConversation = resolveBusinessDriverConversation(supportThreadId, user, store.users);
+      if (businessConversation) {
+        return {
+          deliveryId: null,
+          supportThreadId,
+          businessId: businessConversation.businessId,
+          riderId: businessConversation.riderId,
+          callerId: user.id,
+          recipientId: businessConversation.recipientId
+        };
+      }
       const driverId = driverIdFromConversationId(supportThreadId);
       const driver = driverId && store.users.find(item =>
         item.id === driverId && item.role === 'DRIVER' && item.status === 'ACTIVE'
@@ -3954,7 +4121,7 @@ app.get('/api/dispatch/calls', requireUser, rateLimit({ limit: 120 }), async (re
         if (!verifiedOwner && thread.userId !== request.user.id) {
           return response.status(403).json({ error: 'This call history is not available to your account.' });
         }
-      } else {
+      } else if (!resolveBusinessDriverConversation(supportThreadId, request.user, store.users)) {
         const driverId = driverIdFromConversationId(supportThreadId);
         const driver = driverId && store.users.find(item =>
           item.id === driverId && item.role === 'DRIVER' && item.status === 'ACTIVE'

@@ -6,6 +6,7 @@ import { ADMIN_NAV_ITEMS } from './adminNavigation.js';
 import SuperAdminDashboard from './SuperAdminDashboard.jsx';
 const CustomerCareDashboard = lazy(() => import('./CustomerCareDashboard.jsx'));
 import DeliveryChatPanel from './DeliveryChatPanel.jsx';
+import DirectDriverChatPanel from './DirectDriverChatPanel.jsx';
 import DispatchCallControls from './DispatchCallControls.jsx';
 import MobileDispatchRouteUi from './MobileDispatchRouteUi.jsx';
 import driverTermsText from './driver-terms.md?raw';
@@ -4137,6 +4138,15 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 </div>
               </div>
             </section>
+            {currentUser.role === 'DRIVER' && !isPreviewSession && currentUser.ownerAdminId && (
+              <DirectDriverChatPanel
+                driverId={currentUser.id}
+                adminId={currentUser.ownerAdminId}
+                currentUserId={currentUser.id}
+                role="DRIVER"
+                request={apiRequest}
+              />
+            )}
             {/* ADMIN FLEET SELECTION WORKFLOW */}
             {currentUser.role === 'ADMIN' ? (
               <>
@@ -4729,6 +4739,18 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   )}
                 </div>
                 {assignmentActionError && <p role="alert" className="text-[9px] font-semibold text-rose-300">{assignmentActionError}</p>}
+                {currentUser.role === 'ADMIN'
+                  && !isPreviewSession
+                  && activeChatDriver?.ownerAdminId === currentUser.id && (
+                  <DirectDriverChatPanel
+                    key={activeChatDriver.id}
+                    driverId={activeChatDriver.id}
+                    adminId={currentUser.id}
+                    currentUserId={currentUser.id}
+                    role="ADMIN"
+                    request={apiRequest}
+                  />
+                )}
               </div>
             )}
 
@@ -5018,6 +5040,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         <AdminDashboard
           page={activeAdminView}
           currentUser={currentUser}
+          request={apiRequest}
+          isPreviewSession={isPreviewSession}
           stops={stops}
           drivers={driversList}
           now={clockNow}

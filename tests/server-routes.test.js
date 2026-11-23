@@ -1,5 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  businessDriverConversationId,
+  resolveBusinessDriverConversation
+} from '../server/business-driver-conversations.js';
 
 process.env.VERCEL ||= '1';
 const {
@@ -29,6 +33,41 @@ describe('server route registration', () => {
     assert.ok(routes.includes('GET /api/users/me/payout'));
     assert.ok(routes.includes('PUT /api/users/me/payout'));
     assert.ok(routes.includes('GET /api/marketplace/drivers'));
+    assert.ok(routes.includes('GET /api/admin/drivers/:id/messages'));
+    assert.ok(routes.includes('POST /api/admin/drivers/:id/messages'));
+    assert.ok(routes.includes('GET /api/driver/business-admin/messages'));
+    assert.ok(routes.includes('POST /api/driver/business-admin/messages'));
+  });
+
+  it('limits direct rider conversations to the active business owner and rider', () => {
+    const admin = { id: 'f89d68dd-21da-43a8-88fc-1b9dd437ce7f', role: 'ADMIN', status: 'ACTIVE' };
+    const driver = {
+      id: 'd2bebf7f-c34e-42b9-9b5b-65bc914c5f13',
+      role: 'DRIVER',
+      status: 'ACTIVE',
+      ownerAdminId: admin.id
+    };
+    const otherAdmin = { id: '47b55bc2-d604-4c28-ad14-150f41d7ed9f', role: 'ADMIN', status: 'ACTIVE' };
+    const conversationId = businessDriverConversationId(admin.id, driver.id);
+
+    assert.equal(
+      resolveBusinessDriverConversation(conversationId, admin, [admin, driver, otherAdmin]).recipientId,
+      driver.id
+    );
+    assert.equal(
+      resolveBusinessDriverConversation(conversationId, driver, [admin, driver, otherAdmin]).recipientId,
+      admin.id
+    );
+    assert.equal(resolveBusinessDriverConversation(conversationId, otherAdmin, [admin, driver, otherAdmin]), null);
+    assert.equal(
+      resolveBusinessDriverConversation(conversationId, admin, [admin, { ...driver, status: 'SUSPENDED' }]),
+      null
+    );
+    assert.equal(
+      resolveBusinessDriverConversation(conversationId, admin, [admin, { ...driver, ownerAdminId: otherAdmin.id }]),
+      null
+    );
+    assert.equal(businessDriverConversationId('not-an-id', driver.id), null);
   });
 
   it('does not attach signed-in middleware to address lookups', () => {
