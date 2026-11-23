@@ -59,7 +59,7 @@ const frontendOrigins = [
   'http://127.0.0.1:3000'
 ].filter(Boolean);
 const io = new Server(httpServer, {
-  path: process.env.VERCEL ? '/api/socket/socket.io' : '/socket.io',
+  path: process.env.VERCEL ? '/api/socket' : '/socket.io',
   cors: {
     origin: frontendOrigins,
     credentials: true,

@@ -311,8 +311,29 @@ button {
   box-shadow: 0 2px 8px rgb(15 23 42 / 35%);
 }
 
+.maplibre-fleet-map .maplibre-marker-content {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.maplibre-fleet-map .maplibre-marker-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 350ms ease-out;
+}
+
+.maplibre-fleet-map .maplibre-marker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .maplibre-fleet-map .maplibre-rider-marker {
-  background: #6f35b5;
+  background: var(--tc-business, #176bff);
 }
 
 .maplibre-fleet-map .maplibre-rider-preview-marker {
@@ -327,121 +348,58 @@ button {
   transform: scale(1.12);
 }
 
-.maplibre-fleet-map .maplibre-rider-marker-muted,
-.maplibre-fleet-map .maplibre-pickup-marker-muted {
-  opacity: 0.48;
-}
-
 .maplibre-fleet-map .maplibre-rider-stale-marker {
   background: #6b7280;
   border-style: dashed;
 }
 
 .maplibre-fleet-map .maplibre-pickup-marker {
-  background: #d97706;
+  max-width: 150px;
+  background: var(--tc-tracking, #f29b26);
 }
 
 .maplibre-fleet-map .maplibre-destination-marker {
-  background: #0f766e;
+  max-width: 154px;
+  background: #1d4ed8;
 }
 
-.maplibre-fleet-map .maplibre-current-location-marker {
-  position: relative;
+.maplibre-fleet-map .maplibre-route-start-marker {
   z-index: 3;
-  width: 42px;
-  height: 42px;
-  max-width: none;
-  overflow: visible;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  padding: 0;
-  color: transparent;
-  font-size: 0;
-  box-shadow: none;
-}
-
-.maplibre-fleet-map .maplibre-current-location-marker::before,
-.maplibre-fleet-map .maplibre-current-location-marker::after {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  content: "";
-  pointer-events: none;
-}
-
-.maplibre-fleet-map .maplibre-current-location-marker::after {
-  z-index: 0;
-  width: 44px;
-  height: 44px;
-  background: linear-gradient(180deg, rgb(47 128 237 / 36%), rgb(47 128 237 / 3%));
-  clip-path: polygon(50% 50%, 2% 100%, 98% 100%);
-  transform: translate(-50%, -50%) rotate(calc(var(--location-heading, 135deg) - 180deg));
-}
-
-.maplibre-fleet-map .maplibre-current-location-marker::before {
-  z-index: 1;
-  width: 14px;
-  height: 14px;
-  border: 3px solid #fff;
-  border-radius: 50%;
-  background: #2f80ed;
-  box-shadow: 0 1px 6px rgb(15 23 42 / 40%), 0 0 0 2px rgb(47 128 237 / 22%);
-  transform: translate(-50%, -50%);
+  background: #f59e0b;
+  color: #172554;
+  border-color: #fff7ed;
 }
 
 .maplibre-fleet-map .maplibre-destination-marker-completed {
-  background: #16835d;
-}
-
-.maplibre-fleet-map .maplibre-destination-marker-muted {
-  background: #64748b;
-  opacity: 0.62;
+  background: #15803d;
+  border-color: #bbf7d0;
 }
 
 .maplibre-fleet-map .maplibre-destination-marker-selected {
+  z-index: 4;
   border-color: #facc15;
-  box-shadow: 0 0 0 3px rgb(250 204 21 / 45%), 0 2px 8px rgb(15 23 42 / 35%);
+  box-shadow: 0 0 0 3px rgb(250 204 21 / 65%), 0 4px 12px rgb(15 23 42 / 45%);
+  transform: scale(1.12);
 }
 
-.maplibre-fleet-map .maplibre-follow-control {
-  display: inline-flex;
-  min-height: 40px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 12px;
-  border: 1px solid #d5d9e0;
-  border-radius: 999px;
-  background: #fff;
-  color: #1d4ed8;
-  font-size: 11px;
-  font-weight: 750;
-  box-shadow: 0 2px 10px rgb(15 23 42 / 18%);
+.maplibre-fleet-map .maplibregl-marker {
+  transition: transform 650ms linear;
 }
 
-.maplibre-fleet-map .maplibre-follow-control[aria-pressed="false"] {
-  color: #475569;
+.maplibre-fleet-map .maplibre-current-location-marker {
+  z-index: 15;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
+  overflow: visible;
+  background: #4285f4;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 6px rgb(66 133 244 / 20%);
 }
 
-.maplibre-route-summary {
-  max-width: min(25rem, calc(100% - 1.5rem));
-  padding: 10px 12px;
-  border: 1px solid rgb(15 23 42 / 10%);
-  border-radius: 12px;
-  background: rgb(255 255 255 / 96%);
-  color: #1f2937;
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 1.45;
-  box-shadow: 0 3px 12px rgb(15 23 42 / 18%);
-}
-
-.maplibre-route-summary p {
-  margin: 0;
-}
-
-.maplibre-route-summary p + p {
-  margin-top: 3px;
+.maplibre-fleet-map .maplibre-current-location-marker .maplibre-marker-content {
+  display: none;
 }
 
 .maplibre-fleet-map .maplibregl-ctrl-group {
@@ -793,7 +751,7 @@ button {
   height: 9px;
   border: 2px solid #fff;
   border-radius: 50%;
-  background: #dc2626;
+  background: var(--tc-tracking, #f29b26);
 }
 
 .profile-menu {
