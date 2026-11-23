@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getLocalMapZoom,
+  getRiderMarkerInitial,
   getRiderMarkerState,
+  getRouteStopMarkerInfo,
   isValidMapLocation,
   reconcileMapMarkers,
   toMapLibrePoint
@@ -18,6 +20,9 @@ test('map marker location validation accepts legal coordinates and rejects inval
   assert.equal(isValidMapLocation(Number.NaN, 3.3), false);
   assert.deepEqual(toMapLibrePoint(6.5, 3.3), [3.3, 6.5]);
   assert.equal(toMapLibrePoint(91, 3.3), null);
+  assert.equal(getRiderMarkerInitial('Amina Bello'), 'A');
+  assert.equal(getRiderMarkerInitial('chuks'), 'C');
+  assert.equal(getRiderMarkerInitial(''), 'R');
 });
 
 test('default map zoom keeps a 10 km local radius visible at common screen sizes', () => {
@@ -56,6 +61,22 @@ test('preview and active riders get marker states without treating fixtures as l
     locationUpdatedAt: new Date(now - 120_000).toISOString(),
     isTracking: true
   }, new Set(['assigned-rider']), now), { kind: 'last-known' });
+});
+
+test('route stop markers follow saved order and highlight the first unfinished stop per rider', () => {
+  const markers = getRouteStopMarkerInfo([
+    { id: 'later', assignedDriverId: 'rider-one', routeSequence: 3, status: 'PENDING' },
+    { id: 'done', assignedDriverId: 'rider-one', routeSequence: 1, status: 'DELIVERED' },
+    { id: 'next', assignedDriverId: 'rider-one', routeSequence: 2, dispatchStatus: 'RIDER_ACCEPTED' },
+    { id: 'other-rider', assignedDriverId: 'rider-two', status: 'PENDING' },
+    { id: 'unassigned', status: 'PENDING' }
+  ]);
+
+  assert.deepEqual(markers.get('done'), { number: 1, isNext: false, isCompleted: true });
+  assert.deepEqual(markers.get('next'), { number: 2, isNext: true, isCompleted: false });
+  assert.deepEqual(markers.get('later'), { number: 3, isNext: false, isCompleted: false });
+  assert.deepEqual(markers.get('other-rider'), { number: 1, isNext: true, isCompleted: false });
+  assert.equal(markers.has('unassigned'), false);
 });
 
 test('map markers are created once, retain MapLibre classes, and move on location updates', () => {

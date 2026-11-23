@@ -1,3 +1,5 @@
+import { prioritizeStreetAddressFeatures } from '../src/address-suggestions.js';
+
 const EARTH_RADIUS_KM = 6371;
 const PHOTON_REQUEST_TIMEOUT_MS = 15_000;
 const PHOTON_USER_AGENT = 'TobsCircuit/1.0 (+https://tobs-circuit.vercel.app)';
@@ -107,19 +109,20 @@ export async function searchPhoton({ baseUrl, query, lat, lng, reverse = false, 
   }
   const url = photonUrl(baseUrl, reverse ? 'reverse' : 'api', reverse
     ? { lat, lon: lng, limit: 1 }
-    : { q: query.trim().slice(0, 160), lat, lon: lng, limit: 5 });
+    : { q: query.trim().slice(0, 160), lat, lon: lng, limit: 10 });
   const result = await fetchJson(url, {
     signal,
     timeoutMs: PHOTON_REQUEST_TIMEOUT_MS,
     headers: { 'User-Agent': PHOTON_USER_AGENT }
   });
   if (!Array.isArray(result.features)) throw new Error('Address provider returned an invalid response.');
-  return result.features.filter(feature =>
+  const features = result.features.filter(feature =>
     feature?.geometry?.type === 'Point'
     && Array.isArray(feature.geometry.coordinates)
     && validCoordinates(feature.geometry.coordinates[1], feature.geometry.coordinates[0])
     && feature.properties && typeof feature.properties === 'object'
-  ).slice(0, reverse ? 1 : 5);
+  );
+  return reverse ? features.slice(0, 1) : prioritizeStreetAddressFeatures(features, query);
 }
 
 function normalizeRouteProfile(profile) {

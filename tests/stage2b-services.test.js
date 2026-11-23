@@ -12,6 +12,7 @@ import {
   resolvePhotonBaseUrl,
   searchPhoton
 } from '../server/dispatch-services.js';
+import { getAddressSuggestionDetails } from '../src/address-suggestions.js';
 import { hasActiveRiderAssignment } from '../server/dispatch-assignments.js';
 import { optimizeDeliveryBatch } from '../server/dispatch-optimizer.js';
 import { DELETE_EXPIRED_GPS_BATCH_SQL, DISPATCH_GPS_RETENTION_DAYS } from '../server/dispatch-retention.js';
@@ -274,7 +275,7 @@ test('Photon searches validate input, bound results, and preserve provider prope
   globalThis.fetch = async url => {
     const parsedUrl = new URL(url);
     assert.equal(parsedUrl.pathname, '/api');
-    assert.equal(parsedUrl.searchParams.get('limit'), '5');
+    assert.equal(parsedUrl.searchParams.get('limit'), '10');
     return new Response(JSON.stringify({
       features: Array.from({ length: 7 }, (_, index) => ({
         type: 'Feature',
@@ -294,6 +295,41 @@ test('Photon searches validate input, bound results, and preserve provider prope
   assert.equal(results[0].properties.name, 'Lagos 0');
   await assert.rejects(() => searchPhoton({ baseUrl: '', query: 'Ikeja' }), /not configured/i);
   await assert.rejects(() => searchPhoton({ baseUrl: 'https://photon.example.test', query: 'x' }), TypeError);
+});
+
+test('Photon results prefer precise street addresses while preserving provider order', async t => {
+  const originalFetch = globalThis.fetch;
+  const features = [
+    { geometry: { type: 'Point', coordinates: [3.3, 6.5] }, properties: { name: 'Lekki Phase 2' } },
+    { geometry: { type: 'Point', coordinates: [3.31, 6.51] }, properties: { housenumber: '8', street: 'Ero Close' } },
+    { geometry: { type: 'Point', coordinates: [3.32, 6.52] }, properties: { housenumber: '4A', street: 'Ero Close' } }
+  ];
+  globalThis.fetch = async () => new Response(JSON.stringify({ features }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const results = await searchPhoton({
+    baseUrl: 'https://photon.example.test',
+    query: '4a Ero Close Igbo Efon Lekki Phase 2 Lagos',
+    lat: 6.5,
+    lng: 3.3
+  });
+  assert.deepEqual(results.map(feature => feature.properties.housenumber), ['4A', '8']);
+  assert.deepEqual(getAddressSuggestionDetails({
+    properties: {
+      housenumber: '4a',
+      street: 'Ero Close',
+      suburb: 'Igbo Efon',
+      district: 'Lekki Phase 2',
+      city: 'Lagos',
+      country: 'Nigeria'
+    }
+  }), {
+    primary: '4a Ero Close',
+    secondary: 'Igbo Efon, Lekki Phase 2, Lagos, Nigeria'
+  });
 });
 
 test('Photon reverse geocoding allows a slow provider response', async t => {

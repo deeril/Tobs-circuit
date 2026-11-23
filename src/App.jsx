@@ -7,11 +7,17 @@ import SuperAdminDashboard from './SuperAdminDashboard.jsx';
 const CustomerCareDashboard = lazy(() => import('./CustomerCareDashboard.jsx'));
 import DeliveryChatPanel from './DeliveryChatPanel.jsx';
 import DispatchCallControls from './DispatchCallControls.jsx';
+import MobileDispatchRouteUi from './MobileDispatchRouteUi.jsx';
 import driverTermsText from './driver-terms.md?raw';
 import { applyBusinessRiderLocation } from './dispatch-map-state.js';
 import { createRealtimeSocket } from './realtime-socket.js';
 import {
-  MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2, Tag,
+  getAddressSuggestionDetails,
+  getAddressSuggestionLabel,
+  prioritizeStreetAddressFeatures
+} from './address-suggestions.js';
+import {
+  MapPin, CheckCircle2, XCircle, Clock, Package, Search, Plus, Trash2,
   ChevronRight, Check, AlertCircle, Truck, ExternalLink, Radio,
   ChevronLeft, Target, Users, Shield, PenTool,
  ArrowDownUp, LogOut, User, Phone, ArrowUp, ArrowDown,
@@ -50,48 +56,38 @@ const EMPTY_DRIVER_APPLICATION = {
   termsSignature: ''
 };
 
-function DeliveryVehicleIcon({ vehicleType, className, style }) {
-  const accent = style?.color || '#22a65a';
+function VehicleTypeIcon({ vehicleType, className, style }) {
+  const accent = style?.color || '#2866df';
   return (
     <svg
-      viewBox="0 0 96 64"
+      viewBox="0 0 64 48"
       className={className}
       style={style}
       fill="none"
-      role="img"
       aria-hidden="true"
     >
       {vehicleType === 'BICYCLE' ? (
         <>
-          <circle cx="19" cy="47" r="11" stroke="#1f2937" strokeWidth="3" />
-          <circle cx="55" cy="47" r="11" stroke="#1f2937" strokeWidth="3" />
-          <path d="M19 47 31 27l13 20H19l10-15h20l6 15M28 32h-8m31 0h8" stroke={accent} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="m38 20 8 4 5 10-7 2-7-8-7 8-5-3 9-12Z" fill={accent} />
-          <circle cx="39" cy="15" r="5" fill="#1f2937" />
-          <path d="M68 20h15v14H68z" rx="2" fill={accent} />
-          <path d="M72 24h7m-7 4h7" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="13" cy="36" r="8" stroke={accent} strokeWidth="3" />
+          <circle cx="49" cy="36" r="8" stroke={accent} strokeWidth="3" />
+          <path d="m13 36 11-17 12 17H13l9-13h14l13 13M24 19h-7" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="34" cy="8" r="3.5" fill={accent} />
+          <path d="m32 13-7 7 9 5 6-8 7 3" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
         </>
       ) : vehicleType === 'MOTORCYCLE' ? (
         <>
-          <circle cx="20" cy="48" r="10" stroke="#1f2937" strokeWidth="4" />
-          <circle cx="72" cy="48" r="10" stroke="#1f2937" strokeWidth="4" />
-          <path d="m20 48 10-16h18l12 16H35l8-12h13l9-11h8" stroke={accent} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M39 24h14l8 7H36l3-7Z" fill="#1f2937" />
-          <path d="m47 23 8-10 10 5 2 10H51l-4-5Z" fill={accent} />
-          <circle cx="53" cy="10" r="5" fill="#1f2937" />
-          <path d="M65 19h17v18H65z" rx="2" fill={accent} />
-          <path d="M69 24h9m-9 5h9" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="13" cy="36" r="8" stroke={accent} strokeWidth="3" />
+          <circle cx="50" cy="36" r="8" stroke={accent} strokeWidth="3" />
+          <path d="m13 36 7-12h13l12 12H25l8-11h11l6-8h5" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="38" cy="8" r="3.5" fill={accent} />
+          <path d="m36 13-8 6 9 5 7-7 8 2" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
         </>
       ) : (
         <>
-          <path d="M9 19h49v31H9z" rx="3" fill="#d9a25c" stroke="#805525" strokeWidth="2" />
-          <path d="M58 31h17l12 11v8H58V31Z" fill="#e7edf0" stroke="#475569" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M66 35h8l7 7H66v-7Z" fill="#9dc6d8" />
-          <path d="M15 26h36m-36 6h36m-36 6h36" stroke="#b57c38" strokeWidth="1.5" />
-          <circle cx="26" cy="51" r="6" fill="#1f2937" />
-          <circle cx="70" cy="51" r="6" fill="#1f2937" />
-          <circle cx="26" cy="51" r="2" fill="#cbd5e1" />
-          <circle cx="70" cy="51" r="2" fill="#cbd5e1" />
+          <path d="m11 27 4-12q1-3 4-3h26q3 0 4 3l4 12v13H11V27Z" stroke={accent} strokeWidth="3" strokeLinejoin="round" />
+          <path d="m16 26 3-10h26l3 10H16ZM11 31h5m32 0h5M18 40v3m28-3v3" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="19" cy="33" r="2" fill={accent} />
+          <circle cx="45" cy="33" r="2" fill={accent} />
         </>
       )}
     </svg>
@@ -99,9 +95,14 @@ function DeliveryVehicleIcon({ vehicleType, className, style }) {
 }
 
 const DELIVERY_TYPES = [
-  { vehicleType: 'BICYCLE', label: 'Bicycle', description: 'Bicycle delivery', color: '#22a65a', Icon: DeliveryVehicleIcon },
-  { vehicleType: 'MOTORCYCLE', label: 'Bike', description: 'Motorcycle delivery', color: '#22a65a', Icon: DeliveryVehicleIcon },
-  { vehicleType: 'CAR', label: 'Car', description: 'Car delivery', color: '#c69a1b', Icon: DeliveryVehicleIcon }
+  { vehicleType: 'BICYCLE', label: 'Bicycle', description: 'Bicycle delivery', color: '#e47b22', Icon: VehicleTypeIcon },
+  { vehicleType: 'MOTORCYCLE', label: 'Bike', description: 'Motorcycle delivery', color: '#2866df', Icon: VehicleTypeIcon },
+  { vehicleType: 'CAR', label: 'Car', description: 'Car delivery', color: '#c39a1e', Icon: VehicleTypeIcon }
+];
+const DRIVER_REGISTRATION_VEHICLES = [
+  { vehicleType: 'BICYCLE', label: 'Bicycle', color: '#e47b22' },
+  { vehicleType: 'MOTORCYCLE', label: 'Motorcycle', color: '#2866df' },
+  { vehicleType: 'CAR', label: 'Car', color: '#c39a1e' }
 ];
 let csrfTokenCache = '';
 let csrfTokenRequest = null;
@@ -115,9 +116,44 @@ function readImageAsDataUrl(file) {
   });
 }
 const PREVIEW_ADDRESS_SUGGESTIONS = [
-  { properties: { name: 'Ikeja', city: 'Lagos' }, geometry: { coordinates: [3.3515, 6.6018] } },
-  { properties: { name: 'Yaba', city: 'Lagos' }, geometry: { coordinates: [3.3711, 6.5095] } },
-  { properties: { name: 'Victoria Island', city: 'Lagos' }, geometry: { coordinates: [3.4219, 6.4281] } }
+  {
+    properties: {
+      name: '15a Ero Close Igbo Efon Lekki Phase 2',
+      housenumber: '15a',
+      street: 'Ero Close',
+      suburb: 'Igbo Efon',
+      district: 'Lekki Phase 2',
+      local_government_area: 'Eti-Osa',
+      city: 'Lagos',
+      country: 'Nigeria'
+    },
+    geometry: { coordinates: [3.3903, 6.4474] }
+  },
+  {
+    properties: {
+      name: '4a Ero Close Igbo Efon Lekki Phase 2',
+      housenumber: '4a',
+      street: 'Ero Close',
+      suburb: 'Igbo Efon',
+      district: 'Lekki Phase 2',
+      local_government_area: 'Eti-Osa',
+      city: 'Lagos',
+      country: 'Nigeria'
+    },
+    geometry: { coordinates: [3.3908, 6.4478] }
+  },
+  {
+    properties: {
+      name: '12 Admiralty Way Lekki Phase 1',
+      housenumber: '12',
+      street: 'Admiralty Way',
+      suburb: 'Lekki Phase 1',
+      local_government_area: 'Eti-Osa',
+      city: 'Lagos',
+      country: 'Nigeria'
+    },
+    geometry: { coordinates: [3.4741, 6.4472] }
+  }
 ];
 
 function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClassName, inputStyle, id, proximity }) {
@@ -143,7 +179,7 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
         const sampleSuggestions = PREVIEW_ADDRESS_SUGGESTIONS.filter(feature =>
           `${feature.properties.name}, ${feature.properties.city}`.toLowerCase().includes(normalizedQuery)
         );
-        setSuggestions(sampleSuggestions.length > 0 ? sampleSuggestions : PREVIEW_ADDRESS_SUGGESTIONS);
+        setSuggestions(prioritizeStreetAddressFeatures(sampleSuggestions, query));
         setIsLoading(false);
         return;
       }
@@ -153,7 +189,7 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
           : { lat: 6.5244, lng: 3.3792 };
         const params = new URLSearchParams({
           q: query,
-          limit: '5',
+          limit: '10',
           lat: String(searchLocation.lat),
           lon: String(searchLocation.lng)
         });
@@ -161,15 +197,7 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
           method: 'GET',
           signal: controller.signal
         });
-        const features = data.features || [];
-        setSuggestions(proximityLat !== null && proximityLng !== null
-          ? [...features].sort((left, right) => {
-            const [leftLng, leftLat] = left.geometry.coordinates;
-            const [rightLng, rightLat] = right.geometry.coordinates;
-            return calcHaversineDistance(proximityLat, proximityLng, leftLat, leftLng)
-              - calcHaversineDistance(proximityLat, proximityLng, rightLat, rightLng);
-          })
-          : features);
+        setSuggestions(prioritizeStreetAddressFeatures(data.features || [], query));
       } catch (lookupError) {
         if (!controller.signal.aborted) {
           console.error('Address suggestion lookup error:', lookupError);
@@ -186,44 +214,6 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
       controller.abort();
     };
   }, [value, isOpen, proximityLat, proximityLng]);
-
-  const getSuggestionLabel = (feature) => {
-    const properties = feature.properties;
-    const streetAddress = [properties.housenumber, properties.street].filter(Boolean).join(' ');
-    const parts = [
-      properties.name,
-      streetAddress || properties.street,
-      properties.district,
-      properties.city,
-      properties.county,
-      properties.state,
-      properties.country
-    ].filter(Boolean);
-    return parts.filter((part, index) => parts.indexOf(part) === index).join(', ');
-  };
-
-  const getSuggestionDetails = feature => {
-    const properties = feature.properties;
-    const streetAddress = [properties.housenumber, properties.street].filter(Boolean).join(' ');
-    const primaryParts = [properties.name, streetAddress || properties.street]
-      .filter(Boolean)
-      .filter((part, index, parts) => parts.indexOf(part) === index);
-    const secondaryParts = [
-      properties.district,
-      properties.city,
-      properties.county,
-      properties.state,
-      properties.country
-    ]
-      .filter(Boolean)
-      .filter((part, index, parts) =>
-        parts.indexOf(part) === index && !primaryParts.includes(part)
-      );
-    return {
-      primary: primaryParts.join(', ') || getSuggestionLabel(feature),
-      secondary: secondaryParts.join(', ')
-    };
-  };
 
   return (
     <div className="relative z-20 min-w-0 flex-1">
@@ -257,7 +247,7 @@ function AddressAutocomplete({ value, onChange, onSelect, placeholder, inputClas
           {isLoading && <p className="px-3 py-2 text-[10px] text-slate-400">Searching addresses...</p>}
           {error && <p className="px-3 py-2 text-[10px] text-rose-300">{error}</p>}
           {suggestions.map((feature, index) => {
-            const details = getSuggestionDetails(feature);
+            const details = getAddressSuggestionDetails(feature);
             const label = [details.primary, details.secondary].filter(Boolean).join(', ');
             return (
               <button
@@ -319,6 +309,10 @@ const DEMO_STOP_IDS = new Set(['l1', 'l2', 'l3', 'l4', 'l5', 'l6']);
 const BRAND_LOGO_URL = brandLogo;
 const ORG_LOGOS_STORAGE_KEY = 'tobs_circuit_org_logos';
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+const IS_LOCAL_WALKTHROUGH = import.meta.env.DEV
+  && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  && new URLSearchParams(window.location.search).has('preview')
+  && !API_BASE_URL;
 const IS_GITHUB_PAGES_DEMO = (window.location.hostname === 'deeril.github.io'
   || (import.meta.env.DEV && new URLSearchParams(window.location.search).has('preview')))
   && !API_BASE_URL;
@@ -327,58 +321,64 @@ const PREVIEW_ADMIN = {
   name: 'Demo Dispatcher',
   email: 'dispatcher@example.test',
   role: 'ADMIN',
-  orgName: 'Tobs Circuit Preview',
+  orgName: 'Tobs Circuit Local Walkthrough',
   status: 'ACTIVE'
 };
 const PREVIEW_DRIVERS = [
   {
-    id: 'preview-driver-1',
+    id: 'preview-driver-bicycle',
     name: 'Rider One',
     email: 'rider1@example.test',
     role: 'DRIVER',
     orgName: PREVIEW_ADMIN.orgName,
     ownerAdminId: PREVIEW_ADMIN.id,
-    zone: 'Ikeja',
-    vehicle: 'Delivery bike',
+    zone: 'Lekki Phase 2',
+    vehicleType: 'BICYCLE',
+    vehicle: 'Bicycle',
     status: 'ACTIVE',
-    lat: 6.6139,
-    lng: 3.3582,
+    isAvailable: true,
+    lat: 6.4477,
+    lng: 3.3905,
     speed: 0,
-    isTracking: false,
-    routeStatus: 'IN_PROGRESS',
+    isTracking: true,
+    locationUpdatedAt: new Date().toISOString(),
+    routeStatus: 'IDLE',
     isPreviewFixture: true
   },
   {
-    id: 'preview-driver-2',
+    id: 'preview-driver-motorcycle',
     name: 'Rider Two',
     email: 'rider2@example.test',
     role: 'DRIVER',
     orgName: PREVIEW_ADMIN.orgName,
     ownerAdminId: PREVIEW_ADMIN.id,
-    zone: 'Yaba',
-    vehicle: 'Delivery bike',
+    zone: 'Lekki Phase 2',
+    vehicleType: 'MOTORCYCLE',
+    vehicle: 'Motorcycle',
     status: 'ACTIVE',
-    lat: 6.5095,
-    lng: 3.3711,
+    isAvailable: true,
+    lat: 6.4481,
+    lng: 3.3912,
     speed: 0,
-    isTracking: false,
-    routeStatus: 'PENDING',
+    isTracking: true,
+    locationUpdatedAt: new Date().toISOString(),
+    routeStatus: 'IDLE',
     isPreviewFixture: true
   },
   {
-    id: 'preview-driver-3',
+    id: 'preview-driver-car',
     name: 'Amina Bello',
     email: 'amina@example.test',
     role: 'DRIVER',
     orgName: PREVIEW_ADMIN.orgName,
     ownerAdminId: PREVIEW_ADMIN.id,
-    zone: 'Ikeja',
-    vehicleType: 'MOTORCYCLE',
-    vehicle: 'Motorcycle',
+    zone: 'Lekki Phase 2',
+    vehicleType: 'CAR',
+    vehicle: 'Car',
     status: 'ACTIVE',
     isAvailable: true,
-    lat: 6.5988,
-    lng: 3.3597,
+    lat: 6.4469,
+    lng: 3.3899,
     speed: 0,
     isTracking: true,
     locationUpdatedAt: new Date().toISOString(),
@@ -397,9 +397,9 @@ function createPreviewStops() {
     {
       id: 'preview-delivered-today',
       name: 'Ikeja Preview Delivery',
-      address: 'Ikeja, Lagos',
-      lat: 6.6139,
-      lng: 3.3582,
+      address: '15a Ero Close, Igbo Efon, Lekki Phase 2, Lagos',
+      lat: 6.4474,
+      lng: 3.3903,
       status: 'DELIVERED',
       deliveredAt: now.toISOString(),
       assignedDriverId: PREVIEW_DRIVERS[0].id,
@@ -408,10 +408,10 @@ function createPreviewStops() {
     },
     {
       id: 'preview-delivered-yesterday',
-      name: 'Yaba Preview Delivery',
-      address: 'Yaba, Lagos',
-      lat: 6.5095,
-      lng: 3.3711,
+      name: 'Lekki Phase 2 Delivery',
+      address: '4a Ero Close, Igbo Efon, Lekki Phase 2, Lagos',
+      lat: 6.4478,
+      lng: 3.3908,
       status: 'DELIVERED',
       deliveredAt: yesterday.toISOString(),
       assignedDriverId: PREVIEW_DRIVERS[1].id,
@@ -420,29 +420,14 @@ function createPreviewStops() {
     },
     {
       id: 'preview-delivered-last-week',
-      name: 'Maryland Preview Delivery',
-      address: 'Maryland, Lagos',
-      lat: 6.5683,
-      lng: 3.3688,
+      name: 'Admiralty Way Delivery',
+      address: '12 Admiralty Way, Lekki Phase 1, Lagos',
+      lat: 6.4472,
+      lng: 3.4741,
       status: 'DELIVERED',
       deliveredAt: lastWeek.toISOString(),
-      assignedDriverId: PREVIEW_DRIVERS[0].id,
+      assignedDriverId: PREVIEW_DRIVERS[2].id,
       priority: 'NORMAL',
-      packages: 1
-    },
-    {
-      id: 'preview-pending',
-      name: 'Pending Preview Delivery',
-      pickupAddress: 'Ikeja Central Depot, Lagos',
-      pickupLat: 6.6018,
-      pickupLng: 3.3515,
-      address: 'Victoria Island, Lagos',
-      lat: 6.4261,
-      lng: 3.4302,
-      status: 'PENDING',
-      dispatchStatus: 'RIDER_ACCEPTED',
-      assignedDriverId: PREVIEW_DRIVERS[0].id,
-      priority: 'HIGH',
       packages: 1
     }
   ];
@@ -509,7 +494,8 @@ async function apiRequest(path, options = {}) {
     }
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
-      credentials: API_BASE_URL ? 'include' : 'same-origin',
+      credentials: 'include',
+      cache: 'no-store',
       headers: {
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         ...options.headers,
@@ -519,6 +505,7 @@ async function apiRequest(path, options = {}) {
     if (path === '/api/auth/login' || path === '/api/auth/register-admin' || path === '/api/auth/register-driver') {
       csrfTokenCache = '';
     }
+    if (response.status === 401) csrfTokenCache = '';
     if (path === '/api/auth/logout' && response.ok) csrfTokenCache = '';
   } catch (error) {
     if (path.startsWith('/api/geocode/')) {
@@ -1106,7 +1093,6 @@ const [authError, setAuthError] = useState('');
 
   // Modals
   const [showDeliveryTypePicker, setShowDeliveryTypePicker] = useState(true);
-  const [deliveryBannerVisible, setDeliveryBannerVisible] = useState(true);
   const [showAddStopModal, setShowAddStopModal] = useState(false);
   const [showDeliveryMap, setShowDeliveryMap] = useState(false);
   const [deliveryBookingStep, setDeliveryBookingStep] = useState('RIDE');
@@ -1705,7 +1691,8 @@ const [authError, setAuthError] = useState('');
     }));
   };
 
-  const startPreviewSession = (role) => {
+  const startLocalWalkthrough = role => {
+    if (!IS_LOCAL_WALKTHROUGH) return;
     const previewUsers = [PREVIEW_ADMIN, ...PREVIEW_DRIVERS];
     setIsPreviewSession(true);
     setAuthError('');
@@ -1715,6 +1702,13 @@ const [authError, setAuthError] = useState('');
     setActiveDriverId(PREVIEW_DRIVERS[0].id);
     setActiveAdminView('ROUTES');
     setShowPasswordHelp(false);
+    setShowAddStopModal(false);
+    setShowDeliveryMap(false);
+    setShowCandidateMap(false);
+    setDeliveryBookingStopId('');
+    setDeliveryBookingStep('RIDE');
+    setSelectedBookingRiderId('');
+    setShowDeliveryTypePicker(role === 'ADMIN');
     setCurrentUser(role === 'ADMIN' ? PREVIEW_ADMIN : PREVIEW_DRIVERS[0]);
   };
 
@@ -1735,7 +1729,7 @@ const [authError, setAuthError] = useState('');
     e.preventDefault();
     setAuthError('');
     if (IS_GITHUB_PAGES_DEMO) {
-      setAuthError('Account sign-in is unavailable in this static preview. Use one of the sample dashboard buttons below.');
+      setAuthError('Sign-in requires the connected account service. Open the deployed app to sign in.');
       return;
     }
     if (!credentialsReady) {
@@ -1761,6 +1755,11 @@ const [authError, setAuthError] = useState('');
  const handleRegister = async (e) => {
   e.preventDefault();
   setAuthError('');
+
+ if (IS_GITHUB_PAGES_DEMO) {
+   setAuthError('Account registration requires the connected account service. Open the deployed app to register.');
+   return;
+ }
 
   if (registerForm.password !== confirmPassword) {
     setAuthError('Passwords do not match. Please check and try again.');
@@ -1801,7 +1800,8 @@ const [authError, setAuthError] = useState('');
         setDriverApplicationForm(previous => ({
           ...previous,
           fullName: user.name || registerForm.name,
-          phone: user.phone || previous.phone
+          phone: user.phone || previous.phone,
+          vehicleType: registerForm.vehicleType || previous.vehicleType
         }));
         setCurrentUser(user);
       }
@@ -2340,23 +2340,24 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         pickupLng: location.lng
       }));
       setCurrentLocationPoint(location);
+      if (isPreviewSession || IS_GITHUB_PAGES_DEMO) {
+        const previewAddress = 'Current location (preview)';
+        setNewStopForm(previous => ({
+          ...previous,
+          pickupAddress: previewAddress,
+          pickupLat: location.lat,
+          pickupLng: location.lng
+        }));
+        setRouteOrigins(previous => ({ ...previous, [currentUser.id]: previewAddress }));
+        setRouteOriginCoordinates(previous => ({ ...previous, [currentUser.id]: location }));
+        return;
+      }
       const params = new URLSearchParams({
         lat: String(location.lat),
         lon: String(location.lng)
       });
       const result = await apiRequest(`/api/geocode/reverse?${params}`);
-      const properties = result.features?.[0]?.properties;
-      const address = properties
-        ? [
-          properties.name,
-          [properties.housenumber, properties.street].filter(Boolean).join(' '),
-          properties.district,
-          properties.city,
-          properties.county,
-          properties.state,
-          properties.country
-        ].filter((part, index, parts) => part && parts.indexOf(part) === index).join(', ')
-        : '';
+      const address = getAddressSuggestionLabel(result.features?.[0]);
       if (!address) throw new Error('No readable address was found for your location.');
 
       setNewStopForm(previous => ({
@@ -2370,7 +2371,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     } catch (error) {
       console.error('Could not set the pickup to the current location:', error);
       if (detectedLocation) {
-        const fallbackAddress = `GPS location (${detectedLocation.lat.toFixed(5)}, ${detectedLocation.lng.toFixed(5)})`;
+        const fallbackAddress = 'Current location (address unavailable)';
         setNewStopForm(previous => {
           return { ...previous, pickupAddress: fallbackAddress };
         });
@@ -3031,18 +3032,8 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         const params = new URLSearchParams({ lat: String(location.lat), lon: String(location.lng) });
         apiRequest(`/api/geocode/reverse?${params}`)
           .then(data => {
-            const properties = data.features?.[0]?.properties;
-            if (!properties) throw new Error('No address was found for the current coordinates.');
-            const address = [
-              properties.name,
-              properties.housenumber,
-              properties.street,
-              properties.district,
-              properties.city,
-              properties.county,
-              properties.state,
-              properties.country
-            ].filter((part, index, parts) => part && parts.indexOf(part) === index).join(', ');
+            const address = getAddressSuggestionLabel(data.features?.[0]);
+            if (!address) throw new Error('No address was found for the current coordinates.');
             if (!address) throw new Error('The address lookup returned no readable address.');
             if (routeOriginLookupRef.current === lookupId) {
               hasResolvedAddress = true;
@@ -3398,17 +3389,21 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           </div>
 
           {/* LOGIN vs REGISTER TAB SWITCHER */}
-          {!invitationToken && !IS_GITHUB_PAGES_DEMO && (
-          <div className="grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 text-xs font-bold">
+          {!invitationToken && (
+          <div className="auth-tabs grid grid-cols-2 p-1 bg-slate-950 rounded-2xl border border-slate-800 text-xs font-bold">
             <button
+              type="button"
+              aria-pressed={authTab === 'LOGIN'}
               onClick={() => { setAuthTab('LOGIN'); setAuthError(''); }}
-              className={`py-2 rounded-xl transition-all ${authTab === 'LOGIN' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}
+              className={`auth-tab-button py-2 rounded-xl transition-all ${authTab === 'LOGIN' ? 'is-active bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}
             >
               Log In
             </button>
             <button
+              type="button"
+              aria-pressed={authTab === 'REGISTER'}
               onClick={() => { setAuthTab('REGISTER'); setAuthError(''); }}
-              className={`py-2 rounded-xl transition-all ${authTab === 'REGISTER' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}
+              className={`auth-tab-button py-2 rounded-xl transition-all ${authTab === 'REGISTER' ? 'is-active bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}
             >
               Register Account
             </button>
@@ -3425,36 +3420,26 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             <p className="text-center text-[10px] text-slate-400">Connecting to the secure account service...</p>
           )}
           {!invitationToken && (
-            <p className="text-center text-[10px] text-slate-500">
-              {IS_GITHUB_PAGES_DEMO
-                ? 'This GitHub Pages preview uses sample data stored only in this browser.'
-                : 'Create a driver account, then complete onboarding from your dashboard.'}
+            <p className="auth-guidance text-center text-[10px] text-slate-500">
+              Create a driver account, then complete onboarding from your dashboard.
             </p>
           )}
 
-          {IS_GITHUB_PAGES_DEMO && !invitationToken && (
-            <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50 p-3">
-              <p className="text-center text-[10px] font-bold text-violet-950">Choose how to continue</p>
+          {IS_LOCAL_WALKTHROUGH && (
+            <section className="local-walkthrough">
+              <p className="local-walkthrough-title">Local walkthrough · sample data only</p>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => startPreviewSession('ADMIN')}
-                  className="rounded-xl bg-violet-700 px-3 py-2.5 text-[10px] font-extrabold text-white hover:bg-violet-800"
-                >
-                  Log in as Admin
+                <button type="button" onClick={() => startLocalWalkthrough('ADMIN')}>
+                  Dispatcher flow
                 </button>
-                <button
-                  type="button"
-                  onClick={() => startPreviewSession('DRIVER')}
-                  className="rounded-xl border border-violet-300 bg-white px-3 py-2.5 text-[10px] font-extrabold text-violet-900 hover:bg-violet-100"
-                >
-                  Log in as Driver
+                <button type="button" onClick={() => startLocalWalkthrough('DRIVER')}>
+                  Rider flow
                 </button>
               </div>
-              <p className="text-center text-[9px] leading-relaxed text-violet-900">
-                This browser-only preview uses sample data. Connect the deployed account API for real accounts, driver links, and cross-device tracking.
+              <p className="local-walkthrough-note">
+                Local only. No live account is created and preview rider offers are simulated.
               </p>
-            </div>
+            </section>
           )}
 
           {/* TAB 1: LOGIN FORM */}
@@ -3646,7 +3631,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
           )}
 
           {/* TAB 2: REGISTER FORM */}
-          {!IS_GITHUB_PAGES_DEMO && authTab === 'REGISTER' && (
+          {authTab === 'REGISTER' && (
             <form onSubmit={handleRegister} className="space-y-3 text-xs">
               
               {/* ROLE SELECTOR */}
@@ -3778,6 +3763,33 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 </p>
               )}
 
+              {authRole === 'DRIVER' && (
+                <fieldset className="space-y-2">
+                  <legend className="block text-xs font-semibold text-slate-600">Vehicle type</legend>
+                  <div className="grid grid-cols-3 gap-2">
+                    {DRIVER_REGISTRATION_VEHICLES.map(({ vehicleType, label, color }) => {
+                      const selected = registerForm.vehicleType === vehicleType;
+                      return (
+                        <button
+                          key={vehicleType}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => setRegisterForm(previous => ({ ...previous, vehicleType }))}
+                          className={`flex min-h-[82px] flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-center transition-colors ${
+                            selected
+                              ? 'border-violet-500 bg-violet-50 ring-1 ring-violet-500'
+                              : 'border-slate-200 bg-slate-50 hover:border-violet-300'
+                          }`}
+                        >
+                          <VehicleTypeIcon vehicleType={vehicleType} className="h-8 w-10" style={{ color }} />
+                          <span className="text-[11px] font-semibold text-slate-700">{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              )}
+
               <button
                 type="submit"
                 disabled={!credentialsReady}
@@ -3788,7 +3800,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             </form>
           )}
 
-          {!IS_GITHUB_PAGES_DEMO && !invitationToken && authTab === 'REGISTER' && (
+          {!invitationToken && authTab === 'REGISTER' && (
             <button
               type="button"
               onClick={() => { setAuthTab('LOGIN'); setAuthError(''); }}
@@ -5017,7 +5029,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
       </div>
 
-      {currentUser.role === 'ADMIN' && activeAdminView !== 'ROUTES' ? (
+      {!showDeliveryTypePicker && (currentUser.role === 'ADMIN' && activeAdminView !== 'ROUTES' ? (
         <AdminDashboard
           page={activeAdminView}
           currentUser={currentUser}
@@ -5237,8 +5249,52 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         </div>
 
       </div>
-      </>
+      {currentUser.role === 'ADMIN'
+        && activeAdminView === 'ROUTES' && (
+        <MobileDispatchRouteUi
+          currentUser={currentUser}
+          visible={!showDeliveryTypePicker && !showAddStopModal && !showDeliveryMap}
+          activeAdminView={activeAdminView}
+          navItems={ADMIN_NAV_ITEMS}
+          activeDriver={selectedDriver}
+          drivers={driversList}
+          stops={stops}
+          routeStops={activeDriverStops}
+          selectedStopId={selectedStopId}
+          routeMetrics={routeMetrics}
+          routeSequenceSummary={routeSequenceSummary}
+          routeSequenceSaving={routeSequenceSaving}
+          canOptimizeRoute={!isPreviewSession && !routeSequenceSaving && activeDriverStops.filter(stop =>
+            !['DELIVERED', 'COMPLETED', 'FAILED', 'UNDELIVERED', 'DELIVERY_FAILED', 'CANCELLED']
+              .includes(String(stop.dispatchStatus || stop.status || '').toUpperCase())
+          ).length >= 2}
+          deliveryOfferError={deliveryOfferError}
+          mapExpanded={mapExpanded}
+          menuOpen={mobileSidebarOpen}
+          onOpenMenu={() => setMobileSidebarOpen(true)}
+          onCloseMenu={() => setMobileSidebarOpen(false)}
+          onToggleProfileMenu={() => setProfileMenuOpen(open => !open)}
+          onToggleMap={() => {
+            if (mapExpanded) setShowCandidateMap(false);
+            setMapExpanded(previous => !previous);
+          }}
+          onNavigate={view => {
+            setActiveAdminView(view);
+            setMobileSidebarOpen(false);
+          }}
+          onPickDriver={driverId => {
+            selectDriverToTrack(driverId);
+            setMobileSidebarOpen(false);
+          }}
+          onOpenAddStop={openAddStopModal}
+          onOptimizeRoute={optimizeClosestToFarthest}
+          onOpenRoute={launchMultiStopMapNav}
+          onSelectStop={setSelectedStopId}
+          onNavigateNext={stop => launchSingleStopMapNav(stop)}
+        />
       )}
+      </>
+      ))}
 
       {showDeliveryMap && (
         <section
@@ -5896,74 +5952,39 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       {/* --- BUSINESS DELIVERY HOME --- */}
       {showDeliveryTypePicker && (
         <div
-          className="fixed inset-0 z-[60] overflow-y-auto"
-          style={{ background: '#fff', color: '#111' }}
+          className="customer-booking-home"
           role="dialog"
           aria-modal="true"
           aria-labelledby="delivery-type-picker-title"
         >
-          <main className="mx-auto min-h-full w-full max-w-[500px] px-5 pb-8 pt-5">
-            {deliveryBannerVisible && (
-              <aside
-                className="mb-7 flex items-center gap-3 rounded-2xl px-4 py-3"
-                style={{ background: '#eef0ff', color: '#161616' }}
-              >
-                <span
-                  className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
-                  style={{ background: '#fff0e4', color: '#e87924' }}
-                >
-                  <Tag className="h-6 w-6" aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <strong className="block text-sm font-extrabold">Business delivery</strong>
-                  <span className="mt-1 block text-sm text-slate-600">Choose a vehicle for your order</span>
-                </span>
-                <button
-                  type="button"
-                  aria-label="Dismiss delivery information"
-                  onClick={() => setDeliveryBannerVisible(false)}
-                  className="shrink-0 rounded-full p-1 text-slate-500 hover:bg-white/70"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </aside>
-            )}
-
+          <main className="customer-booking-content">
             <h2
               id="delivery-type-picker-title"
-              className="mb-5 text-[26px] font-extrabold leading-tight tracking-tight"
-              style={{ color: '#171717' }}
+              className="customer-booking-title"
             >
               Let&apos;s get you on your way.
             </h2>
 
-            <div className="mb-5 grid grid-cols-3 gap-2">
+            <div className="customer-booking-vehicles">
               {DELIVERY_TYPES.map(({ vehicleType, label, description, color, Icon }) => (
                 <button
                   key={vehicleType}
                   type="button"
                   onClick={() => selectDeliveryType(vehicleType)}
                   aria-label={`${label} delivery`}
-                  className="relative flex min-h-[138px] flex-col items-center justify-center gap-2 px-2 py-3 text-center transition hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                  style={{ background: '#eef0f0', borderRadius: 14, color: '#161616' }}
+                  className="customer-booking-vehicle-card"
                 >
-                  <span
-                    className="flex h-[68px] w-full items-center justify-center"
-                    aria-hidden="true"
-                  >
-                    <Icon vehicleType={vehicleType} className="h-16 w-24" style={{ color }} />
+                  <span className="customer-booking-vehicle-icon">
+                    <Icon vehicleType={vehicleType} className="h-[74px] w-[100px]" style={{ color }} />
                   </span>
-                  <span className="block text-base font-semibold leading-tight">{label}</span>
-                  <span className="block text-xs leading-tight text-slate-600">{description}</span>
+                  <span className="customer-booking-vehicle-label">{label}</span>
+                  <span className="customer-booking-vehicle-description">{description}</span>
                 </button>
               ))}
             </div>
 
-            <div
-              className="mb-5 flex min-h-[70px] items-center gap-3 rounded-2xl px-4 py-2"
-              style={{ background: '#eef0f0' }}
-            >
-              <Search className="h-6 w-6 shrink-0" aria-hidden="true" />
+            <div className="customer-booking-destination">
+              <Search className="customer-booking-search-icon" aria-hidden="true" />
               <AddressAutocomplete
                 value={newStopForm.address}
                 onChange={address => setNewStopForm(previous => ({ ...previous, address, lat: null, lng: null }))}
@@ -5972,22 +5993,22 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 }
                 proximity={{ lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }}
                 placeholder="Where to?"
-                inputClassName="w-full border-0 bg-transparent p-0 text-base font-semibold outline-none"
-                inputStyle={{ background: 'transparent', border: 0, color: '#111', minHeight: 44 }}
+                inputClassName="customer-booking-search-input"
+                inputStyle={{ background: 'transparent', border: 0, minHeight: 44 }}
                 id="business-delivery-destination"
               />
               <button
                 type="button"
                 onClick={() => setShowDeliveryTypePicker(false)}
-                className="flex shrink-0 items-center gap-1 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-slate-900"
+                className="customer-booking-later-button"
               >
-                <Clock className="h-4 w-4" aria-hidden="true" />
+                <Clock className="h-6 w-6" aria-hidden="true" />
                 Later
               </button>
             </div>
 
             {!newStopForm.address.trim() && (
-              <section aria-label="Recent delivery destinations" className="space-y-2">
+              <section aria-label="Recent delivery destinations" className="customer-booking-recents">
                 {recentDeliveryStops.length > 0 ? recentDeliveryStops.map(stop => (
                   <button
                     key={stop.id}
@@ -5998,24 +6019,20 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                       lat: stop.lat,
                       lng: stop.lng
                     }))}
-                    className="flex w-full items-center gap-3 rounded-xl py-1 text-left transition hover:bg-slate-50"
-                    style={{ color: '#171717' }}
+                    className="customer-booking-recent-item"
                   >
-                    <span
-                      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl"
-                      style={{ background: '#eef0f0', color: '#4b4b4b' }}
-                    >
-                      <Clock className="h-6 w-6" aria-hidden="true" />
+                    <span className="customer-booking-recent-icon">
+                      <Clock className="h-9 w-9" aria-hidden="true" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-base font-medium">{stop.address}</span>
-                      <span className="mt-1 block truncate text-sm text-slate-600">
+                      <span className="customer-booking-recent-address">{stop.address}</span>
+                      <span className="customer-booking-recent-subtitle">
                         {stop.name || stop.pickupAddress || 'Recent delivery'}
                       </span>
                     </span>
                   </button>
                 )) : (
-                  <p className="px-1 py-3 text-sm text-slate-500">
+                  <p className="customer-booking-empty-recents">
                     Recent delivery addresses will appear here.
                   </p>
                 )}

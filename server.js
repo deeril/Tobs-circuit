@@ -1287,6 +1287,10 @@ app.use((request, response, next) => {
   }
   next();
 });
+app.use('/api', (request, response, next) => {
+  response.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
 app.use('/api', persistentApiState);
 
 app.get('/api/health', (request, response) => {

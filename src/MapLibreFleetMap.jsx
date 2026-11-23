@@ -11,7 +11,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { distanceToRouteKm } from './dispatch-geo.js';
 import {
   getLocalMapZoom,
+  getRiderMarkerInitial,
   getRiderMarkerState,
+  getRouteStopMarkerInfo,
   isValidMapLocation,
   reconcileMapMarkers,
   toMapLibrePoint
@@ -38,6 +40,32 @@ function straightLineGeometry(from, to) {
   return { type: 'LineString', coordinates: [[from.lng, from.lat], [to.lng, to.lat]] };
 }
 
+function getMobileMapPadding(map, bottomFallback) {
+  const container = map.getContainer();
+  const mapBounds = container.getBoundingClientRect();
+  const mapPanel = container.closest('.admin-map-panel');
+  const appShell = container.closest('.app-shell');
+  const mobileUi = document.querySelector('.mobile-dispatch-ui');
+  const visibleBounds = element => {
+    if (!element) return null;
+    const bounds = element.getBoundingClientRect();
+    return bounds.width > 0 && bounds.height > 0 ? bounds : null;
+  };
+  const topbarBounds = visibleBounds(mobileUi?.querySelector('.mobile-dispatch-topbar'))
+    || visibleBounds(mapPanel?.querySelector('.admin-map-toolbar'));
+  const sheetBounds = visibleBounds(mobileUi?.querySelector('.mobile-dispatch-sheet'));
+  const sidebarBounds = visibleBounds(appShell?.querySelector('.admin-dashboard-sidebar'));
+  const top = topbarBounds
+    ? Math.ceil(topbarBounds.bottom - mapBounds.top + 12)
+    : 76;
+  const bottom = sheetBounds
+    ? Math.ceil(mapBounds.bottom - sheetBounds.top + 16)
+    : sidebarBounds
+      ? Math.ceil(mapBounds.bottom - sidebarBounds.top + 16)
+      : bottomFallback;
+  return { top, right: 32, bottom, left: 32 };
+}
+
 function makeMarkerElement(className, label, text, icon) {
   const element = document.createElement('button');
   element.type = 'button';
@@ -59,15 +87,6 @@ function makeMarkerElement(className, label, text, icon) {
   content.append(labelElement);
   element.append(content);
   return element;
-}
-
-function getVehicleMarkerIcon(driver) {
-  const type = String(driver.vehicleType || driver.vehicle_type || '').trim().toUpperCase();
-  if (type === 'CAR') return '🚗';
-  if (type === 'BICYCLE') return '🚲';
-  if (type === 'MOTORCYCLE' || type === 'MOTORBIKE' || type === 'BIKE') return '🏍️';
-  const vehicle = String(driver.vehicle || '').toLowerCase();
-  return vehicle.includes('car') ? '🚗' : vehicle.includes('bicycle') ? '🚲' : '🏍️';
 }
 
 export default function MapLibreFleetMap({
@@ -188,32 +207,32 @@ export default function MapLibreFleetMap({
     if (!map || !mapLoaded) return undefined;
     const updateMobilePadding = () => {
       const container = map.getContainer();
-      let top = 0;
-      let bottom = 0;
-      if (mobileBottomSheetVisible && container.clientWidth < 768) {
-        const mapBounds = container.getBoundingClientRect();
-        const mapPanel = container.closest('.admin-map-panel');
-        const toolbar = mapPanel?.querySelector('.admin-map-toolbar');
-        const toolbarBounds = toolbar?.getBoundingClientRect();
-        const sidebar = container.closest('.app-shell')?.querySelector('.admin-dashboard-sidebar');
-        const sidebarBounds = sidebar?.getBoundingClientRect();
-        top = toolbarBounds
-          && toolbarBounds.top < mapBounds.bottom
-          && toolbarBounds.bottom > mapBounds.top
-          ? Math.ceil(toolbarBounds.bottom - mapBounds.top + 12)
-          : 76;
-        bottom = sidebarBounds
-          && sidebarBounds.top < mapBounds.bottom
-          && sidebarBounds.bottom > mapBounds.top
-          ? Math.ceil(mapBounds.bottom - sidebarBounds.top + 16)
-          : Math.ceil(Math.min(window.innerHeight * 0.62, 580) + 16);
+      const mobileUi = document.querySelector('.mobile-dispatch-ui');
+      const mobileUiBounds = mobileUi?.getBoundingClientRect();
+      const hasVisibleMobileUi = Boolean(mobileUiBounds?.width && mobileUiBounds?.height);
+      if (container.clientWidth < 768 && (mobileBottomSheetVisible || hasVisibleMobileUi)) {
+        map.setPadding(getMobileMapPadding(
+          map,
+          mobileBottomSheetVisible
+            ? Math.ceil(Math.min(window.innerHeight * 0.62, 580) + 16)
+            : 0
+        ));
+        return;
       }
-      map.setPadding({ top, right: 0, bottom, left: 0 });
+      map.setPadding({ top: 0, right: 0, bottom: 0, left: 0 });
     };
     updateMobilePadding();
     map.on('resize', updateMobilePadding);
     window.addEventListener('resize', updateMobilePadding);
+    const overlayObserver = new ResizeObserver(updateMobilePadding);
+    const mobileUi = document.querySelector('.mobile-dispatch-ui');
+    const mobileTopbar = mobileUi?.querySelector('.mobile-dispatch-topbar');
+    const mobileSheet = mobileUi?.querySelector('.mobile-dispatch-sheet');
+    if (mobileUi) overlayObserver.observe(mobileUi);
+    if (mobileTopbar) overlayObserver.observe(mobileTopbar);
+    if (mobileSheet) overlayObserver.observe(mobileSheet);
     return () => {
+      overlayObserver.disconnect();
       map.off('resize', updateMobilePadding);
       window.removeEventListener('resize', updateMobilePadding);
     };
@@ -261,31 +280,41 @@ export default function MapLibreFleetMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
-    if (followDriverLocation || isValidMapLocation(currentLocation?.lat, currentLocation?.lng)) {
+    if (followDriverLocation) {
       lastActiveRideFitKeyRef.current = '';
       lastCandidateFitKeyRef.current = '';
       return;
     }
     if (manualMapViewRef.current) return;
+    const selectedRouteStops = selectedDriverId
+      ? stops.filter(stop => stop.assignedDriverId === selectedDriverId)
+      : [];
     const activeStops = stops.filter(stop =>
       stop.assignedDriverId
       && ACTIVE_DELIVERY_STATUSES.includes(stop.dispatchStatus)
       && (!selectedDriverId || stop.assignedDriverId === selectedDriverId)
     );
-    if (activeStops.length > 0) {
-      const activeRider = drivers.find(driver => driver.id === activeStops[0].assignedDriverId);
-      const focusCoordinates = [
-        ...(activeRider && isValidMapLocation(activeRider.lat, activeRider.lng)
-          ? [[activeRider.lng, activeRider.lat]]
-          : []),
-        ...activeStops.flatMap(stop => [
-          ...(isValidMapLocation(stop.pickupLat, stop.pickupLng) ? [[stop.pickupLng, stop.pickupLat]] : []),
-          ...(isValidMapLocation(stop.lat, stop.lng) ? [[stop.lng, stop.lat]] : [])
-        ])
-      ];
+    const routeStops = selectedRouteStops.length > 0 ? selectedRouteStops : activeStops;
+    const selectedRider = drivers.find(driver => driver.id === selectedDriverId)
+      || (routeStops[0] && drivers.find(driver => driver.id === routeStops[0].assignedDriverId));
+    const hasCurrentLocation = isValidMapLocation(currentLocation?.lat, currentLocation?.lng);
+    const focusCoordinates = [
+      ...(hasCurrentLocation ? [[currentLocation.lng, currentLocation.lat]] : []),
+      ...(selectedRider && isValidMapLocation(selectedRider.lat, selectedRider.lng)
+        ? [[selectedRider.lng, selectedRider.lat]]
+        : []),
+      ...routeStops.flatMap(stop => [
+        ...(isValidMapLocation(stop.pickupLat, stop.pickupLng) ? [[stop.pickupLng, stop.pickupLat]] : []),
+        ...(isValidMapLocation(stop.lat, stop.lng) ? [[stop.lng, stop.lat]] : [])
+      ])
+    ];
+    if (focusCoordinates.length > 0) {
       const fitKey = [
-        selectedDriverId || activeStops[0].assignedDriverId,
-        ...activeStops.map(stop => [
+        selectedDriverId || routeStops[0]?.assignedDriverId || '',
+        ...(hasCurrentLocation
+          ? [`origin:${currentLocation.lat.toFixed(4)}:${currentLocation.lng.toFixed(4)}`]
+          : []),
+        ...routeStops.map(stop => [
           stop.id,
           stop.dispatchStatus,
           stop.routeOrder ?? stop.routeSequence ?? '',
@@ -307,10 +336,11 @@ export default function MapLibreFleetMap({
             new LngLatBounds()
           );
           const isMobileMap = map.getContainer().clientWidth < 768;
+          const padding = isMobileMap
+            ? 24
+            : 76;
           map.fitBounds(bounds, {
-            padding: isMobileMap
-              ? { top: 76, right: 32, bottom: Math.round(map.getContainer().clientHeight * 0.68), left: 32 }
-              : 76,
+            padding,
             maxZoom: isMobileMap ? 13 : 14,
             duration: 450
           });
@@ -347,7 +377,10 @@ export default function MapLibreFleetMap({
     }
     const bounds = coordinates.reduce((result, point) => result.extend(point), new LngLatBounds());
     map.fitBounds(bounds, { padding: 72, maxZoom: 12, duration: 450 });
-  }, [currentLocation, drivers, followDriverLocation, mapLoaded, selectedDriverId, stops]);
+  }, [
+    currentLocation, drivers, followDriverLocation, mapLoaded, mobileBottomSheetVisible,
+    selectedDriverId, stops
+  ]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -357,26 +390,24 @@ export default function MapLibreFleetMap({
       .filter(stop => ACTIVE_DELIVERY_STATUSES.includes(stop.dispatchStatus))
       .map(stop => stop.assignedDriverId)
       .filter(Boolean));
+    const routeMarkerInfo = getRouteStopMarkerInfo(stops);
     for (const driver of drivers) {
       const markerState = getRiderMarkerState(driver, activeRiderIds, now);
       if (!markerState) continue;
       const isFresh = markerState.kind === 'live';
       const isPreview = markerState.kind === 'preview';
+      const initial = getRiderMarkerInitial(driver.name);
       desiredMarkers.set(`rider:${driver.id}`, {
         point: toMapLibrePoint(driver.lat, driver.lng),
-        title: `${driver.discoveryRank ? `Driver ${driver.discoveryRank} · ${driver.pickupDistanceKm?.toFixed(1)} km from pickup · ` : ''}${isPreview ? 'Preview rider' : isFresh ? 'Rider' : 'Last known rider location'} ${driver.name}${driver.locationUpdatedAt ? ` · updated ${new Date(driver.locationUpdatedAt).toLocaleString()}` : ''}`,
+        title: `Rider ${initial}${driver.locationUpdatedAt ? ` · updated ${new Date(driver.locationUpdatedAt).toLocaleString()}` : ''}`,
         className: [
           isPreview
             ? 'maplibre-rider-preview-marker'
             : isFresh ? 'maplibre-rider-marker' : 'maplibre-rider-stale-marker',
           driver.id === selectedDriverId ? 'maplibre-rider-marker-selected' : ''
         ].filter(Boolean).join(' '),
-        text: isPreview
-          ? `Preview · ${driver.name}`
-          : driver.discoveryRank
-          ? `#${driver.discoveryRank} ${driver.name}`
-          : isFresh ? driver.name : `Stale · ${driver.name}`,
-        icon: getVehicleMarkerIcon(driver),
+        text: initial,
+        icon: null,
         rotation: Number.isFinite(driver.heading) ? driver.heading : 0,
         onClick: () => requestCallbacksRef.current.onDriverSelect?.(driver.id)
       });
@@ -405,10 +436,13 @@ export default function MapLibreFleetMap({
         });
       }
       if (isValidMapLocation(stop.lat, stop.lng)) {
-        const isCompleted = ['DELIVERED', 'COMPLETED'].includes(
-          String(stop.dispatchStatus || stop.status || '').toUpperCase()
-        );
-        const stopOrder = getStopRouteOrder(stop);
+        const markerInfo = routeMarkerInfo.get(stop.id);
+        const isCompleted = markerInfo?.isCompleted
+          ?? ['DELIVERED', 'COMPLETED'].some(status =>
+            [stop.dispatchStatus, stop.status].some(value => String(value || '').toUpperCase() === status)
+          );
+        const stopOrder = markerInfo?.number ?? getStopRouteOrder(stop);
+        const isNextStop = markerInfo?.isNext === true;
         const sequenceText = stopOrder !== null
           ? `Dropoff ${stopOrder}`
           : 'Dropoff';
@@ -417,11 +451,14 @@ export default function MapLibreFleetMap({
           title: `${sequenceText} · ${stop.address || stop.name || 'Delivery'} · ${stop.dispatchStatus || stop.status || 'Pending'}`,
           className: [
             'maplibre-destination-marker',
+            stopOrder !== null ? 'maplibre-route-stop-marker' : '',
+            isNextStop ? 'maplibre-route-stop-marker-next' : '',
             isCompleted ? 'maplibre-destination-marker-completed' : '',
             stop.id === selectedStopId ? 'maplibre-destination-marker-selected' : ''
           ].filter(Boolean).join(' '),
-          text: sequenceText,
-          icon: isCompleted ? '✓' : null,
+          text: stopOrder !== null ? isCompleted ? '✓' : String(stopOrder) : sequenceText,
+          icon: stopOrder === null && isCompleted ? '✓' : null,
+          anchor: 'center',
           onClick: () => requestCallbacksRef.current.onStopSelect?.(stop.id)
         });
       }
@@ -442,7 +479,7 @@ export default function MapLibreFleetMap({
             iconElement.style.transform = `rotate(${details.rotation}deg)`;
           }
           element.addEventListener('click', details.onClick || (() => {}));
-        const marker = new MapLibreMarker({ element, anchor: 'bottom' })
+        const marker = new MapLibreMarker({ element, anchor: details.anchor || 'bottom' })
           .setLngLat(details.point)
           .addTo(map);
         return marker;
