@@ -2,7 +2,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.VERCEL ||= '1';
-const { default: app, signPricingQuote, verifyPricingQuote } = await import('../server.js');
+const {
+  default: app,
+  getSessionLifetimeMs,
+  signPricingQuote,
+  verifyPricingQuote
+} = await import('../server.js');
 
 describe('server route registration', () => {
   it('registers the super admin driver verification endpoint', () => {
@@ -24,6 +29,11 @@ describe('server route registration', () => {
     assert.ok(routes.includes('GET /api/users/me/payout'));
     assert.ok(routes.includes('PUT /api/users/me/payout'));
     assert.ok(routes.includes('GET /api/marketplace/drivers'));
+  });
+
+  it('keeps remembered sign-ins active longer than regular sessions', () => {
+    assert.equal(getSessionLifetimeMs(false), 12 * 60 * 60 * 1000);
+    assert.equal(getSessionLifetimeMs(true), 30 * 24 * 60 * 60 * 1000);
   });
 
   it('accepts valid pricing quotes and rejects tampered ones', () => {

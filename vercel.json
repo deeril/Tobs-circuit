@@ -4,6 +4,9 @@
   "functions": {
     "api/router.js": {
       "maxDuration": 30
+    },
+    "api/socket.js": {
+      "maxDuration": 300
     }
   },
   "rewrites": [

@@ -24,6 +24,10 @@ import { AUTHORIZED_MAP_RIDERS_SQL } from './server/dispatch-map-query.js';
 import { hasActiveRiderAssignment } from './server/dispatch-assignments.js';
 import { PUBLIC_MARKETPLACE_DRIVERS_SQL } from './server/dispatch-marketplace-query.js';
 import { estimateDeliveryPrice, validatePricingRules } from './server/pricing.js';
+import {
+  createRealtimeEventBus,
+  DISCONNECT_REALTIME_ROOM_EVENT
+} from './server/realtime-event-bus.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -38,6 +42,8 @@ const databasePool = usesDatabase && databaseUrl
   ? new pg.Pool({ connectionString: databaseUrl, max: 1, idleTimeoutMillis: 10_000 })
   : null;
 const sessionCookie = 'tobs_session';
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const REMEMBERED_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const superAdminEmail = 'ayodeletobs@gmail.com';
 const DRIVER_TERMS_VERSION = 'tobs-driver-rider-terms-2026-11-16-v1';
 const DRIVER_DATA_NOTICE_VERSION = 'tobs-driver-data-notice-2026-11-16-v1';
@@ -46,7 +52,6 @@ const rateLimits = new Map();
 const frontendOrigin = process.env.FRONTEND_ORIGIN || 'https://deeril.github.io';
 const frontendOrigins = [
   frontendOrigin,
-  process.env.RENDER_EXTERNAL_URL,
   process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
@@ -54,6 +59,7 @@ const frontendOrigins = [
   'http://127.0.0.1:3000'
 ].filter(Boolean);
 const io = new Server(httpServer, {
+  path: process.env.VERCEL ? '/api/socket/socket.io' : '/socket.io',
   cors: {
     origin: frontendOrigins,
     credentials: true,
@@ -61,40 +67,52 @@ const io = new Server(httpServer, {
   }
 });
 
-io.use((socket, next) => {
-  const origin = socket.handshake.headers.origin;
-  const forwardedProtocol = socket.handshake.headers['x-forwarded-proto']?.split(',')[0].trim();
-  const requestProtocol = forwardedProtocol || (socket.request.socket.encrypted ? 'https' : 'http');
-  const requestOrigin = `${requestProtocol}://${socket.handshake.headers.host}`;
-  if (origin && !frontendOrigins.includes(origin) && origin !== requestOrigin) {
-    next(new Error('This origin is not allowed to connect to live updates.'));
-    return;
-  }
+io.use(async (socket, next) => {
+  try {
+    if (usesDatabase) await refreshDatabaseStore();
+    const origin = socket.handshake.headers.origin;
+    const forwardedProtocol = socket.handshake.headers['x-forwarded-proto']?.split(',')[0].trim();
+    const requestProtocol = forwardedProtocol || (socket.request.socket.encrypted ? 'https' : 'http');
+    const requestOrigin = `${requestProtocol}://${socket.handshake.headers.host}`;
+    if (origin && !frontendOrigins.includes(origin) && origin !== requestOrigin) {
+      next(new Error('This origin is not allowed to connect to live updates.'));
+      return;
+    }
 
-  const cookie = socket.handshake.headers.cookie
-    ?.split(';')
-    .map(part => part.trim())
-    .find(part => part.startsWith(`${sessionCookie}=`));
-  const token = cookie ? decodeURIComponent(cookie.slice(sessionCookie.length + 1)) : '';
-  const session = sessions.get(token);
-  const user = session && session.expiresAt > Date.now()
-    ? store.users.find(item => item.id === session.userId)
-    : null;
-  if (!user || !['ADMIN', 'DRIVER'].includes(user.role)
-    || (user.role === 'DRIVER' && user.status !== 'ACTIVE')) {
-    next(new Error('Sign in to receive live dispatch updates.'));
-    return;
-  }
+    const cookie = socket.handshake.headers.cookie
+      ?.split(';')
+      .map(part => part.trim())
+      .find(part => part.startsWith(`${sessionCookie}=`));
+    const token = cookie ? decodeURIComponent(cookie.slice(sessionCookie.length + 1)) : '';
+    const session = sessions.get(token);
+    const user = session && session.expiresAt > Date.now()
+      ? store.users.find(item => item.id === session.userId)
+      : null;
+    if (!user || !['ADMIN', 'DRIVER'].includes(user.role)
+      || (user.role === 'DRIVER' && user.status !== 'ACTIVE')) {
+      next(new Error('Sign in to receive live dispatch updates.'));
+      return;
+    }
 
-  socket.data.userId = user.id;
-  socket.data.userRole = user.role;
-  socket.data.superAdminVerified = session.superAdminVerified === true;
-  socket.data.isSuperAdmin = isSuperAdmin(user);
-  socket.data.businessId = user.role === 'ADMIN' ? user.id : user.ownerAdminId;
-  next();
+    socket.data.userId = user.id;
+    socket.data.userRole = user.role;
+    socket.data.superAdminVerified = session.superAdminVerified === true;
+    socket.data.isSuperAdmin = isSuperAdmin(user);
+    socket.data.businessId = user.role === 'ADMIN' ? user.id : user.ownerAdminId;
+    next();
+  } catch (error) {
+    console.error('Could not authenticate a realtime connection:', error);
+    next(new Error('Live updates are temporarily unavailable.'));
+  }
 });
 
 io.on('connection', socket => {
+  void realtimeBus.start().catch(error => {
+    console.error('Could not start realtime event delivery:', error);
+    socket.disconnect(true);
+  });
+  socket.on('disconnect', () => realtimeBus.stopIfIdle());
+
   if (!socket.data.isSuperAdmin || socket.data.superAdminVerified) {
     socket.join(`user:${socket.data.userId}`);
   }
@@ -143,7 +161,7 @@ io.on('connection', socket => {
           ...(Number.isInteger(data.sdpMLineIndex) ? { sdpMLineIndex: data.sdpMLineIndex } : {}),
           ...(typeof data.usernameFragment === 'string' ? { usernameFragment: data.usernameFragment.slice(0, 256) } : {})
         };
-      io.to(`user:${peerId}`).emit('dispatch:call:signal', {
+      await emitRealtimeEvent(`user:${peerId}`, 'dispatch:call:signal', {
         callId,
         type,
         data: signalData,
@@ -162,6 +180,29 @@ if (!usesDatabase) fs.mkdirSync(dataDirectory, { recursive: true });
 let databaseSetupPromise;
 let databaseRequestClient = null;
 let databaseStoreDirty = false;
+const realtimeBus = createRealtimeEventBus({
+  io,
+  pool: databasePool,
+  enabled: Boolean(process.env.VERCEL)
+});
+
+function emitRealtimeEvent(room, event, payload, client = databaseRequestClient || databasePool) {
+  return realtimeBus.publish(room, event, payload, client);
+}
+
+function notifyRealtimeRoom(room, event, payload, client) {
+  emitRealtimeEvent(room, event, payload, client).catch(error => {
+    console.error(`Could not publish realtime event "${event}" to "${room}":`, error);
+  });
+}
+
+function disconnectRealtimeRoom(room) {
+  if (process.env.VERCEL) {
+    notifyRealtimeRoom(room, DISCONNECT_REALTIME_ROOM_EVENT, {});
+    return;
+  }
+  io.in(room).disconnectSockets(true);
+}
 
 function readStore() {
   if (!fs.existsSync(dataFile)) return {
@@ -251,6 +292,17 @@ async function ensureDatabaseTable() {
     `)).then(() => databasePool.query(`
       CREATE INDEX IF NOT EXISTS superadmin_driver_messages_conversation_idx
       ON superadmin_driver_messages (driver_id, sent_at, message_id)
+    `)).then(() => databasePool.query(`
+      CREATE TABLE IF NOT EXISTS tobs_realtime_events (
+        event_id BIGSERIAL PRIMARY KEY,
+        room TEXT NOT NULL,
+        event_name TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)).then(() => databasePool.query(`
+      CREATE INDEX IF NOT EXISTS tobs_realtime_events_created_at_idx
+      ON tobs_realtime_events (created_at)
     `))
     .catch(error => {
       databaseSetupPromise = null;
@@ -280,6 +332,24 @@ async function loadDatabaseStore(client, { lock = true } = {}) {
     deliveryAssignments: Array.isArray(state.deliveryAssignments) ? state.deliveryAssignments : []
   };
   restoreStoredSessions();
+}
+
+async function refreshDatabaseStore() {
+  await ensureDatabaseTable();
+  const client = await databasePool.connect();
+  try {
+    await loadDatabaseStore(client, { lock: false });
+    await client.query('COMMIT');
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('Could not roll back realtime session lookup:', rollbackError);
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 function persistentApiState(request, response, next) {
@@ -545,8 +615,12 @@ function setSessionCookie(response, token, remember = true) {
     secure: isProduction,
     sameSite: frontendOrigin && isProduction ? 'none' : 'strict',
     path: '/',
-    ...(remember ? { maxAge: 12 * 60 * 60 * 1000 } : {})
+    ...(remember ? { maxAge: getSessionLifetimeMs(true) } : {})
   });
+}
+
+function getSessionLifetimeMs(remember) {
+  return remember ? REMEMBERED_SESSION_TTL_MS : SESSION_TTL_MS;
 }
 
 function sessionUser(request) {
@@ -783,7 +857,7 @@ function verifyPricingQuote(token, businessId) {
   }
 }
 
-export { signPricingQuote, verifyPricingQuote };
+export { getSessionLifetimeMs, signPricingQuote, verifyPricingQuote };
 
 function distanceInKilometers(from, to) {
   const radians = value => value * (Math.PI / 180);
@@ -1137,7 +1211,7 @@ function issueSession(response, user, remember = true, superAdminVerified = fals
   const token = crypto.randomBytes(32).toString('base64url');
   const session = {
     userId: user.id,
-    expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+    expiresAt: Date.now() + getSessionLifetimeMs(remember),
     superAdminVerified,
     csrfToken: crypto.randomBytes(32).toString('base64url')
   };
@@ -1637,7 +1711,7 @@ app.delete('/api/super-admin/drivers/:id', requireUser, requireSuperAdmin, async
     }
     store.users = store.users.filter(user => user.id !== driver.id);
     writeStore();
-    io.in(`user:${driver.id}`).disconnectSockets(true);
+    disconnectRealtimeRoom(`user:${driver.id}`);
     return response.json({ deleted: true });
   } catch (error) {
     console.error('Could not permanently delete the driver account:', error);
@@ -1649,7 +1723,7 @@ app.post('/api/auth/logout', (request, response) => {
   const token = request.cookies?.[sessionCookie];
   if (token) {
     const session = sessions.get(token);
-    if (session?.userId) io.in(`user:${session.userId}`).disconnectSockets(true);
+    if (session?.userId) disconnectRealtimeRoom(`user:${session.userId}`);
     sessions.delete(token);
     store.sessions = store.sessions.filter(session => session.token !== token);
     writeStore();
@@ -1735,6 +1809,7 @@ app.post('/api/auth/password-reset/complete', rateLimit({ limit: 10 }), (request
     if (session.userId === user.id) sessions.delete(sessionToken);
   }
   store.sessions = store.sessions.filter(session => session.userId !== user.id);
+  disconnectRealtimeRoom(`user:${user.id}`);
   writeStore();
   return response.json({ ok: true });
 });
@@ -2570,9 +2645,9 @@ function isPendingRouteStop(stop, riderId) {
 
 function emitRouteUpdated(riderId, stops, updatedAt) {
   for (const businessId of new Set(stops.map(stop => stop.ownerAdminId).filter(Boolean))) {
-    io.to(`business:${businessId}`).emit('dispatch:route-updated', { riderId, updatedAt });
+    notifyRealtimeRoom(`business:${businessId}`, 'dispatch:route-updated', { riderId, updatedAt });
   }
-  io.to(`user:${riderId}`).emit('dispatch:route-updated', { riderId, updatedAt });
+  notifyRealtimeRoom(`user:${riderId}`, 'dispatch:route-updated', { riderId, updatedAt });
 }
 
 function markRouteSequenceUnavailable(riderId, reason) {
@@ -3453,7 +3528,7 @@ app.post('/api/super-admin/drivers/:id/messages', requireUser, requireSuperAdmin
     `, [crypto.randomUUID(), driver.id, request.user.id, clientMessageId, body]);
     const message = rows[0];
     if (!message) return response.status(409).json({ error: 'This message has already been sent.' });
-    io.to(`user:${driver.id}`).emit('dispatch:driver-message', message);
+    notifyRealtimeRoom(`user:${driver.id}`, 'dispatch:driver-message', message);
     return response.status(201).json({ message });
   } catch (error) {
     console.error('Could not send a Super Admin rider message:', error);
@@ -3503,7 +3578,7 @@ app.post('/api/driver/super-admin/messages', requireUser, rateLimit({ limit: 60 
     `, [crypto.randomUUID(), request.user.id, request.user.id, clientMessageId, body]);
     const message = rows[0];
     if (!message) return response.status(409).json({ error: 'This message has already been sent.' });
-    io.to(`user:${owner.id}`).emit('dispatch:driver-message', message);
+    notifyRealtimeRoom(`user:${owner.id}`, 'dispatch:driver-message', message);
     return response.status(201).json({ message });
   } catch (error) {
     console.error('Could not send a rider message to Super Admin:', error);
@@ -3685,7 +3760,7 @@ app.post('/api/dispatch/deliveries/:id/messages', requireUser, rateLimit({ limit
     ]);
     await databaseRequestClient.query('RELEASE SAVEPOINT dispatch_message_send');
     messageSavepoint = false;
-    io.to(`user:${recipientId}`).emit('dispatch:message', message);
+    notifyRealtimeRoom(`user:${recipientId}`, 'dispatch:message', message);
     return response.status(201).json({ message });
   } catch (error) {
     if (messageSavepoint) {
@@ -3844,16 +3919,16 @@ async function sendMissedCallNotification(call, client = databasePool) {
     call.delivery_id,
     JSON.stringify({ callId: call.call_id, supportThreadId: call.support_thread_id })
   ]);
-  io.to(`user:${recipientId}`).emit('dispatch:call:missed', {
+  notifyRealtimeRoom(`user:${recipientId}`, 'dispatch:call:missed', {
     callId: call.call_id,
     supportThreadId: call.support_thread_id,
     deliveryId: call.delivery_id
-  });
-  io.to(`user:${call.recipient_id}`).emit('dispatch:call:missed', {
+  }, client);
+  notifyRealtimeRoom(`user:${call.recipient_id}`, 'dispatch:call:missed', {
     callId: call.call_id,
     supportThreadId: call.support_thread_id,
     deliveryId: call.delivery_id
-  });
+  }, client);
 }
 
 app.get('/api/dispatch/calls', requireUser, rateLimit({ limit: 120 }), async (request, response) => {
@@ -3982,7 +4057,7 @@ app.post('/api/dispatch/calls', requireUser, rateLimit({ limit: 20 }), async (re
     await databaseRequestClient.query('RELEASE SAVEPOINT dispatch_call_start');
     callSavepoint = false;
     const caller = store.users.find(item => item.id === request.user.id);
-    io.to(`user:${context.recipientId}`).emit('dispatch:call:incoming', {
+    notifyRealtimeRoom(`user:${context.recipientId}`, 'dispatch:call:incoming', {
       ...call,
       callerName: caller?.name || 'Tobs Circuit user'
     });
@@ -4078,7 +4153,7 @@ app.post('/api/dispatch/calls/:id/:action', requireUser, rateLimit({ limit: 60 }
       : action === 'reject'
         ? 'dispatch:call:rejected'
         : 'dispatch:call:ended';
-    io.to(`user:${otherParty}`).emit(eventName, { call });
+    notifyRealtimeRoom(`user:${otherParty}`, eventName, { call });
     return response.json({ call, ...(iceServers ? { iceServers } : {}) });
   } catch (error) {
     if (actionSavepoint) {
@@ -4880,7 +4955,7 @@ app.patch('/api/users/me/location', requireUser, async (request, response) => {
   if (activeDelivery) {
     response.once('finish', () => {
       if (response.statusCode < 400) {
-        io.to(`business:${activeDelivery.ownerAdminId}`).emit('driver:location', {
+        notifyRealtimeRoom(`business:${activeDelivery.ownerAdminId}`, 'driver:location', {
           ...locationEvent,
           businessId: activeDelivery.ownerAdminId
         });
@@ -5203,7 +5278,7 @@ app.post('/api/invitations', requireUser, requireAdmin, rateLimit({ limit: 10 })
   let emailWarning = '';
   if (email) {
     if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD || !process.env.SMTP_FROM) {
-      emailWarning = 'Email is not configured. Add the SMTP settings in Render; you can copy and share the application link meanwhile.';
+      emailWarning = 'Email is not configured. Add the SMTP settings in Vercel; you can copy and share the application link meanwhile.';
     } else {
       try {
         const transporter = createTransport();
@@ -5241,6 +5316,7 @@ app.use((request, response, next) => {
 });
 
 export default app;
+export { httpServer };
 
 if (!process.env.VERCEL) {
   httpServer.listen(port, '0.0.0.0', () => {

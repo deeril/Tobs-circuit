@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { io as createSocketClient } from 'socket.io-client';
 import { Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL
-  || API_BASE_URL
-  || (import.meta.env.DEV ? window.location.origin : '');
+import { createRealtimeSocket } from './realtime-socket.js';
 
 function callStatusLabel(status) {
   return String(status || '').toLowerCase().replaceAll('_', ' ');
@@ -160,10 +155,7 @@ export default function DispatchCallControls({
     };
     refreshCalls();
     const refreshTimer = window.setInterval(refreshCalls, 12_000);
-    const socket = createSocketClient(SOCKET_BASE_URL, {
-      withCredentials: true,
-      reconnection: true
-    });
+    const socket = createRealtimeSocket();
     socketRef.current = socket;
     socket.on('dispatch:call:incoming', call => {
       const matches = deliveryId

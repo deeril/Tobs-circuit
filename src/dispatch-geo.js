@@ -21,6 +21,113 @@ export function isWithinSearchCells(cells, lat, lng) {
   return cells.has(latLngToCell(lat, lng, RIDER_H3_RESOLUTION));
 }
 
+export function orderStopsByPickupAndDelivery(stops, startPoint, distanceBetween) {
+  if (!Array.isArray(stops) || !Number.isFinite(startPoint?.lat)
+    || !Number.isFinite(startPoint?.lng) || typeof distanceBetween !== 'function') {
+    return Array.isArray(stops) ? [...stops] : [];
+  }
+
+  const remaining = [...stops];
+  const orderedStops = [];
+  let currentPoint = startPoint;
+
+  while (remaining.length > 0) {
+    let closestIndex = -1;
+    let closestLegDistance = Infinity;
+    for (let index = 0; index < remaining.length; index += 1) {
+      const stop = remaining[index];
+      const hasPickup = Number.isFinite(stop.pickupLat) && Number.isFinite(stop.pickupLng);
+      const hasDestination = Number.isFinite(stop.lat) && Number.isFinite(stop.lng);
+      const pickup = hasPickup
+        ? { lat: stop.pickupLat, lng: stop.pickupLng }
+        : hasDestination ? { lat: stop.lat, lng: stop.lng } : null;
+      if (!pickup) continue;
+
+      const toPickupDistance = distanceBetween(
+        currentPoint.lat, currentPoint.lng, pickup.lat, pickup.lng
+      );
+      const toDestinationDistance = hasPickup && hasDestination
+        ? distanceBetween(pickup.lat, pickup.lng, stop.lat, stop.lng)
+        : 0;
+      const legDistance = toPickupDistance + toDestinationDistance;
+      if (Number.isFinite(legDistance) && legDistance < closestLegDistance) {
+        closestIndex = index;
+        closestLegDistance = legDistance;
+      }
+    }
+
+    if (closestIndex < 0) {
+      orderedStops.push(...remaining);
+      break;
+    }
+
+    const [stop] = remaining.splice(closestIndex, 1);
+    orderedStops.push(stop);
+    currentPoint = Number.isFinite(stop.lat) && Number.isFinite(stop.lng)
+      ? { lat: stop.lat, lng: stop.lng }
+      : Number.isFinite(stop.pickupLat) && Number.isFinite(stop.pickupLng)
+        ? { lat: stop.pickupLat, lng: stop.pickupLng }
+        : currentPoint;
+  }
+
+  return orderedStops;
+}
+
+const TERMINAL_DELIVERY_STATUSES = new Set([
+  'DELIVERED', 'FAILED', 'UNDELIVERED', 'DELIVERY_FAILED', 'CANCELLED'
+]);
+const DELIVERY_BOUND_STATUSES = new Set([
+  'HEADING_TO_DESTINATION', 'ARRIVED_AT_DESTINATION'
+]);
+
+export function buildRiderRoutePlan(stops, riderId) {
+  if (!Array.isArray(stops) || !riderId) {
+    return { stops: [], remainingStops: [], waypoints: [] };
+  }
+
+  const riderStops = stops.filter(stop => stop.assignedDriverId === riderId);
+  const numberedStops = riderStops.map((stop, index) => {
+    const statuses = [stop.dispatchStatus, stop.status]
+      .map(status => String(status || '').toUpperCase());
+    return {
+      ...stop,
+      routeNumber: index + 1,
+      routeCompleted: statuses.includes('DELIVERED'),
+      routeTerminal: statuses.some(status => TERMINAL_DELIVERY_STATUSES.has(status))
+    };
+  });
+  const remainingStops = numberedStops.filter(stop => !stop.routeTerminal);
+  const waypoints = [];
+
+  for (const stop of remainingStops) {
+    const statuses = [stop.dispatchStatus, stop.status]
+      .map(status => String(status || '').toUpperCase());
+    if (Number.isFinite(stop.pickupLat) && Number.isFinite(stop.pickupLng)
+      && !statuses.some(status => DELIVERY_BOUND_STATUSES.has(status))) {
+      waypoints.push({
+        stopId: stop.id,
+        routeNumber: stop.routeNumber,
+        kind: 'pickup',
+        label: `Pickup ${stop.routeNumber}`,
+        address: stop.pickupAddress || stop.name || 'Pickup',
+        point: { lat: stop.pickupLat, lng: stop.pickupLng }
+      });
+    }
+    if (Number.isFinite(stop.lat) && Number.isFinite(stop.lng)) {
+      waypoints.push({
+        stopId: stop.id,
+        routeNumber: stop.routeNumber,
+        kind: 'delivery',
+        label: `Delivery ${stop.routeNumber}`,
+        address: stop.address || stop.name || 'Delivery',
+        point: { lat: stop.lat, lng: stop.lng }
+      });
+    }
+  }
+
+  return { stops: numberedStops, remainingStops, waypoints };
+}
+
 export function distanceToRouteKm(location, geometry) {
   if (!Number.isFinite(location?.lat) || !Number.isFinite(location?.lng)
     || geometry?.type !== 'LineString' || !Array.isArray(geometry.coordinates)

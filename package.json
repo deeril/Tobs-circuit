@@ -5,11 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"node server.js\" \"vite --host 0.0.0.0\"",
-    "start": "npm run migrate:dispatch && node server.js",
-    "migrate:dispatch": "node scripts/migrate-dispatch.js",
+    "start": "node server.js",
     "build": "vite build",
     "lint": "oxlint",
-    "test": "node --test tests/dispatch.integration.test.js tests/dispatch-route-sequencing.test.js tests/stage2b-services.test.js tests/maplibre-markers.test.js tests/server-routes.test.js tests/migrate-dispatch.test.js",
+    "test": "node --test tests/dispatch.integration.test.js tests/stage2b-services.test.js tests/maplibre-markers.test.js tests/dispatch-route.test.js tests/server-routes.test.js",
     "test:pg": "node scripts/run-dispatch-postgres-tests.js",
     "cleanup:dispatch-gps": "node scripts/cleanup-dispatch-gps.js",
     "preview": "vite preview"

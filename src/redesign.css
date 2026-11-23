@@ -737,28 +737,27 @@ textarea {
   }
 
   #root .app-shell.is-route-planner > .admin-dashboard-sidebar {
-    position: absolute !important;
-    inset: 12px auto 12px 12px !important;
+    position: relative !important;
+    inset: auto !important;
     z-index: 20;
-    width: 368px !important;
-    max-width: 368px !important;
-    height: auto;
+    width: clamp(360px, 34vw, 480px) !important;
+    max-width: 480px !important;
+    height: 100%;
     max-height: none !important;
     margin: 0;
-    flex: 0 0 368px !important;
+    flex: 0 0 clamp(360px, 34vw, 480px) !important;
     border: 1px solid var(--tc-line) !important;
-    border-radius: 20px;
+    border-radius: 0;
   }
 
   #root .app-shell.is-route-planner > .admin-map-panel {
-    position: absolute;
-    inset: 0;
+    position: relative;
     z-index: 1;
-    width: 100%;
-    height: 58dvh;
+    width: auto;
+    height: 100%;
     min-height: 0;
     margin: 0;
-    flex: 0 0 100%;
+    flex: 1 1 0;
     border: 0;
     border-radius: 0;
     box-shadow: none;
@@ -795,27 +794,26 @@ textarea {
   }
 
   #root .app-shell.is-route-planner > .admin-dashboard-sidebar {
-    position: absolute !important;
-    inset: 12px auto 12px 12px !important;
+    position: relative !important;
+    inset: auto !important;
     z-index: 20;
-    width: 368px !important;
-    max-width: 368px !important;
-    height: auto;
+    width: clamp(360px, 34vw, 480px) !important;
+    max-width: 480px !important;
+    height: 100%;
     max-height: none !important;
     margin: 0;
-    flex: 0 0 368px !important;
-    border-radius: 20px;
+    flex: 0 0 clamp(360px, 34vw, 480px) !important;
+    border-radius: 0;
   }
 
   #root .app-shell.is-route-planner > .admin-map-panel {
-    position: absolute;
-    inset: 0;
+    position: relative;
     z-index: 1;
-    width: 100%;
+    width: auto;
     height: 100%;
     min-height: 0;
     margin: 0;
-    flex: 0 0 100%;
+    flex: 1 1 0;
     border: 0;
     border-radius: 0;
     box-shadow: none;

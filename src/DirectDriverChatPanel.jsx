@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { io as createSocketClient } from 'socket.io-client';
 import { Send } from 'lucide-react';
 import DispatchCallControls from './DispatchCallControls.jsx';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const SOCKET_BASE_URL = import.meta.env.VITE_SOCKET_URL
-  || API_BASE_URL
-  || (import.meta.env.DEV ? window.location.origin : '');
+import { createRealtimeSocket } from './realtime-socket.js';
 
 export default function DirectDriverChatPanel({
   driverId,
@@ -40,11 +35,7 @@ export default function DirectDriverChatPanel({
     };
     refresh();
     const timerId = window.setInterval(refresh, 4_000);
-    const socket = createSocketClient(SOCKET_BASE_URL, {
-      withCredentials: true,
-      transports: ['websocket'],
-      reconnection: true
-    });
+    const socket = createRealtimeSocket();
     const refreshForMessage = message => {
       if (message?.driver_id === driverId) refresh();
     };
