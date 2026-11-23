@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import brandLogo from './assets/tobs-circuit-logo-purple.png';
+import brandLogo from './assets/droplag-logo.png';
+import IntroScreen from './IntroScreen.jsx';
 import AdminDashboard from './AdminDashboard.jsx';
 import { ADMIN_NAV_ITEMS } from './adminNavigation.js';
 import SuperAdminDashboard from './SuperAdminDashboard.jsx';
@@ -322,7 +323,7 @@ const PREVIEW_ADMIN = {
   name: 'Demo Dispatcher',
   email: 'dispatcher@example.test',
   role: 'ADMIN',
-  orgName: 'Tobs Circuit Local Walkthrough',
+  orgName: 'DropLag Local Walkthrough',
   status: 'ACTIVE'
 };
 const PREVIEW_DRIVERS = [
@@ -667,11 +668,6 @@ function RoutePlannerApp() {
   const [logoUploadError, setLogoUploadError] = useState('');
 
   useEffect(() => {
-    const splashTimeout = window.setTimeout(() => setShowBrandSplash(false), 5000);
-    return () => window.clearTimeout(splashTimeout);
-  }, []);
-
-  useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.STOPS, JSON.stringify(stops));
   }, [stops]);
 
@@ -990,7 +986,7 @@ const [authError, setAuthError] = useState('');
         if (cancelled) return;
         setRegisterForm(prev => ({ ...prev, inviteToken: invitationToken, email, orgName }));
         setAuthError('');
-        document.title = `Apply to drive with ${orgName} | Tobs Route Circuit`;
+        document.title = `Apply to drive with ${orgName} | DropLag`;
       })
       .catch(error => {
         if (!cancelled) setAuthError(error.message);
@@ -3331,26 +3327,22 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   // =========================================================================
   // RENDER SCREEN 1: AUTHENTICATION & LOGIN / REGISTRATION
   // =========================================================================
-  const brandSplash = showBrandSplash && (
-    <main className="brand-splash" aria-hidden="true">
-      <div className="brand-splash-art">
-        <img className="brand-splash-logo" src={BRAND_LOGO_URL} alt="" />
-        <svg className="brand-map-route" viewBox="0 0 300 64">
-          <path
-            id="brand-map-path"
-            className="brand-map-path"
-            d="M8 48 C55 48 53 15 105 15 S151 51 196 40 S244 15 292 15"
-          />
-          <g className="brand-map-arrow">
-            <path d="M-7 -5 L8 0 L-7 5 L-3 0 Z" />
-            <animateMotion dur="2.8s" repeatCount="indefinite" rotate="auto">
-              <mpath href="#brand-map-path" />
-            </animateMotion>
-          </g>
-        </svg>
-      </div>
-    </main>
-  );
+  const brandSplash = showBrandSplash && !currentUser ? (
+    <IntroScreen
+      onGetStarted={() => {
+        setAuthTab(invitationToken ? 'REGISTER' : 'REGISTER');
+        setShowPasswordHelp(false);
+        setAuthError('');
+        setShowBrandSplash(false);
+      }}
+      onLogin={() => {
+        setAuthTab('LOGIN');
+        setShowPasswordHelp(false);
+        setAuthError('');
+        setShowBrandSplash(false);
+      }}
+    />
+  ) : null;
 
   if (!currentUser) {
     return (
@@ -3364,13 +3356,13 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             <div className="mx-auto mb-1 flex h-24 w-48 items-center justify-center">
               <img
                 src={orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()] || BRAND_LOGO_URL}
-                alt="Tobs Route Circuit"
+                alt="DropLag"
                 className={`max-h-full max-w-full object-contain ${
                   orgLogoStore.byEmail[loginForm.email.trim().toLowerCase()] ? '' : 'brand-logo-image'
                 }`}
               />
             </div>
-            <h1 className="text-2xl font-black tracking-tight text-white">Lagos Circuit Route Planner</h1>
+            <h1 className="text-2xl font-black tracking-tight text-white">DropLag Logistics</h1>
             <p className="text-xs text-slate-400 font-medium">Enterprise Driver Dispatch & Real-Time Logistics Platform</p>
           </div>
 
@@ -3597,7 +3589,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     disabled={!credentialsReady}
                     className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 text-slate-950 font-black text-sm rounded-xl transition-all shadow-lg shadow-emerald-500/20"
                   >
-                    Log In to Circuit Platform
+                    Log In to DropLag
                   </button>
 
                   <button
@@ -4045,7 +4037,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 />
                 <div className="truncate">
                   <h1 className="font-black text-sm tracking-tight text-emerald-400 truncate">
-                    Tobs Circuit
+                    DropLag
                   </h1>
                   <p className="text-[10px] font-bold text-slate-400 flex items-center space-x-1">
                     <User className="w-3 h-3 text-blue-400" />

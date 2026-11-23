@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import brandLogo from './assets/tobs-circuit-logo-purple.png';
+import brandLogo from './assets/droplag-logo.png';
 import {
   Activity,
   ArrowDownRight,
@@ -107,7 +107,7 @@ function BusinessListPreview({ filter, onFilterChange, search, onSearchChange })
       <div className="platform-card-heading">
         <div>
           <h2>Businesses</h2>
-          <p>Business workspaces on the Tobs Circuit platform</p>
+          <p>Business workspaces on the DropLag platform</p>
         </div>
         <button className="platform-outline-button" type="button" disabled title="Business management is not connected">
           Business management <ArrowRight size={14} />
@@ -225,7 +225,7 @@ export default function SuperAdminPreview() {
       <aside className={`platform-sidebar ${collapsed ? 'is-collapsed' : ''} ${mobileMenuOpen ? 'is-open' : ''}`}>
         <div className="platform-brand">
           <img src={brandLogo} alt="" />
-          {!collapsed && <div><strong>Tobs Circuit</strong><span>Platform administration</span></div>}
+          {!collapsed && <div><strong>DropLag</strong><span>Platform administration</span></div>}
           <button className="platform-collapse-button" type="button" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
             <Menu size={17} />
           </button>
@@ -321,7 +321,7 @@ export default function SuperAdminPreview() {
           <div className="platform-content"><PagePlaceholder page={activePage} /></div>
         )}
 
-        <footer className="platform-footer"><span>TOBS CIRCUIT PLATFORM</span><span><Shield size={12} /> No tenant data is loaded in this preview</span></footer>
+        <footer className="platform-footer"><span>DROPLAG PLATFORM</span><span><Shield size={12} /> No tenant data is loaded in this preview</span></footer>
       </main>
     </div>
   );

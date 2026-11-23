@@ -98,7 +98,7 @@ export default function MobileDispatchRouteUi({
           aria-label="Open account menu"
           onClick={onToggleProfileMenu}
         >
-          {String(currentUser.name || 'Tobs').split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
+          {String(currentUser.name || 'DropLag').split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}
         </button>
       </header>
 
@@ -284,7 +284,7 @@ export default function MobileDispatchRouteUi({
           <nav className="mobile-dispatch-menu" aria-label="Admin navigation">
             <div className="mobile-dispatch-menu-heading">
               <div>
-                <strong>Tobs Circuit</strong>
+                <strong>DropLag</strong>
                 <small>{currentUser.name} · {currentUser.orgName || 'Fleet'}</small>
               </div>
               <button type="button" aria-label="Close navigation" onClick={onCloseMenu}>

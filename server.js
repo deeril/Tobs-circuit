@@ -1365,7 +1365,7 @@ app.post('/api/auth/login', rateLimit({ limit: 12 }), (request, response) => {
   if (user.role === 'DRIVER' && user.status !== 'ACTIVE') {
     return response.status(403).json({
       error: user.status === 'REJECTED'
-        ? 'This driver application was not approved. Contact Tobs Circuit support for help.'
+        ? 'This driver application was not approved. Contact DropLag support for help.'
         : 'Your driver application is awaiting approval and verification.'
     });
   }
@@ -1413,7 +1413,7 @@ app.post('/api/super-admin/login/request-code', rateLimit({ limit: 5 }), async (
     await transporter.sendMail({
       from: process.env.SMTP_FROM,
       to: superAdminEmail,
-      subject: 'Your Tobs Circuit Super Admin sign-in code',
+      subject: 'Your DropLag Super Admin sign-in code',
       text: `Your one-time Super Admin sign-in code is ${code}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
       html: `<p>Your one-time Super Admin sign-in code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>It expires in 10 minutes. If you did not request this code, you can ignore this email.</p>`
     });
@@ -1793,7 +1793,7 @@ app.post('/api/auth/password-reset', rateLimit({ limit: 5 }), async (request, re
       await transporter.sendMail({
         from: process.env.SMTP_FROM,
         to: user.email,
-        subject: 'Your Tobs Route Circuit password reset code',
+        subject: 'Your DropLag password reset code',
         text: `Your password reset code is ${code}. Enter this one-time code in the password recovery form within 15 minutes. If you did not request a password reset, you can ignore this email.`,
         html: `<p>Your password reset code is:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${code}</p><p>Enter this one-time code in the password recovery form within 15 minutes.</p><p>If you did not request a password reset, you can ignore this email.</p>`
       });
@@ -1871,7 +1871,7 @@ app.post('/api/auth/register-driver', rateLimit({ limit: 10 }), (request, respon
     email,
     ...passwordHash(password),
     role: 'DRIVER',
-    orgName: invite?.orgName || 'Tobs Circuit Driver Network',
+    orgName: invite?.orgName || 'DropLag Driver Network',
     ...(invite?.ownerAdminId ? { ownerAdminId: invite.ownerAdminId } : {}),
     status: 'ACTIVE',
     verificationStatus: 'PROFILE_INCOMPLETE',
@@ -2563,7 +2563,7 @@ app.get('/api/marketplace/drivers', requireUser, requireAdmin, rateLimit({ limit
       && Number(driver.distance_km) <= 5)
     .map(driver => ({
       id: driver.rider_id,
-      name: driver.name || 'Tobs Circuit driver',
+      name: driver.name || 'DropLag driver',
       vehicle: driver.vehicle || driver.vehicle_type || '',
       vehicleType: driver.vehicle_type || '',
       zone: driver.zone || '',
@@ -4230,7 +4230,7 @@ app.post('/api/dispatch/calls', requireUser, rateLimit({ limit: 20 }), async (re
     const caller = store.users.find(item => item.id === request.user.id);
     notifyRealtimeRoom(`user:${context.recipientId}`, 'dispatch:call:incoming', {
       ...call,
-      callerName: caller?.name || 'Tobs Circuit user'
+      callerName: caller?.name || 'DropLag user'
     });
     const missedCallTimer = setTimeout(async () => {
       try {
@@ -5491,6 +5491,6 @@ export { httpServer };
 
 if (!process.env.VERCEL) {
   httpServer.listen(port, '0.0.0.0', () => {
-    console.log(`Tobs Route Circuit server listening on port ${port}.`);
+    console.log(`DropLag server listening on port ${port}.`);
   });
 }

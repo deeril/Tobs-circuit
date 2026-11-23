@@ -55,10 +55,6 @@ textarea {
   line-height: 1.15;
 }
 
-#root .auth-screen .brand-logo-image {
-  filter: brightness(0) saturate(100%) invert(22%) sepia(43%) saturate(2776%)
-    hue-rotate(285deg) brightness(91%) contrast(89%);
-}
 
 #root .auth-screen input,
 #root .auth-screen select,

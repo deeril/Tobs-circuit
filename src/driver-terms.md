@@ -1,15 +1,15 @@
-# TOBS CIRCUIT
+# DROPLAG
 
 ## DRIVER & RIDER TERMS AND CONDITIONS AGREEMENT
 **Effective Date:** [Insert Date]
 **Company:** [Insert Registered Company Name]
-**Business Name:** Tobs Circuit
+**Business Name:** DropLag
 **Jurisdiction:** Federal Republic of Nigeria
 
 ### 1. INTRODUCTION AND ACCEPTANCE
-These Driver and Rider Terms and Conditions ("Agreement") govern the relationship between Tobs Circuit ("the Company", "we", "us" or "our") and every driver, rider, delivery partner or independent delivery service provider ("the Driver").
+These Driver and Rider Terms and Conditions ("Agreement") govern the relationship between DropLag ("the Company", "we", "us" or "our") and every driver, rider, delivery partner or independent delivery service provider ("the Driver").
 
-By registering on the Tobs Circuit platform, accepting a delivery assignment, accessing the Driver Dashboard or using any Company service, the Driver confirms that they have read, understood and agreed to comply with this Agreement.
+By registering on the DropLag platform, accepting a delivery assignment, accessing the Driver Dashboard or using any Company service, the Driver confirms that they have read, understood and agreed to comply with this Agreement.
 
 If the Driver does not agree to these terms, they must not register, access the platform or accept delivery assignments.
 
@@ -124,14 +124,14 @@ In the event of an accident, the Driver must:
 
 1. Stop and take reasonable steps to protect life and prevent further injury.
 2. Contact emergency services where necessary.
-3. Notify Tobs Circuit immediately.
+3. Notify DropLag immediately.
 4. Report the incident to the relevant authorities where required.
 5. Provide accurate information and cooperate with any investigation.
 6. Submit relevant photographs, reports and insurance information where available.
 The Driver must not admit legal liability on behalf of the Company or make unauthorised promises of compensation.
 
 ### 9. CUSTOMER INFORMATION AND DATA PROTECTION
-All customer information accessed through Tobs Circuit is confidential.
+All customer information accessed through DropLag is confidential.
 
 The Driver must:
 
@@ -146,7 +146,7 @@ These obligations are subject to the Nigeria Data Protection Act 2023 and other 
 The confidentiality and data protection obligations continue after the Driver's engagement ends.
 
 ### 10. COMPANY CONFIDENTIALITY AND BUSINESS INFORMATION
-In addition to customer information, you must protect all confidential business information belonging to Tobs Circuit.
+In addition to customer information, you must protect all confidential business information belonging to DropLag.
 
 This includes:
 
@@ -162,15 +162,15 @@ You must not disclose, reproduce, sell, distribute, transfer or use such informa
 
 You must not share confidential Company information with competitors, third parties or individuals who are not authorised to receive it.
 
-You must not use information obtained through your engagement with Tobs Circuit to establish, support or promote competing business activities without the Company's written authorisation, to the extent permitted by applicable law.
+You must not use information obtained through your engagement with DropLag to establish, support or promote competing business activities without the Company's written authorisation, to the extent permitted by applicable law.
 
 Company property, including uniforms, identity cards, delivery bags, equipment, documents and devices, must be returned upon request or termination of engagement.
 
-The Driver must not use Tobs Circuit's name, logo or branding to represent themselves as an authorised Company representative after their authorisation has ended.
+The Driver must not use DropLag's name, logo or branding to represent themselves as an authorised Company representative after their authorisation has ended.
 
 **Legal Consequences of Breach**
 
-Any unauthorised disclosure, copying, distribution, misuse or exploitation of Tobs Circuit's confidential business information may constitute a material breach of this Agreement.
+Any unauthorised disclosure, copying, distribution, misuse or exploitation of DropLag's confidential business information may constitute a material breach of this Agreement.
 
 Depending on the nature and severity of the breach, the Company reserves the right to:
 
@@ -180,7 +180,7 @@ Depending on the nature and severity of the breach, the Company reserves the rig
 4. Seek appropriate compensation for proven losses directly resulting from the breach, subject to applicable law.
 5. Pursue civil or other appropriate legal remedies where justified.
 6. Report suspected criminal conduct to the relevant authorities where appropriate.
-These obligations continue during and after the Driver's engagement with Tobs Circuit ends.
+These obligations continue during and after the Driver's engagement with DropLag ends.
 
 ### 11. VEHICLE AND EQUIPMENT REQUIREMENTS
 The Driver is responsible for ensuring that their assigned vehicle is safe, maintained and legally authorised for use.
@@ -287,11 +287,11 @@ Where a separate signed agreement conflicts with this document, the parties shal
 I confirm that:
 
 1. The information and documents I provided during registration are accurate and genuine.
-2. I have read and understood the Tobs Circuit Driver/Rider Terms and Conditions.
+2. I have read and understood the DropLag Driver/Rider Terms and Conditions.
 3. I agree to comply with the Company's delivery, safety, security and operational requirements.
 4. I understand that theft, fraud, parcel tampering, unauthorised collection of money and misuse of customer information may result in suspension, termination and possible legal action.
 5. I understand my responsibilities regarding customer property, road safety, customer data protection and Company confidentiality.
-6. I agree not to disclose or misuse confidential business information belonging to Tobs Circuit during or after my engagement.
+6. I agree not to disclose or misuse confidential business information belonging to DropLag during or after my engagement.
 7. I agree to comply with applicable Nigerian laws and regulations.
 **Driver's Full Legal Name:** __________________________
 
@@ -313,7 +313,7 @@ I confirm that:
 
 ---
 
-### FOR TOBS CIRCUIT
+### FOR DROPLAG
 **Authorised Representative:** ______________________
 
 **Position:** ______________________________________

@@ -143,7 +143,7 @@ export default function DispatchCallControls({
           call.status === 'RINGING' && call.recipient_id === currentUserId
         );
         const nextIncoming = ringing
-          ? { ...ringing, callerName: 'Tobs Circuit user' }
+          ? { ...ringing, callerName: 'DropLag user' }
           : null;
         incomingCallRef.current = nextIncoming;
         setIncomingCall(previous => previous?.call_id === ringing?.call_id
@@ -387,7 +387,7 @@ export default function DispatchCallControls({
       </div>
       {incomingCall && !activeCall && (
         <div role="alert" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-violet-50 p-2">
-          <span className="text-[10px] font-bold text-violet-950">Incoming call from {incomingCall.callerName || 'Tobs Circuit user'}</span>
+          <span className="text-[10px] font-bold text-violet-950">Incoming call from {incomingCall.callerName || 'DropLag user'}</span>
           <span className="flex gap-1.5">
             <button type="button" onClick={acceptCall} className="rounded-md bg-emerald-700 px-2.5 py-1.5 text-[10px] font-bold text-white">Accept</button>
             <button type="button" onClick={rejectCall} className="rounded-md bg-rose-700 px-2.5 py-1.5 text-[10px] font-bold text-white">Reject</button>

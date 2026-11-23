@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import brandLogo from './assets/tobs-circuit-logo-purple.png';
+import brandLogo from './assets/droplag-logo.png';
 import DispatchCallControls from './DispatchCallControls.jsx';
 import {
   Activity,
@@ -262,7 +262,7 @@ function AccessMessage({ title, message, action, onAction }) {
         <h1>{title}</h1>
         <p role="status">{message}</p>
         {action && <button type="button" onClick={onAction}>{action}</button>}
-        <a href={window.location.pathname}>Return to Tobs Circuit</a>
+        <a href={window.location.pathname}>Return to DropLag</a>
       </section>
     </main>
   );
@@ -586,7 +586,7 @@ export default function SuperAdminDashboard() {
       <aside className={`sa-sidebar ${collapsed ? 'is-collapsed' : ''} ${mobileMenuOpen ? 'is-open' : ''}`}>
         <div className="sa-brand">
           <img src={brandLogo} alt="" />
-          {!collapsed && <span><strong>Tobs Circuit</strong><small>Platform administration</small></span>}
+          {!collapsed && <span><strong>DropLag</strong><small>Platform administration</small></span>}
           <button type="button" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? 'Expand menu' : 'Collapse menu'}><Menu size={17} /></button>
         </div>
         {!collapsed && <p className="sa-nav-label">PLATFORM</p>}
@@ -634,7 +634,7 @@ export default function SuperAdminDashboard() {
 
           {activePage === 'DASHBOARD' && (
             <>
-              <div className="sa-intro"><div><h2>Platform overview</h2><p>A live view of business accounts, drivers, and deliveries stored in Tobs Circuit.</p></div><span className="sa-readonly">Read only</span></div>
+              <div className="sa-intro"><div><h2>Platform overview</h2><p>A live view of business accounts, drivers, and deliveries stored in DropLag.</p></div><span className="sa-readonly">Read only</span></div>
               <section className="sa-metrics">
                 <Metric icon={Building2} label="Business accounts" value={overview.businesses.length} tone="blue" />
                 <Metric icon={Users} label="Drivers" value={overview.drivers.length} tone="violet" />
@@ -886,7 +886,7 @@ export default function SuperAdminDashboard() {
         </div>
 
         <footer className="sa-footer">
-          <span>TOBS CIRCUIT · PRIVATE OWNER DASHBOARD</span>
+          <span>DROPLAG · PRIVATE OWNER DASHBOARD</span>
           <span><Shield size={13} /> Signed in as {user?.email}</span>
         </footer>
       </main>

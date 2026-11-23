@@ -510,7 +510,7 @@ export default function AdminDashboard({
           </button>
           <div className="admin-breadcrumb"><span>Workspace</span><span>/</span><strong>{title}</strong></div>
           <h1>{overview ? `Welcome back, ${currentUser.name?.split(' ')[0] || 'Admin'}` : title}</h1>
-          <p>{overview ? 'Here is what is happening across your fleet today.' : 'Manage and monitor your Tobs Circuit operations.'}</p>
+          <p>{overview ? 'Here is what is happening across your fleet today.' : 'Manage and monitor your DropLag operations.'}</p>
         </div>
         <div className="admin-topbar-actions">
           <label className="admin-global-search">
