@@ -2555,7 +2555,7 @@ app.get('/api/marketplace/drivers', requireUser, requireAdmin, rateLimit({ limit
   return response.json({ drivers: safeDrivers });
 });
 
-app.get('/api/geocode/search', requireUser, rateLimit({ limit: 30 }), async (request, response) => {
+app.get('/api/geocode/search', rateLimit({ limit: 30 }), async (request, response) => {
   const { q } = request.query;
   const lat = request.query.lat === undefined ? undefined : Number(request.query.lat);
   const lng = request.query.lon === undefined ? undefined : Number(request.query.lon);
@@ -2580,7 +2580,7 @@ app.get('/api/geocode/search', requireUser, rateLimit({ limit: 30 }), async (req
   }
 });
 
-app.get('/api/geocode/reverse', requireUser, rateLimit({ limit: 20 }), async (request, response) => {
+app.get('/api/geocode/reverse', rateLimit({ limit: 20 }), async (request, response) => {
   const lat = Number(request.query.lat);
   const lng = Number(request.query.lon);
   if (!validCoordinates(lat, lng)) {

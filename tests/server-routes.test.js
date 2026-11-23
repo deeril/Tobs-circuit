@@ -31,6 +31,15 @@ describe('server route registration', () => {
     assert.ok(routes.includes('GET /api/marketplace/drivers'));
   });
 
+  it('does not attach signed-in middleware to address lookups', () => {
+    const stack = app.router?.stack || [];
+    for (const path of ['/api/geocode/search', '/api/geocode/reverse']) {
+      const route = stack.find(layer => layer.route?.path === path)?.route;
+      assert.ok(route, `${path} should be registered`);
+      assert.ok(!route.stack.some(layer => layer.handle.name === 'requireUser'));
+    }
+  });
+
   it('keeps remembered sign-ins active longer than regular sessions', () => {
     assert.equal(getSessionLifetimeMs(false), 12 * 60 * 60 * 1000);
     assert.equal(getSessionLifetimeMs(true), 30 * 24 * 60 * 60 * 1000);

@@ -2319,7 +2319,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       routeOriginWatchIdRef.current = null;
     }
     setPickupLocationLoading(true);
-    let detectedLocation = null;
     try {
       const position = await new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -2332,16 +2331,9 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         lat: position.coords.latitude,
         lng: position.coords.longitude
       };
-      detectedLocation = location;
-      setNewStopForm(previous => ({
-        ...previous,
-        pickupAddress: 'Finding your current address…',
-        pickupLat: location.lat,
-        pickupLng: location.lng
-      }));
-      setCurrentLocationPoint(location);
       if (isPreviewSession || IS_GITHUB_PAGES_DEMO) {
         const previewAddress = 'Current location (preview)';
+        setCurrentLocationPoint(location);
         setNewStopForm(previous => ({
           ...previous,
           pickupAddress: previewAddress,
@@ -2360,6 +2352,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       const address = getAddressSuggestionLabel(result.features?.[0]);
       if (!address) throw new Error('No readable address was found for your location.');
 
+      setCurrentLocationPoint(location);
       setNewStopForm(previous => ({
         ...previous,
         pickupAddress: address,
@@ -2370,14 +2363,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       setRouteOriginCoordinates(previous => ({ ...previous, [currentUser.id]: location }));
     } catch (error) {
       console.error('Could not set the pickup to the current location:', error);
-      if (detectedLocation) {
-        const fallbackAddress = 'Current location (address unavailable)';
-        setNewStopForm(previous => {
-          return { ...previous, pickupAddress: fallbackAddress };
-        });
-        setRouteOrigins(previous => ({ ...previous, [currentUser.id]: fallbackAddress }));
-        setRouteOriginCoordinates(previous => ({ ...previous, [currentUser.id]: detectedLocation }));
-      }
       setPickupLocationError(
         error.code === 1
           ? 'Location permission was denied. Allow location access or enter the pickup address.'
