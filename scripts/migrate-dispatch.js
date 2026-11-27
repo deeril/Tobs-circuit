@@ -57,6 +57,13 @@ export const migrations = [
     tables: [],
     columns: [],
     verifySchema: false
+  },
+  {
+    id: '20261127_02',
+    file: '20261127_02_allow_zero_package_multi_stop_waypoints.sql',
+    tables: [],
+    columns: [],
+    verifySchema: false
   }
 ];
 

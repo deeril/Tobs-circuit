@@ -2562,10 +2562,6 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       return;
     }
     const totalPackages = Math.max(1, Math.floor(Number(newStopForm.packages) || 1));
-    if (totalPackages < destinations.length) {
-      setDeliveryOfferError('Enter at least one package for each delivery address.');
-      return;
-    }
     const riderEarningsNgn = newStopForm.riderEarningsNgn === ''
       ? null
       : Number(newStopForm.riderEarningsNgn);
@@ -2602,8 +2598,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       requiredVehicleType: newStopForm.requiredVehicleType,
       priority: newStopForm.priority,
       timeWindow: newStopForm.timeWindow,
-      packages: Math.floor(totalPackages / destinations.length)
-        + (index < totalPackages % destinations.length ? 1 : 0),
+      packages: index === 0 ? totalPackages : 0,
       packageDescription: newStopForm.packageDescription.trim(),
       packageWeightKg: index === 0 ? packageWeightKg : null,
       packageSize: newStopForm.packageSize,
@@ -4998,10 +4993,12 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                               <Clock className="w-3 h-3 text-slate-500" />
                               <span>{stop.timeWindow}</span>
                             </span>
-                            <span className="flex items-center space-x-1">
-                              <Package className="w-3 h-3 text-slate-500" />
-                              <span>{stop.packages} pkgs</span>
-                            </span>
+                            {stop.packages > 0 && (
+                              <span className="flex items-center space-x-1">
+                                <Package className="w-3 h-3 text-slate-500" />
+                                <span>{stop.packages} pkgs</span>
+                              </span>
+                            )}
                           </div>
                           {stop.status === 'DELIVERED' && stop.customerName && (
                             <div className="mt-2 flex items-center space-x-2 text-[10px] text-emerald-300">
@@ -5678,7 +5675,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     <p className="text-xs font-extrabold text-slate-900">
                       {DELIVERY_TYPES.find(item => item.vehicleType === newStopForm.requiredVehicleType)?.label || 'Delivery'}
                     </p>
-                    <p className="text-[10px] text-slate-500">{newStopForm.packages} package(s)</p>
+                    <p className="text-[10px] text-slate-500">{newStopForm.packages} package(s) for the trip</p>
                   </div>
                 </div>
                 {deliveryOfferError && (
@@ -6486,7 +6483,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Packages</label>
+                  <label className="block text-slate-400 mb-1 font-semibold">Packages for this trip</label>
                   <input
                     type="number"
                     min="1"

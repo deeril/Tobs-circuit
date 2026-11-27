@@ -101,6 +101,25 @@ test('checks package count and weight against whole-trip totals', () => {
   }, stops), false);
 });
 
+test('counts trip packages once across multiple delivery waypoints', () => {
+  const stops = [
+    { packages: 1, packageWeightKg: 1, packageSize: 'SMALL' },
+    { packages: 0, packageWeightKg: null, packageSize: 'SMALL' },
+    { packages: 0, packageWeightKg: null, packageSize: 'SMALL' }
+  ];
+
+  assert.equal(riderCanCarryDeliveryRoute({
+    maxPackageCount: 1,
+    maxPackageWeightKg: 1,
+    maxPackageSize: 'SMALL'
+  }, stops), true);
+  assert.equal(riderCanCarryDeliveryRoute({
+    maxPackageCount: 0,
+    maxPackageWeightKg: 1,
+    maxPackageSize: 'SMALL'
+  }, stops), false);
+});
+
 test('rejects a route when its largest item exceeds the rider size limit', () => {
   const stops = [
     { packages: 1, packageSize: 'SMALL' },

@@ -968,7 +968,7 @@ async function syncDispatchDelivery(client, stop) {
     stop.address || '',
     validCoordinates(stop.lat, stop.lng) ? stop.lat : null,
     validCoordinates(stop.lat, stop.lng) ? stop.lng : null,
-    Number.isInteger(stop.packages) && stop.packages > 0 ? stop.packages : 1,
+    Number.isInteger(stop.packages) && stop.packages >= 0 ? stop.packages : 1,
     stop.packageDescription || '',
     stop.packageSize || null,
     Number.isFinite(stop.packageWeightKg) && stop.packageWeightKg > 0 ? stop.packageWeightKg : null,

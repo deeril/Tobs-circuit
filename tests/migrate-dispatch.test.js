@@ -45,6 +45,26 @@ test('multi-stop migration is registered for explicit production application', (
   );
 });
 
+test('multi-stop waypoint package migration is registered for explicit production application', () => {
+  assert.deepEqual(
+    migrations.find(migration => migration.id === '20261127_02'),
+    {
+      id: '20261127_02',
+      file: '20261127_02_allow_zero_package_multi_stop_waypoints.sql',
+      tables: [],
+      columns: [],
+      verifySchema: false
+    }
+  );
+});
+
+test('multi-stop waypoint migration allows a route address with no package assigned directly to it', async () => {
+  const migration = migrations.find(item => item.id === '20261127_02');
+  const sql = await readFile(new URL(`../migrations/${migration.file}`, import.meta.url), 'utf8');
+
+  assert.match(extractMigrationBody(sql, migration.id), /CHECK\s*\(package_count\s*>=\s*0\)/);
+});
+
 test('dispatch migrations run only for production deployments', () => {
   assert.equal(shouldRunDispatchMigrations({ NODE_ENV: 'production' }), true);
   assert.equal(shouldRunDispatchMigrations({ VERCEL_ENV: 'production' }), true);
@@ -60,7 +80,8 @@ test('dispatch migration files have supported transaction wrappers', async () =>
     '20261109_01_dispatch_foundation.sql',
     '20261109_02_dispatch_batches_and_communications.sql',
     '20261110_03_dispatch_calls_and_message_idempotency.sql',
-    '20261127_01_enable_same_business_multi_stop_trips.sql'
+    '20261127_01_enable_same_business_multi_stop_trips.sql',
+    '20261127_02_allow_zero_package_multi_stop_waypoints.sql'
   ]) {
     const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8');
     assert.ok(extractMigrationBody(sql, file).length > 0);
