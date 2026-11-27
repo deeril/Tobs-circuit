@@ -1,6 +1,9 @@
 import React, { Suspense, lazy, useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import brandLogo from './assets/droplag-logo.png';
+import bicycleDeliveryImage from './assets/droplag-cargo-bicycle.png';
+import motorcycleDeliveryImage from './assets/droplag-delivery-rider.png';
+import carDeliveryImage from './assets/droplag-orange-car.png';
 import IntroScreen from './IntroScreen.jsx';
 import AdminDashboard from './AdminDashboard.jsx';
 import { ADMIN_NAV_ITEMS } from './adminNavigation.js';
@@ -97,9 +100,9 @@ function VehicleTypeIcon({ vehicleType, className, style }) {
 }
 
 const DELIVERY_TYPES = [
-  { vehicleType: 'BICYCLE', label: 'Bicycle', description: 'Bicycle delivery', color: '#e47b22', Icon: VehicleTypeIcon },
-  { vehicleType: 'MOTORCYCLE', label: 'Bike', description: 'Motorcycle delivery', color: '#2866df', Icon: VehicleTypeIcon },
-  { vehicleType: 'CAR', label: 'Car', description: 'Car delivery', color: '#c39a1e', Icon: VehicleTypeIcon }
+  { vehicleType: 'BICYCLE', label: 'Bicycle', description: 'Bicycle delivery', color: '#e47b22', Icon: VehicleTypeIcon, image: bicycleDeliveryImage },
+  { vehicleType: 'MOTORCYCLE', label: 'Bike', description: 'Motorcycle delivery', color: '#2866df', Icon: VehicleTypeIcon, image: motorcycleDeliveryImage },
+  { vehicleType: 'CAR', label: 'Car', description: 'Car delivery', color: '#c39a1e', Icon: VehicleTypeIcon, image: carDeliveryImage }
 ];
 const DRIVER_REGISTRATION_VEHICLES = [
   { vehicleType: 'BICYCLE', label: 'Bicycle', color: '#e47b22' },
@@ -5981,7 +5984,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             </h2>
 
             <div className="customer-booking-vehicles">
-              {DELIVERY_TYPES.map(({ vehicleType, label, description, color, Icon }) => (
+              {DELIVERY_TYPES.map(({ vehicleType, label, description, color, Icon, image }) => (
                 <button
                   key={vehicleType}
                   type="button"
@@ -5990,7 +5993,17 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   className="customer-booking-vehicle-card"
                 >
                   <span className="customer-booking-vehicle-icon">
-                    <Icon vehicleType={vehicleType} className="h-[74px] w-[100px]" style={{ color }} />
+                    {image ? (
+                      <img
+                        src={image}
+                        alt=""
+                        aria-hidden="true"
+                        className="customer-booking-vehicle-image"
+                        draggable="false"
+                      />
+                    ) : (
+                      <Icon vehicleType={vehicleType} className="h-[74px] w-[100px]" style={{ color }} />
+                    )}
                   </span>
                   <span className="customer-booking-vehicle-label">{label}</span>
                   <span className="customer-booking-vehicle-description">{description}</span>
