@@ -2252,7 +2252,7 @@ textarea {
   opacity: 1;
 }
 
-.customer-booking-later-button {
+.customer-booking-map-button {
   display: inline-flex;
   min-height: 52px;
   flex: 0 0 auto;
@@ -2260,10 +2260,15 @@ textarea {
   gap: 6px;
   padding: 0 17px;
   border-radius: 18px;
-  background: #fff;
-  color: #686868;
+  background: #e47b22;
+  color: #fff;
   font-size: 19px;
   font-weight: 700;
+  transition: background-color 140ms ease;
+}
+
+.customer-booking-map-button:hover {
+  background: #d66e17;
 }
 
 .customer-booking-recents {
@@ -2388,14 +2393,14 @@ textarea {
     font-size: 16px;
   }
 
-  .customer-booking-later-button {
+  .customer-booking-map-button {
     min-height: 35px;
     gap: 4px;
     padding: 0 11px;
     font-size: 14px;
   }
 
-  .customer-booking-later-button > svg {
+  .customer-booking-map-button > svg {
     width: 16px;
     height: 16px;
   }

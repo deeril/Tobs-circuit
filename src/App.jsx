@@ -6015,11 +6015,11 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
               />
               <button
                 type="button"
-                onClick={() => setShowDeliveryTypePicker(false)}
-                className="customer-booking-later-button"
+                onClick={() => selectDeliveryType('BICYCLE')}
+                className="customer-booking-map-button"
               >
-                <Clock className="h-6 w-6" aria-hidden="true" />
-                Later
+                <MapPin className="h-6 w-6" aria-hidden="true" />
+                Map it
               </button>
             </div>
 
