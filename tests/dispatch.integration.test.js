@@ -90,11 +90,14 @@ describe('dispatch PostgreSQL integration', () => {
         delivery_id TEXT NOT NULL REFERENCES dispatch_deliveries(delivery_id),
         business_id TEXT NOT NULL,
         sequence_number SMALLINT NOT NULL
+          CONSTRAINT delivery_batch_offer_items_sequence_number_check
+          CHECK (sequence_number BETWEEN 1 AND 3)
       );
       CREATE TABLE delivery_assignments (
         assignment_id UUID PRIMARY KEY,
         delivery_id TEXT NOT NULL REFERENCES dispatch_deliveries(delivery_id),
         offer_id UUID,
+        batch_offer_id UUID REFERENCES delivery_batch_offers(batch_offer_id),
         rider_id TEXT NOT NULL,
         business_id TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -136,6 +139,11 @@ describe('dispatch PostgreSQL integration', () => {
       'utf8'
     );
     await pool.query(assignmentMigration);
+    const batchMigration = readFileSync(
+      new URL('../migrations/20261127_01_enable_same_business_multi_stop_trips.sql', import.meta.url),
+      'utf8'
+    );
+    await pool.query(batchMigration);
     const { rows: migratedAssignments } = await pool.query(
       'SELECT rider_id FROM delivery_assignments WHERE delivery_id = $1 AND status = $2',
       [legacyDeliveryId, 'ACTIVE']
@@ -144,6 +152,60 @@ describe('dispatch PostgreSQL integration', () => {
     await pool.query('DELETE FROM delivery_assignments WHERE delivery_id = $1', [legacyDeliveryId]);
     await pool.query('DELETE FROM dispatch_deliveries WHERE delivery_id = $1', [legacyDeliveryId]);
     await pool.query('UPDATE tobs_app_state SET state = $1::jsonb WHERE id = 1', [JSON.stringify({ stops: [] })]);
+  });
+
+  it('supports five active assignments in one batch while retaining the single-offer rider guard', { skip: !enabled }, async () => {
+    const businessId = randomUUID();
+    const riderId = randomUUID();
+    const batchOfferId = randomUUID();
+    await pool.query(`
+      INSERT INTO delivery_batch_offers (batch_offer_id, rider_id, status, expires_at)
+      VALUES ($1, $2, 'ACCEPTED', NOW() + INTERVAL '1 minute')
+    `, [batchOfferId, riderId]);
+    for (let sequence = 1; sequence <= 5; sequence += 1) {
+      const deliveryId = randomUUID();
+      await pool.query(
+        'INSERT INTO dispatch_deliveries (delivery_id, business_id, status) VALUES ($1, $2, $3)',
+        [deliveryId, businessId, 'RIDER_ACCEPTED']
+      );
+      await pool.query(`
+        INSERT INTO delivery_batch_offer_items
+          (batch_offer_id, delivery_id, business_id, sequence_number)
+        VALUES ($1, $2, $3, $4)
+      `, [batchOfferId, deliveryId, businessId, sequence]);
+      await pool.query(`
+        INSERT INTO delivery_assignments
+          (assignment_id, delivery_id, batch_offer_id, rider_id, business_id, status)
+        VALUES ($1, $2, $3, $4, $5, 'ACTIVE')
+      `, [randomUUID(), deliveryId, batchOfferId, riderId, businessId]);
+    }
+
+    const { rows: batchAssignments } = await pool.query(`
+      SELECT COUNT(*)::integer AS count
+      FROM delivery_assignments
+      WHERE rider_id = $1 AND batch_offer_id = $2 AND status = 'ACTIVE'
+    `, [riderId, batchOfferId]);
+    assert.equal(batchAssignments[0].count, 5);
+
+    const guardedRiderId = randomUUID();
+    const firstUnbatchedDelivery = randomUUID();
+    const secondUnbatchedDelivery = randomUUID();
+    for (const deliveryId of [firstUnbatchedDelivery, secondUnbatchedDelivery]) {
+      await pool.query(
+        'INSERT INTO dispatch_deliveries (delivery_id, business_id, status) VALUES ($1, $2, $3)',
+        [deliveryId, businessId, 'RIDER_ACCEPTED']
+      );
+    }
+    await pool.query(`
+      INSERT INTO delivery_assignments
+        (assignment_id, delivery_id, rider_id, business_id, status)
+      VALUES ($1, $2, $3, $4, 'ACTIVE')
+    `, [randomUUID(), firstUnbatchedDelivery, guardedRiderId, businessId]);
+    await assert.rejects(pool.query(`
+      INSERT INTO delivery_assignments
+        (assignment_id, delivery_id, rider_id, business_id, status)
+      VALUES ($1, $2, $3, $4, 'ACTIVE')
+    `, [randomUUID(), secondUnbatchedDelivery, guardedRiderId, businessId]), /delivery_one_active_assignment_per_rider_idx/);
   });
 
   it('persists route sequence and route geometry in the shared application state', { skip: !enabled }, async () => {

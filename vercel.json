@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "node scripts/migrate-dispatch.js && npm run build",
   "outputDirectory": "dist",
   "functions": {
     "api/router.js": {

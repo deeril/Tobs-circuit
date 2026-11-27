@@ -4,6 +4,8 @@ import {
   buildRiderRoutePlan,
   orderStopsByPickupAndDelivery
 } from '../src/dispatch-geo.js';
+import { riderCanCarryDeliveryRoute } from '../server/dispatch-route-capacity.js';
+import { hasActiveRiderAssignment } from '../server/dispatch-assignments.js';
 
 const distance = (fromLat, fromLng, toLat, toLng) =>
   Math.hypot(toLat - fromLat, toLng - fromLng);
@@ -74,4 +76,53 @@ test('builds numbered road-route waypoints per rider and advances past completed
   ]);
   assert.equal(plan.waypoints[0].address, 'Delivery');
   assert.equal(plan.waypoints[2].address, 'Delivery');
+});
+
+test('checks package count and weight against whole-trip totals', () => {
+  const stops = [
+    { packages: 2, packageWeightKg: 3.5, packageSize: 'MEDIUM' },
+    { packages: 3, packageWeightKg: null, packageSize: 'MEDIUM' }
+  ];
+
+  assert.equal(riderCanCarryDeliveryRoute({
+    maxPackageCount: 5,
+    maxPackageWeightKg: 3.5,
+    maxPackageSize: 'MEDIUM'
+  }, stops), true);
+  assert.equal(riderCanCarryDeliveryRoute({
+    maxPackageCount: 4,
+    maxPackageWeightKg: 3.5,
+    maxPackageSize: 'MEDIUM'
+  }, stops), false);
+  assert.equal(riderCanCarryDeliveryRoute({
+    maxPackageCount: 5,
+    maxPackageWeightKg: 3,
+    maxPackageSize: 'MEDIUM'
+  }, stops), false);
+});
+
+test('rejects a route when its largest item exceeds the rider size limit', () => {
+  const stops = [
+    { packages: 1, packageSize: 'SMALL' },
+    { packages: 1, packageSize: 'LARGE' }
+  ];
+
+  assert.equal(riderCanCarryDeliveryRoute({ maxPackageSize: 'MEDIUM' }, stops), false);
+  assert.equal(riderCanCarryDeliveryRoute({ maxPackageSize: 'LARGE' }, stops), true);
+  assert.equal(riderCanCarryDeliveryRoute({}, stops), true);
+});
+
+test('terminal stops do not remain active through stale assignment records', () => {
+  const assignments = [{
+    deliveryId: 'completed-stop',
+    riderId: 'rider-1',
+    status: 'ACTIVE'
+  }];
+  const stops = [{
+    id: 'completed-stop',
+    assignedDriverId: 'rider-1',
+    dispatchStatus: 'DELIVERED'
+  }];
+
+  assert.equal(hasActiveRiderAssignment(assignments, stops, 'rider-1'), false);
 });

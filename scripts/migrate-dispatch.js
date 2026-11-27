@@ -9,7 +9,7 @@ const migrationDirectory = path.resolve(
   '../migrations'
 );
 
-const migrations = [
+export const migrations = [
   {
     id: '20261109_01',
     file: '20261109_01_dispatch_foundation.sql',
@@ -50,6 +50,13 @@ const migrations = [
     file: '20261110_03_dispatch_calls_and_message_idempotency.sql',
     tables: ['dispatch_calls'],
     columns: [['delivery_messages', 'client_message_id']]
+  },
+  {
+    id: '20261127_01',
+    file: '20261127_01_enable_same_business_multi_stop_trips.sql',
+    tables: [],
+    columns: [],
+    verifySchema: false
   }
 ];
 
@@ -71,6 +78,11 @@ export function extractMigrationBody(sql, migrationId) {
     throw new Error(`Migration ${migrationId} must have an outer BEGIN/COMMIT transaction.`);
   }
   return match[1];
+}
+
+export function shouldRunDispatchMigrations(environment = process.env) {
+  if (environment.VERCEL_ENV) return environment.VERCEL_ENV === 'production';
+  return environment.NODE_ENV === 'production';
 }
 
 async function getSchemaObjectCount(client, migration) {
@@ -114,16 +126,18 @@ async function applyMigrations(client) {
         continue;
       }
 
-      const expected = migration.tables.length + migration.columns.length;
-      const present = await getSchemaObjectCount(client, migration);
-      const schemaState = classifySchemaObjectCount(present, expected, migration.id);
-      if (schemaState === 'complete') {
-        await client.query(
-          'INSERT INTO public.tobs_dispatch_migrations (migration_id) VALUES ($1)',
-          [migration.id]
-        );
-        console.log(`Recorded existing dispatch schema for ${migration.id}.`);
-        continue;
+      if (migration.verifySchema !== false) {
+        const expected = migration.tables.length + migration.columns.length;
+        const present = await getSchemaObjectCount(client, migration);
+        const schemaState = classifySchemaObjectCount(present, expected, migration.id);
+        if (schemaState === 'complete') {
+          await client.query(
+            'INSERT INTO public.tobs_dispatch_migrations (migration_id) VALUES ($1)',
+            [migration.id]
+          );
+          console.log(`Recorded existing dispatch schema for ${migration.id}.`);
+          continue;
+        }
       }
 
       const sql = await readFile(path.join(migrationDirectory, migration.file), 'utf8');
@@ -150,7 +164,7 @@ async function applyMigrations(client) {
 }
 
 async function runDispatchMigrations() {
-  if (process.env.NODE_ENV !== 'production') {
+  if (!shouldRunDispatchMigrations()) {
     console.log('Skipping dispatch migrations outside production.');
     return;
   }

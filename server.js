@@ -24,6 +24,7 @@ import {
   resolveBusinessDriverConversation
 } from './server/business-driver-conversations.js';
 import { sequenceStopsByRoad } from './server/dispatch-route-sequencing.js';
+import { riderCanCarryDeliveryRoute } from './server/dispatch-route-capacity.js';
 import { AUTHORIZED_MAP_RIDERS_SQL } from './server/dispatch-map-query.js';
 import { hasActiveRiderAssignment } from './server/dispatch-assignments.js';
 import { PUBLIC_MARKETPLACE_DRIVERS_SQL } from './server/dispatch-marketplace-query.js';
@@ -1227,6 +1228,292 @@ async function claimDeliveryAssignment({ deliveryId, offerId, ownerAdminId, ride
     acceptedAt: new Date().toISOString()
   });
   return true;
+}
+
+async function acceptRelationalDeliveryBatch({ batchOfferId, rider, request }) {
+  if (!rider) {
+    return {
+      found: true,
+      status: 409,
+      error: 'Your rider account is not available to accept this route.'
+    };
+  }
+  const client = databaseRequestClient;
+  if (!client) throw new Error('The active delivery transaction is unavailable.');
+  await client.query('SAVEPOINT dispatch_batch_accept');
+  let savepointOpen = true;
+  const reject = async (status, error) => {
+    await client.query('ROLLBACK TO SAVEPOINT dispatch_batch_accept');
+    await client.query('RELEASE SAVEPOINT dispatch_batch_accept');
+    savepointOpen = false;
+    return { found: true, status, error };
+  };
+
+  try {
+    const { rows: batchRows } = await client.query(`
+      SELECT batch_offer_id, rider_id, status, expires_at, route
+      FROM delivery_batch_offers
+      WHERE batch_offer_id::text = $1 AND rider_id = $2
+      FOR UPDATE
+    `, [batchOfferId, rider.id]);
+    if (!batchRows.length) {
+      await client.query('RELEASE SAVEPOINT dispatch_batch_accept');
+      savepointOpen = false;
+      return { found: false };
+    }
+    const batch = batchRows[0];
+    if (batch.status !== 'PENDING' || new Date(batch.expires_at).getTime() <= Date.now()) {
+      return reject(409, 'This grouped offer has expired or is no longer available.');
+    }
+
+    const { rows: profiles } = await client.query(`
+      SELECT profile.vehicle_type, profile.max_package_size,
+             profile.max_package_weight_kg, profile.max_package_count,
+             location.latitude, location.longitude
+      FROM rider_dispatch_profiles AS profile
+      JOIN rider_current_locations AS location
+        ON location.rider_id = profile.rider_id
+      WHERE profile.rider_id = $1
+        AND profile.is_active = TRUE AND profile.is_available = TRUE
+        AND location.sharing_enabled = TRUE
+        AND location.recorded_at >= NOW() - INTERVAL '90 seconds'
+      FOR UPDATE OF profile
+    `, [rider.id]);
+    if (profiles.length !== 1 || rider.status !== 'ACTIVE'
+      || rider.driverProfileComplete === false || rider.isAvailable !== true
+      || rider.routeStatus !== 'IDLE' || rider.isTracking !== true) {
+      return reject(409, 'Confirm your availability and live location, then check for another delivery.');
+    }
+    const profile = profiles[0];
+    const { rows: existingAssignments } = await client.query(`
+      SELECT 1 FROM delivery_assignments
+      WHERE rider_id = $1 AND status = 'ACTIVE'
+      LIMIT 1
+    `, [rider.id]);
+    if (existingAssignments.length || hasActiveRiderAssignment(
+      store.deliveryAssignments,
+      store.stops,
+      rider.id
+    )) {
+      return reject(409, 'Complete your current trip before accepting another route.');
+    }
+
+    const { rows: deliveries } = await client.query(`
+      SELECT item.delivery_id, item.business_id, item.sequence_number,
+             delivery.status, delivery.pickup_address, delivery.pickup_lat,
+             delivery.pickup_lng, delivery.destination_address,
+             delivery.destination_lat, delivery.destination_lng,
+             delivery.package_count, delivery.package_size,
+             delivery.package_weight_kg, delivery.required_vehicle_type
+      FROM delivery_batch_offer_items AS item
+      JOIN dispatch_deliveries AS delivery
+        ON delivery.delivery_id = item.delivery_id
+       AND delivery.business_id = item.business_id
+      WHERE item.batch_offer_id = $1
+      ORDER BY item.sequence_number
+      FOR UPDATE OF item, delivery
+    `, [batch.batch_offer_id]);
+    if (deliveries.length < 2 || deliveries.length > 5
+      || new Set(deliveries.map(delivery => delivery.business_id)).size !== 1) {
+      return reject(409, 'This grouped offer is not a supported single-business route.');
+    }
+    const deliveryIds = deliveries.map(delivery => delivery.delivery_id);
+    const routeStops = deliveryIds.map(id => store.stops.find(stop =>
+      stop.id === id && stop.ownerAdminId === deliveries[0].business_id
+    ));
+    if (routeStops.some(stop => !stop)
+      || deliveries.some(delivery => !['FINDING_RIDER', 'UNASSIGNED'].includes(delivery.status))
+      || routeStops.some(stop => stop.assignedDriverId)) {
+      return reject(409, 'One or more deliveries in this route are no longer available.');
+    }
+    const firstDelivery = deliveries[0];
+    if (deliveries.some(delivery =>
+      delivery.pickup_lat !== firstDelivery.pickup_lat
+      || delivery.pickup_lng !== firstDelivery.pickup_lng
+      || delivery.required_vehicle_type !== firstDelivery.required_vehicle_type
+    )) {
+      return reject(409, 'The grouped offer does not contain one shared pickup and vehicle type.');
+    }
+    if (deliveries.some(delivery => delivery.required_vehicle_type
+      && String(delivery.required_vehicle_type).toUpperCase()
+        !== String(profile.vehicle_type || '').toUpperCase())
+      || !riderCanCarryDeliveryRoute(profile, deliveries)) {
+      return reject(409, 'This route exceeds your vehicle or delivery capacity.');
+    }
+
+    const route = typeof batch.route === 'string' ? JSON.parse(batch.route) : batch.route;
+    const businessOrigin = route?.businessOrigin
+      && validCoordinates(Number(route.businessOrigin.lat), Number(route.businessOrigin.lng))
+      ? { lat: Number(route.businessOrigin.lat), lng: Number(route.businessOrigin.lng) }
+      : null;
+    const radiusKm = Number.isFinite(Number(route?.searchRadiusKm))
+      ? Math.min(10, Math.max(0, Number(route.searchRadiusKm)))
+      : 5;
+    const searchPoints = [
+      { lat: Number(firstDelivery.pickup_lat), lng: Number(firstDelivery.pickup_lng) },
+      ...(businessOrigin ? [businessOrigin] : [])
+    ];
+    const riderLocation = {
+      lat: Number(profile.latitude),
+      lng: Number(profile.longitude)
+    };
+    if (!validCoordinates(riderLocation.lat, riderLocation.lng)
+      || !searchPoints.some(point => distanceInKilometers(riderLocation, point) <= radiusKm)) {
+      return reject(409, 'You are no longer within the search area for this trip.');
+    }
+
+    const { rows: acceptedBatch } = await client.query(`
+      UPDATE delivery_batch_offers
+      SET status = 'ACCEPTED', accepted_at = NOW()
+      WHERE batch_offer_id = $1 AND rider_id = $2
+        AND status = 'PENDING' AND expires_at > NOW()
+      RETURNING batch_offer_id
+    `, [batch.batch_offer_id, rider.id]);
+    if (acceptedBatch.length !== 1) {
+      return reject(409, 'This grouped offer is no longer available.');
+    }
+    const assignmentRows = [];
+    for (const delivery of deliveries) {
+      const { rows } = await client.query(`
+        INSERT INTO delivery_assignments (
+          assignment_id, delivery_id, offer_id, rider_id, business_id,
+          status, batch_offer_id
+        )
+        VALUES (gen_random_uuid(), $1, NULL, $2, $3, 'ACTIVE', $4)
+        ON CONFLICT DO NOTHING
+        RETURNING assignment_id, delivery_id
+      `, [delivery.delivery_id, rider.id, delivery.business_id, batch.batch_offer_id]);
+      assignmentRows.push(...rows);
+    }
+    if (assignmentRows.length !== deliveries.length) {
+      return reject(409, 'One or more deliveries in this route have already been assigned.');
+    }
+
+    await client.query(`
+      UPDATE delivery_batch_offers AS other_offer
+      SET status = 'CANCELLED'
+      WHERE other_offer.status = 'PENDING'
+        AND other_offer.batch_offer_id <> $1
+        AND EXISTS (
+          SELECT 1 FROM delivery_batch_offer_items AS item
+          WHERE item.batch_offer_id = other_offer.batch_offer_id
+            AND item.delivery_id = ANY($2::text[])
+        )
+    `, [batch.batch_offer_id, deliveryIds]);
+    await client.query(`
+      UPDATE dispatch_offers
+      SET status = 'CANCELLED', responded_at = NOW()
+      WHERE delivery_id = ANY($1::text[]) AND status = 'PENDING'
+    `, [deliveryIds]);
+    await client.query(`
+      UPDATE dispatch_deliveries
+      SET status = 'RIDER_ACCEPTED', updated_at = NOW()
+      WHERE delivery_id = ANY($1::text[])
+    `, [deliveryIds]);
+    for (const delivery of deliveries) {
+      const assignment = assignmentRows.find(row => row.delivery_id === delivery.delivery_id);
+      await client.query(`
+        INSERT INTO delivery_assignment_history
+          (assignment_id, delivery_id, event_type, actor_id)
+        VALUES ($1, $2, 'ASSIGNED', $3)
+      `, [assignment.assignment_id, delivery.delivery_id, rider.id]);
+      await client.query(`
+        INSERT INTO delivery_status_history (delivery_id, status, actor_id)
+        VALUES ($1, 'RIDER_ACCEPTED', $2)
+      `, [delivery.delivery_id, rider.id]);
+      await notifyDeliveryParticipants(client, delivery.delivery_id, 'RIDER_ACCEPTED', {
+        riderId: rider.id,
+        batchOfferId: batch.batch_offer_id
+      });
+    }
+    await client.query(`
+      UPDATE rider_dispatch_profiles
+      SET is_available = FALSE, updated_at = NOW()
+      WHERE rider_id = $1
+    `, [rider.id]);
+    await client.query('RELEASE SAVEPOINT dispatch_batch_accept');
+    savepointOpen = false;
+
+    const acceptedAt = new Date().toISOString();
+    const acceptedIdSet = new Set(deliveryIds);
+    store.stops = store.stops.map(stop => acceptedIdSet.has(stop.id)
+      ? {
+        ...stop,
+        assignedDriverId: rider.id,
+        assignedAt: acceptedAt,
+        acceptedAt,
+        dispatchStatus: 'RIDER_ACCEPTED',
+        dispatchStatusHistory: [
+          ...(Array.isArray(stop.dispatchStatusHistory) ? stop.dispatchStatusHistory : []),
+          { status: 'RIDER_ACCEPTED', at: acceptedAt, riderId: rider.id }
+        ]
+      }
+      : stop);
+    for (const deliveryId of deliveryIds) {
+      store.deliveryAssignments.push({
+        deliveryId,
+        offerId: null,
+        batchOfferId: batch.batch_offer_id,
+        ownerAdminId: deliveries[0].business_id,
+        riderId: rider.id,
+        status: 'ACTIVE',
+        acceptedAt
+      });
+    }
+    store.deliveryOffers = store.deliveryOffers.map(offer =>
+      (deliveryIds.includes(offer.stopId) || offer.stopIds?.some(id => acceptedIdSet.has(id)))
+        && offer.status === 'OPEN'
+        ? { ...offer, status: 'CLOSED' }
+        : offer
+    );
+    rider.isAvailable = false;
+    rider.availabilityUpdatedAt = acceptedAt;
+    rider.routeStatus = 'ACCEPTED';
+    rider.routeStopCount = deliveries.length;
+    rider.routeUpdatedAt = acceptedAt;
+
+    let routeSequenceWarning = '';
+    try {
+      await updateDriverRouteSequence(rider.id, request);
+    } catch (error) {
+      routeSequenceWarning = error.message;
+      console.warn('Grouped delivery accepted, but its road route could not be calculated:', error.message);
+      store.stops = store.stops.map(stop => acceptedIdSet.has(stop.id)
+        ? {
+          ...stop,
+          routeSequence: deliveryIds.indexOf(stop.id) + 1,
+          routeOrder: deliveryIds.indexOf(stop.id) + 1,
+          routeSequenceStatus: 'UNAVAILABLE',
+          routeSequenceError: routeSequenceWarning,
+          routeSequenceUpdatedAt: acceptedAt,
+          routeStartLocation: riderLocation,
+          routeCurrentOrigin: riderLocation
+        }
+        : stop);
+    }
+    const acceptedStops = deliveryIds.map(id => store.stops.find(stop => stop.id === id));
+    emitRouteUpdated(rider.id, acceptedStops, acceptedAt);
+    writeStore();
+    return {
+      found: true,
+      result: {
+        stop: acceptedStops[0],
+        stops: acceptedStops,
+        rider: publicUser(rider),
+        ...(routeSequenceWarning ? { routeSequenceWarning } : {})
+      }
+    };
+  } catch (error) {
+    if (savepointOpen) {
+      try {
+        await client.query('ROLLBACK TO SAVEPOINT dispatch_batch_accept');
+        await client.query('RELEASE SAVEPOINT dispatch_batch_accept');
+      } catch (rollbackError) {
+        console.error('Could not roll back grouped delivery acceptance:', rollbackError);
+      }
+    }
+    throw error;
+  }
 }
 
 function issueSession(response, user, remember = true, superAdminVerified = false) {
@@ -3261,6 +3548,314 @@ app.post('/api/stops/:id/offers', requireUser, requireAdmin, async (request, res
   return response.status(201).json({ offerId: offer.id, riderCount: eligibleRiders.length, reused: false });
 });
 
+app.post('/api/stops/route-offers', requireUser, requireAdmin, async (request, response) => {
+  const stopIds = request.body.stopIds;
+  if (!Array.isArray(stopIds) || stopIds.length < 2 || stopIds.length > 5
+    || stopIds.some(id => typeof id !== 'string' || !id.trim() || id.length > 128)
+    || new Set(stopIds).size !== stopIds.length) {
+    return response.status(400).json({ error: 'Choose between two and five unique delivery addresses.' });
+  }
+  const routeStops = stopIds.map(id => store.stops.find(stop =>
+    stop.id === id && stop.ownerAdminId === request.user.id
+  ));
+  if (routeStops.some(stop => !stop)) {
+    return response.status(404).json({ error: 'One or more deliveries were not found in your business.' });
+  }
+  if (routeStops.some(stop => stop.assignedDriverId
+    || !['UNASSIGNED', 'FINDING_RIDER'].includes(dispatchStatusFromStop(stop)))) {
+    return response.status(409).json({ error: 'One or more deliveries are already assigned or in progress.' });
+  }
+  const firstStop = routeStops[0];
+  const hasSharedPickup = routeStops.every(stop =>
+    stop.pickupAddress === firstStop.pickupAddress
+    && stop.pickupLat === firstStop.pickupLat
+    && stop.pickupLng === firstStop.pickupLng
+  );
+  const hasSharedVehicle = routeStops.every(stop =>
+    (stop.requiredVehicleType || '') === (firstStop.requiredVehicleType || '')
+  );
+  if (!hasSharedPickup || !hasSharedVehicle) {
+    return response.status(400).json({ error: 'All deliveries in a trip must share the same pickup and vehicle type.' });
+  }
+  if (routeStops.some(stop => !stop.pickupAddress || !stop.address
+    || !validCoordinates(stop.pickupLat, stop.pickupLng)
+    || !validCoordinates(stop.lat, stop.lng))) {
+    return response.status(400).json({
+      error: 'Select exact pickup and delivery addresses from the map suggestions before finding a rider.'
+    });
+  }
+
+  const selectedRiderId = request.body.riderId === undefined
+    ? null
+    : cleanText(request.body.riderId, 128);
+  if (request.body.riderId !== undefined && !selectedRiderId) {
+    return response.status(400).json({ error: 'Select a valid available rider.' });
+  }
+  const rawBusinessOrigin = request.body.businessOrigin;
+  let businessOrigin = null;
+  if (rawBusinessOrigin !== undefined && rawBusinessOrigin !== null) {
+    const point = {
+      lat: Number(rawBusinessOrigin.lat),
+      lng: Number(rawBusinessOrigin.lng)
+    };
+    if (!validCoordinates(point.lat, point.lng)) {
+      return response.status(400).json({ error: 'The saved business search location is invalid.' });
+    }
+    businessOrigin = point;
+  }
+  const now = Date.now();
+
+  if (request.dispatchSchemaReady) {
+    const client = databaseRequestClient;
+    if (!client) {
+      return response.status(503).json({ error: 'Rider discovery is temporarily unavailable.' });
+    }
+    let savepointOpen = false;
+    try {
+      await client.query('SAVEPOINT route_offer_create');
+      savepointOpen = true;
+      const { rows: lockedDeliveries } = await client.query(`
+        SELECT delivery_id FROM dispatch_deliveries
+        WHERE delivery_id = ANY($1::text[]) AND business_id = $2
+        ORDER BY delivery_id
+        FOR UPDATE
+      `, [stopIds, request.user.id]);
+      if (lockedDeliveries.length !== stopIds.length) {
+        await client.query('RELEASE SAVEPOINT route_offer_create');
+        savepointOpen = false;
+        return response.status(404).json({ error: 'One or more deliveries are not available for this trip.' });
+      }
+      for (const stop of routeStops) await syncDispatchDelivery(client, stop);
+      await client.query(`
+        UPDATE delivery_batch_offers
+        SET status = 'EXPIRED'
+        WHERE status = 'PENDING' AND expires_at <= NOW()
+      `);
+      await client.query(`
+        UPDATE dispatch_offers
+        SET status = 'EXPIRED'
+        WHERE status = 'PENDING' AND expires_at <= NOW()
+      `);
+      const { rows: existingOffers } = await client.query(`
+        SELECT batch.batch_offer_id, batch.rider_id
+        FROM delivery_batch_offers AS batch
+        WHERE batch.status = 'PENDING' AND batch.expires_at > NOW()
+          AND (
+            SELECT COUNT(*) FROM delivery_batch_offer_items AS item
+            WHERE item.batch_offer_id = batch.batch_offer_id
+          ) = $2
+          AND (
+            SELECT COUNT(*) FROM delivery_batch_offer_items AS item
+            WHERE item.batch_offer_id = batch.batch_offer_id
+              AND item.delivery_id = ANY($1::text[])
+              AND item.business_id = $3
+          ) = $2
+        ORDER BY batch.created_at DESC
+      `, [stopIds, stopIds.length, request.user.id]);
+      if (existingOffers.length) {
+        await client.query('RELEASE SAVEPOINT route_offer_create');
+        savepointOpen = false;
+        return response.json({
+          offerId: existingOffers[0].batch_offer_id,
+          riderCount: new Set(existingOffers.map(offer => offer.rider_id)).size,
+          reused: true
+        });
+      }
+
+      let eligibleRiders = [];
+      let radiusKm = 0;
+      for (const radius of RIDER_DISCOVERY_RADIUS_ROUNDS_KM) {
+        const candidates = await findRelationalCandidates(
+          client,
+          firstStop.id,
+          radius,
+          selectedRiderId,
+          businessOrigin
+        );
+        if (!candidates.length) continue;
+        const { rows: profiles } = await client.query(`
+          SELECT rider_id, max_package_count
+          FROM rider_dispatch_profiles
+          WHERE rider_id = ANY($1::text[])
+        `, [candidates.map(candidate => candidate.rider_id)]);
+        const packageCapacityRiderIds = new Set(profiles
+          .filter(profile => riderCanCarryDeliveryRoute(profile, routeStops))
+          .map(profile => profile.rider_id));
+        eligibleRiders = candidates.filter(candidate =>
+          packageCapacityRiderIds.has(candidate.rider_id)
+        );
+        if (eligibleRiders.length) {
+          radiusKm = radius;
+          break;
+        }
+      }
+      if (!eligibleRiders.length) {
+        await client.query('RELEASE SAVEPOINT route_offer_create');
+        savepointOpen = false;
+        return response.json({ offerId: null, riderCount: 0, reused: false });
+      }
+
+      await client.query(`
+        UPDATE dispatch_offers
+        SET status = 'CANCELLED'
+        WHERE delivery_id = ANY($1::text[]) AND business_id = $2 AND status = 'PENDING'
+      `, [stopIds, request.user.id]);
+      await client.query(`
+        UPDATE delivery_batch_offers AS batch
+        SET status = 'CANCELLED'
+        WHERE batch.status = 'PENDING'
+          AND EXISTS (
+            SELECT 1 FROM delivery_batch_offer_items AS item
+            WHERE item.batch_offer_id = batch.batch_offer_id
+              AND item.delivery_id = ANY($1::text[])
+          )
+      `, [stopIds]);
+      const expiresAt = new Date(now + 2 * 60 * 1000).toISOString();
+      const route = {
+        type: 'SAME_BUSINESS_MULTI_STOP',
+        stopIds,
+        pickup: {
+          address: firstStop.pickupAddress,
+          lat: firstStop.pickupLat,
+          lng: firstStop.pickupLng
+        },
+        businessOrigin,
+        searchRadiusKm: radiusKm
+      };
+      for (const candidate of eligibleRiders) {
+        const batchOfferId = crypto.randomUUID();
+        await client.query(`
+          INSERT INTO delivery_batch_offers
+            (batch_offer_id, rider_id, status, expires_at, route)
+          VALUES ($1, $2, 'PENDING', $3, $4::jsonb)
+        `, [batchOfferId, candidate.rider_id, expiresAt, JSON.stringify(route)]);
+        for (const [index, stop] of routeStops.entries()) {
+          await client.query(`
+            INSERT INTO delivery_batch_offer_items
+              (batch_offer_id, delivery_id, business_id, sequence_number)
+            VALUES ($1, $2, $3, $4)
+          `, [batchOfferId, stop.id, request.user.id, index + 1]);
+        }
+      }
+      await client.query(`
+        UPDATE dispatch_deliveries
+        SET status = 'FINDING_RIDER', updated_at = NOW()
+        WHERE delivery_id = ANY($1::text[]) AND business_id = $2
+      `, [stopIds, request.user.id]);
+      for (const stop of routeStops) {
+        stop.dispatchStatus = 'FINDING_RIDER';
+        stop.dispatchStatusHistory = [
+          ...(Array.isArray(stop.dispatchStatusHistory) ? stop.dispatchStatusHistory : []),
+          { status: 'FINDING_RIDER', at: new Date(now).toISOString() }
+        ];
+        await client.query(`
+          INSERT INTO delivery_status_history (delivery_id, status, actor_id)
+          VALUES ($1, 'FINDING_RIDER', $2)
+        `, [stop.id, request.user.id]);
+      }
+      await client.query('RELEASE SAVEPOINT route_offer_create');
+      savepointOpen = false;
+      writeStore();
+      return response.status(201).json({
+        offerId: null,
+        riderCount: eligibleRiders.length,
+        reused: false
+      });
+    } catch (error) {
+      if (savepointOpen) {
+        try {
+          await client.query('ROLLBACK TO SAVEPOINT route_offer_create');
+          await client.query('RELEASE SAVEPOINT route_offer_create');
+        } catch (rollbackError) {
+          console.error('Could not roll back grouped rider-offer creation:', rollbackError);
+        }
+      }
+      console.error('Could not create grouped rider offers:', error);
+      return response.status(503).json({ error: 'Rider discovery is temporarily unavailable.' });
+    }
+  }
+
+  const matchingOffer = store.deliveryOffers.find(offer =>
+    offer.ownerAdminId === request.user.id
+    && offer.status === 'OPEN'
+    && new Date(offer.expiresAt).getTime() > now
+    && Array.isArray(offer.stopIds)
+    && offer.stopIds.length === stopIds.length
+    && offer.stopIds.every((id, index) => id === stopIds[index])
+  );
+  if (matchingOffer) {
+    return response.json({
+      offerId: matchingOffer.id,
+      riderCount: matchingOffer.riderIds.length,
+      reused: true
+    });
+  }
+
+  const searchPoints = [
+    { lat: firstStop.pickupLat, lng: firstStop.pickupLng },
+    ...(businessOrigin ? [businessOrigin] : [])
+  ];
+  const h3Cells = new Set(searchPoints.flatMap(point =>
+    [...cellsWithinRadius(point.lat, point.lng, 5)]
+  ));
+  const eligibleRiders = store.users.filter(rider => {
+    if (rider.role !== 'DRIVER' || (selectedRiderId && rider.id !== selectedRiderId)
+      || rider.status !== 'ACTIVE' || rider.driverProfileComplete === false
+      || rider.isAvailable !== true || rider.routeStatus !== 'IDLE'
+      || !rider.isTracking || !validCoordinates(rider.lat, rider.lng)
+      || (firstStop.requiredVehicleType
+        && String(rider.vehicleType || '').toUpperCase() !== firstStop.requiredVehicleType)
+      || !riderCanCarryDeliveryRoute(rider, routeStops)
+      || hasActiveRiderAssignment(store.deliveryAssignments, store.stops, rider.id)) return false;
+    const locationUpdatedAt = new Date(rider.locationUpdatedAt || '').getTime();
+    if (!Number.isFinite(locationUpdatedAt) || now - locationUpdatedAt >= 90_000) return false;
+    if (!isWithinSearchCells(h3Cells, rider.lat, rider.lng)) return false;
+    return searchPoints.some(point =>
+      distanceInKilometers({ lat: rider.lat, lng: rider.lng }, point) <= 5
+    );
+  }).sort((left, right) =>
+    Math.min(...searchPoints.map(point => distanceInKilometers(left, point)))
+      - Math.min(...searchPoints.map(point => distanceInKilometers(right, point)))
+  );
+  if (!eligibleRiders.length) {
+    return response.json({ offerId: null, riderCount: 0, reused: false });
+  }
+
+  store.deliveryOffers = store.deliveryOffers.map(offer =>
+    (stopIds.includes(offer.stopId) || offer.stopIds?.some(id => stopIds.includes(id)))
+      && offer.status === 'OPEN'
+      ? { ...offer, status: 'CLOSED' }
+      : offer
+  );
+  const offer = {
+    id: crypto.randomUUID(),
+    stopId: firstStop.id,
+    stopIds,
+    ownerAdminId: request.user.id,
+    riderIds: eligibleRiders.map(rider => rider.id),
+    rejectedByIds: [],
+    status: 'OPEN',
+    searchRadiusKm: 5,
+    businessOrigin,
+    createdAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + 2 * 60 * 1000).toISOString()
+  };
+  store.deliveryOffers.push(offer);
+  for (const stop of routeStops) {
+    stop.dispatchStatus = 'FINDING_RIDER';
+    stop.dispatchStatusHistory = [
+      ...(Array.isArray(stop.dispatchStatusHistory) ? stop.dispatchStatusHistory : []),
+      { status: 'FINDING_RIDER', at: offer.createdAt }
+    ];
+  }
+  writeStore();
+  return response.status(201).json({
+    offerId: offer.id,
+    riderCount: eligibleRiders.length,
+    reused: false
+  });
+});
+
 app.get('/api/delivery-offers', requireUser, async (request, response) => {
   const now = Date.now();
   if (request.dispatchSchemaReady) {
@@ -3301,41 +3896,56 @@ app.get('/api/delivery-offers', requireUser, async (request, response) => {
   });
 
   const offers = visibleOffers.flatMap(offer => {
-    const stop = store.stops.find(item => item.id === offer.stopId && item.ownerAdminId === offer.ownerAdminId);
-    if (!stop) return [];
+    const groupedStopRecords = (Array.isArray(offer.stopIds) ? offer.stopIds : [offer.stopId])
+      .map(id => store.stops.find(item =>
+        item.id === id && item.ownerAdminId === offer.ownerAdminId
+      ))
+      .filter(Boolean);
+    if (!groupedStopRecords.length) return [];
+    const stop = groupedStopRecords[0];
+    const stopSummaries = groupedStopRecords.map(item => ({
+      id: item.id,
+      name: item.name,
+      address: item.address,
+      lat: item.lat,
+      lng: item.lng,
+      pickupAddress: item.pickupAddress,
+      pickupLat: item.pickupLat,
+      pickupLng: item.pickupLng,
+      packages: item.packages,
+      packageDescription: item.packageDescription || '',
+      packageWeightKg: item.packageWeightKg ?? null,
+      packageSize: item.packageSize || '',
+      priority: item.priority,
+      riderEarningsNgn: item.riderEarningsNgn ?? null,
+      assignedDriverId: item.assignedDriverId || ''
+    }));
     const rider = offer.status === 'ACCEPTED'
       ? store.users.find(user => user.id === offer.acceptedRiderId && user.role === 'DRIVER')
       : null;
     const pickup = { lat: stop.pickupLat, lng: stop.pickupLng };
-    const destination = { lat: stop.lat, lng: stop.lng };
     const driverLocation = request.user.role === 'DRIVER'
       ? { lat: request.user.lat, lng: request.user.lng }
       : null;
-    const routeDistanceKm = validCoordinates(pickup.lat, pickup.lng) && validCoordinates(destination.lat, destination.lng)
-      ? distanceInKilometers(pickup, destination)
-      : null;
+    let routeDistanceKm = validCoordinates(pickup.lat, pickup.lng) ? 0 : null;
+    let routeOrigin = pickup;
+    for (const routeStop of stopSummaries) {
+      if (!validCoordinates(routeOrigin.lat, routeOrigin.lng)
+        || !validCoordinates(routeStop.lat, routeStop.lng)) {
+        routeDistanceKm = null;
+        break;
+      }
+      routeDistanceKm += distanceInKilometers(routeOrigin, { lat: routeStop.lat, lng: routeStop.lng });
+      routeOrigin = { lat: routeStop.lat, lng: routeStop.lng };
+    }
     return [{
       id: offer.id,
       status: offer.status,
+      batch: stopSummaries.length > 1,
+      batchStops: stopSummaries,
       createdAt: offer.createdAt,
       expiresAt: offer.expiresAt,
-      stop: {
-        id: stop.id,
-        name: stop.name,
-        address: stop.address,
-        lat: stop.lat,
-        lng: stop.lng,
-        pickupAddress: stop.pickupAddress,
-        pickupLat: stop.pickupLat,
-        pickupLng: stop.pickupLng,
-        packages: stop.packages,
-        packageDescription: stop.packageDescription || '',
-        packageWeightKg: stop.packageWeightKg ?? null,
-        packageSize: stop.packageSize || '',
-        priority: stop.priority,
-        riderEarningsNgn: stop.riderEarningsNgn ?? null,
-        assignedDriverId: stop.assignedDriverId || ''
-      },
+      stop: stopSummaries[0],
       businessName: store.users.find(user => user.id === offer.ownerAdminId)?.orgName || 'Business',
       pickupDistanceKm: driverLocation && validCoordinates(driverLocation.lat, driverLocation.lng)
         ? distanceInKilometers(driverLocation, pickup)
@@ -3388,17 +3998,24 @@ app.get('/api/delivery-offers', requireUser, async (request, response) => {
                   AND profile.is_active = TRUE
                   AND profile.is_available = TRUE
               )
-              AND NOT EXISTS (
-                SELECT 1
-                FROM delivery_batch_offer_items AS restricted_item
-                WHERE restricted_item.batch_offer_id = batch.batch_offer_id
-                  AND NOT EXISTS (
-                    SELECT 1
-                    FROM dispatch_business_riders AS membership
-                    WHERE membership.business_id = restricted_item.business_id
-                      AND membership.rider_id = batch.rider_id
-                      AND membership.active = TRUE
-                  )
+              AND (
+                (
+                  SELECT COUNT(DISTINCT route_item.business_id)
+                  FROM delivery_batch_offer_items AS route_item
+                  WHERE route_item.batch_offer_id = batch.batch_offer_id
+                ) = 1
+                OR NOT EXISTS (
+                  SELECT 1
+                  FROM delivery_batch_offer_items AS restricted_item
+                  WHERE restricted_item.batch_offer_id = batch.batch_offer_id
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM dispatch_business_riders AS membership
+                      WHERE membership.business_id = restricted_item.business_id
+                        AND membership.rider_id = batch.rider_id
+                        AND membership.active = TRUE
+                    )
+                )
               )
             )
           )
@@ -4347,20 +4964,19 @@ app.post('/api/delivery-offers/:id/accept', requireUser, async (request, respons
   }
   if (request.dispatchSchemaReady) {
     try {
-      const { rows: batchRows } = await databaseRequestClient.query(`
-        SELECT 1 FROM delivery_batch_offers
-        WHERE batch_offer_id::text = $1 AND rider_id = $2
-        LIMIT 1
-      `, [request.params.id, request.user.id]);
-      if (batchRows.length) {
-        await databaseRequestClient.query(`
-          UPDATE delivery_batch_offers
-          SET status = 'CANCELLED'
-          WHERE batch_offer_id::text = $1 AND rider_id = $2 AND status = 'PENDING'
-        `, [request.params.id, request.user.id]);
-        return response.status(409).json({
-          error: 'This grouped offer is no longer available. Drivers can accept one delivery at a time.'
-        });
+      const rider = store.users.find(item =>
+        item.id === request.user.id && item.role === 'DRIVER'
+      );
+      const batchResult = await acceptRelationalDeliveryBatch({
+        batchOfferId: request.params.id,
+        rider,
+        request
+      });
+      if (batchResult.found) {
+        if (batchResult.error) {
+          return response.status(batchResult.status).json({ error: batchResult.error });
+        }
+        return response.json(batchResult.result);
       }
     } catch (error) {
       console.error('Could not atomically accept the delivery batch:', error);
@@ -4382,6 +4998,104 @@ app.post('/api/delivery-offers/:id/accept', requireUser, async (request, respons
   const rider = store.users.find(item =>
     item.id === request.user.id && item.role === 'DRIVER'
   );
+  if (Array.isArray(offer.stopIds) && offer.stopIds.length > 1) {
+    const routeStops = offer.stopIds.map(id => store.stops.find(item =>
+      item.id === id && item.ownerAdminId === offer.ownerAdminId
+    ));
+    const locationUpdatedAt = new Date(rider?.locationUpdatedAt || '').getTime();
+    const searchPoints = [
+      { lat: stop?.pickupLat, lng: stop?.pickupLng },
+      ...(offer.businessOrigin ? [offer.businessOrigin] : [])
+    ];
+    const withinOfferRadius = rider && searchPoints.some(point =>
+      validCoordinates(point.lat, point.lng)
+      && distanceInKilometers({ lat: rider.lat, lng: rider.lng }, point)
+        <= Math.min(5, Number(offer.searchRadiusKm) || 5)
+    );
+    if (!rider || !stop || routeStops.some(routeStop => !routeStop || routeStop.assignedDriverId)
+      || rider.status !== 'ACTIVE' || rider.driverProfileComplete === false
+      || rider.isAvailable !== true || rider.routeStatus !== 'IDLE'
+      || rider.isTracking !== true || !validCoordinates(rider.lat, rider.lng)
+      || !Number.isFinite(locationUpdatedAt) || now - locationUpdatedAt >= 90_000
+      || !withinOfferRadius
+      || (routeStops[0]?.requiredVehicleType
+        && String(rider.vehicleType || '').toUpperCase() !== routeStops[0].requiredVehicleType)
+      || !riderCanCarryDeliveryRoute(rider, routeStops)
+      || hasActiveRiderAssignment(store.deliveryAssignments, store.stops, rider.id)) {
+      return response.status(409).json({
+        error: 'You are no longer eligible for this route. Confirm availability, location, and trip capacity.'
+      });
+    }
+
+    const acceptedAt = new Date().toISOString();
+    const routeStopIds = new Set(offer.stopIds);
+    store.stops = store.stops.map(routeStop => routeStopIds.has(routeStop.id)
+      ? {
+        ...routeStop,
+        assignedDriverId: rider.id,
+        assignedAt: acceptedAt,
+        acceptedAt,
+        dispatchStatus: 'RIDER_ACCEPTED',
+        dispatchStatusHistory: [
+          ...(Array.isArray(routeStop.dispatchStatusHistory) ? routeStop.dispatchStatusHistory : []),
+          { status: 'RIDER_ACCEPTED', at: acceptedAt, riderId: rider.id }
+        ]
+      }
+      : routeStop);
+    for (const routeStop of routeStops) {
+      store.deliveryAssignments.push({
+        deliveryId: routeStop.id,
+        offerId: offer.id,
+        batchOfferId: offer.id,
+        ownerAdminId: offer.ownerAdminId,
+        riderId: rider.id,
+        status: 'ACTIVE',
+        acceptedAt
+      });
+    }
+    offer.status = 'ACCEPTED';
+    offer.acceptedRiderId = rider.id;
+    offer.acceptedAt = acceptedAt;
+    store.deliveryOffers = store.deliveryOffers.map(otherOffer =>
+      otherOffer.id !== offer.id
+        && (routeStopIds.has(otherOffer.stopId)
+          || otherOffer.stopIds?.some(id => routeStopIds.has(id)))
+        && otherOffer.status === 'OPEN'
+        ? { ...otherOffer, status: 'CLOSED' }
+        : otherOffer
+    );
+    rider.isAvailable = false;
+    rider.availabilityUpdatedAt = acceptedAt;
+    rider.routeStatus = 'ACCEPTED';
+    rider.routeStopCount = routeStops.length;
+    rider.routeUpdatedAt = acceptedAt;
+    let routeSequenceWarning = '';
+    try {
+      await updateDriverRouteSequence(rider.id, request);
+    } catch (error) {
+      routeSequenceWarning = error.message;
+      console.warn('Grouped delivery accepted, but its road route could not be calculated:', error.message);
+      store.stops = store.stops.map(routeStop => routeStopIds.has(routeStop.id)
+        ? {
+          ...routeStop,
+          routeSequence: offer.stopIds.indexOf(routeStop.id) + 1,
+          routeOrder: offer.stopIds.indexOf(routeStop.id) + 1,
+          routeSequenceStatus: 'UNAVAILABLE',
+          routeSequenceError: routeSequenceWarning,
+          routeSequenceUpdatedAt: acceptedAt
+        }
+        : routeStop);
+    }
+    const acceptedStops = offer.stopIds.map(id => store.stops.find(routeStop => routeStop.id === id));
+    emitRouteUpdated(rider.id, acceptedStops, acceptedAt);
+    writeStore();
+    return response.json({
+      stop: acceptedStops[0],
+      stops: acceptedStops,
+      rider: publicUser(rider),
+      ...(routeSequenceWarning ? { routeSequenceWarning } : {})
+    });
+  }
   if (!stop || stop.assignedDriverId) {
     return response.status(409).json({ error: 'Another rider has already accepted this delivery.' });
   }

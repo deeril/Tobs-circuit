@@ -104,6 +104,14 @@ const DELIVERY_TYPES = [
   { vehicleType: 'MOTORCYCLE', label: 'Bike', description: 'Motorcycle delivery', color: '#2866df', Icon: VehicleTypeIcon, image: motorcycleDeliveryImage },
   { vehicleType: 'CAR', label: 'Car', description: 'Car delivery', color: '#c39a1e', Icon: VehicleTypeIcon, image: carDeliveryImage }
 ];
+const MAX_DELIVERY_ADDRESSES = 5;
+
+const createDeliveryAddressDraft = () => ({
+  id: `l_${crypto.randomUUID()}`,
+  address: '',
+  lat: null,
+  lng: null
+});
 const DRIVER_REGISTRATION_VEHICLES = [
   { vehicleType: 'BICYCLE', label: 'Bicycle', color: '#e47b22' },
   { vehicleType: 'MOTORCYCLE', label: 'Motorcycle', color: '#2866df' },
@@ -1163,6 +1171,7 @@ const [authError, setAuthError] = useState('');
     riderEarningsNgn: '',
     deadlineAt: ''
   });
+  const [deliveryAddresses, setDeliveryAddresses] = useState(() => [createDeliveryAddressDraft()]);
   const [pickupLocationLoading, setPickupLocationLoading] = useState(false);
   const [pickupLocationError, setPickupLocationError] = useState('');
   const selectedDeliveryType = DELIVERY_TYPES.find(
@@ -1631,21 +1640,23 @@ const [authError, setAuthError] = useState('');
     if (!showAddStopModal && !showDeliveryMap && !showCandidateMap) return stops;
     return [
       ...stops,
-      {
-        id: 'delivery-draft-preview',
-        name: newStopForm.name || 'New delivery',
-        pickupAddress: newStopForm.pickupAddress,
-        pickupLat: newStopForm.pickupLat,
-        pickupLng: newStopForm.pickupLng,
-        address: newStopForm.address,
-        lat: newStopForm.lat,
-        lng: newStopForm.lng,
-        status: 'DRAFT'
-      }
+      ...deliveryAddresses
+        .filter(destination => destination.address.trim())
+        .map((destination, index) => ({
+          id: destination.id,
+          name: newStopForm.name || `New delivery ${index + 1}`,
+          pickupAddress: newStopForm.pickupAddress,
+          pickupLat: newStopForm.pickupLat,
+          pickupLng: newStopForm.pickupLng,
+          address: destination.address,
+          lat: destination.lat,
+          lng: destination.lng,
+          status: 'DRAFT'
+        }))
     ];
   }, [
-    newStopForm.address, newStopForm.lat, newStopForm.lng, newStopForm.name,
-    newStopForm.pickupAddress, newStopForm.pickupLat, newStopForm.pickupLng,
+    deliveryAddresses, newStopForm.name, newStopForm.pickupAddress,
+    newStopForm.pickupLat, newStopForm.pickupLng,
     showAddStopModal, showDeliveryMap, showCandidateMap, stops
   ]);
   const dashboardMappedStops = stops.filter(stop =>
@@ -2373,6 +2384,57 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     }
   };
 
+  const updateDeliveryAddress = (id, address, location = null) => {
+    const updatedAddresses = deliveryAddresses.map(destination =>
+      destination.id === id
+        ? {
+          ...destination,
+          address,
+          lat: location?.lat ?? null,
+          lng: location?.lng ?? null
+        }
+        : destination
+    );
+    setDeliveryAddresses(updatedAddresses);
+    if (updatedAddresses[0]?.id === id) {
+      setNewStopForm(previous => ({
+        ...previous,
+        address: updatedAddresses[0].address,
+        lat: updatedAddresses[0].lat,
+        lng: updatedAddresses[0].lng
+      }));
+    }
+  };
+
+  const addDeliveryAddress = () => {
+    setDeliveryAddresses(previous => previous.length >= MAX_DELIVERY_ADDRESSES
+      ? previous
+      : [...previous, createDeliveryAddressDraft()]);
+  };
+
+  const removeDeliveryAddress = id => {
+    const updatedAddresses = deliveryAddresses.filter(destination => destination.id !== id);
+    const nextAddresses = updatedAddresses.length > 0
+      ? updatedAddresses
+      : [createDeliveryAddressDraft()];
+    setDeliveryAddresses(nextAddresses);
+    setNewStopForm(previous => ({
+      ...previous,
+      address: nextAddresses[0].address,
+      lat: nextAddresses[0].lat,
+      lng: nextAddresses[0].lng
+    }));
+  };
+
+  const openManualDeliveryForm = () => {
+    setDeliveryOfferError('');
+    setShowDeliveryMap(false);
+    setShowCandidateMap(false);
+    setShowDeliveryTypePicker(false);
+    setShowAddStopModal(true);
+    setMapExpanded(false);
+  };
+
   const selectDeliveryType = vehicleType => {
     setNewStopForm(previous => ({ ...previous, requiredVehicleType: vehicleType }));
     setDeliveryOfferError('');
@@ -2383,8 +2445,14 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   };
 
   const openDeliveryMap = () => {
-    if (!newStopForm.pickupAddress.trim() || !newStopForm.address.trim()) {
-      setDeliveryOfferError('Add both pickup and delivery addresses before opening the map.');
+    const hasIncompleteDestination = deliveryAddresses.length === 0
+      || deliveryAddresses.some(destination =>
+        !destination.address.trim()
+        || !Number.isFinite(destination.lat)
+        || !Number.isFinite(destination.lng)
+      );
+    if (!newStopForm.pickupAddress.trim() || hasIncompleteDestination) {
+      setDeliveryOfferError('Enter every delivery address and select each from the suggestions before viewing the route.');
       return;
     }
 
@@ -2470,21 +2538,32 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   };
 
   const createDeliveryStop = async findRider => {
-    const address = newStopForm.address.trim();
     const pickupAddress = newStopForm.pickupAddress.trim();
+    const destinations = deliveryAddresses.map(destination => ({
+      ...destination,
+      address: destination.address.trim()
+    }));
     if (!newStopForm.requiredVehicleType) {
       setDeliveryOfferError('Choose a delivery type before creating this stop.');
       return;
     }
-    if (!address || !pickupAddress) {
-      setDeliveryOfferError('Enter both pickup and delivery addresses.');
+    if (!pickupAddress || destinations.length === 0
+      || destinations.length > MAX_DELIVERY_ADDRESSES
+      || destinations.some(destination => !destination.address)) {
+      setDeliveryOfferError('Enter a pickup address and complete every delivery address.');
       return;
     }
     if (findRider && (
       !Number.isFinite(newStopForm.pickupLat) || !Number.isFinite(newStopForm.pickupLng)
-      || !Number.isFinite(newStopForm.lat) || !Number.isFinite(newStopForm.lng)
+      || destinations.some(destination =>
+        !Number.isFinite(destination.lat) || !Number.isFinite(destination.lng))
     )) {
-      setDeliveryOfferError('Select both pickup and delivery addresses from the map suggestions to send accurate rider offers.');
+      setDeliveryOfferError('Select the pickup and every delivery address from the map suggestions to send accurate rider offers.');
+      return;
+    }
+    const totalPackages = Math.max(1, Math.floor(Number(newStopForm.packages) || 1));
+    if (totalPackages < destinations.length) {
+      setDeliveryOfferError('Enter at least one package for each delivery address.');
       return;
     }
     const riderEarningsNgn = newStopForm.riderEarningsNgn === ''
@@ -2510,58 +2589,63 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
       ? null
       : new Date(deadlineTimestamp).toISOString();
 
-    const stopPayload = {
-      id: `l_${crypto.randomUUID()}`,
-      name: newStopForm.name.trim() || address,
+    const stopPayloads = destinations.map((destination, index) => ({
+      id: destination.id,
+      name: newStopForm.name.trim() || destination.address,
       receiverPhone: newStopForm.receiverPhone.trim(),
       pickupAddress,
       pickupLat: newStopForm.pickupLat,
       pickupLng: newStopForm.pickupLng,
-      address,
-      lat: newStopForm.lat,
-      lng: newStopForm.lng,
+      address: destination.address,
+      lat: destination.lat,
+      lng: destination.lng,
       requiredVehicleType: newStopForm.requiredVehicleType,
       priority: newStopForm.priority,
       timeWindow: newStopForm.timeWindow,
-      packages: Math.max(1, Math.floor(Number(newStopForm.packages) || 1)),
+      packages: Math.floor(totalPackages / destinations.length)
+        + (index < totalPackages % destinations.length ? 1 : 0),
       packageDescription: newStopForm.packageDescription.trim(),
-      packageWeightKg,
+      packageWeightKg: index === 0 ? packageWeightKg : null,
       packageSize: newStopForm.packageSize,
-      riderEarningsNgn,
+      riderEarningsNgn: index === 0 ? riderEarningsNgn : null,
       deliveryDeadlineAt,
       status: 'PENDING',
       assignedDriverId: findRider ? '' : newStopForm.assignedDriverId
-    };
-    if (!findRider && !stopPayload.assignedDriverId) {
+    }));
+    if (!findRider && !stopPayloads[0].assignedDriverId) {
       setDeliveryOfferError('Choose an existing route assignment or select “Save & Find Riders”.');
       return;
     }
 
     if (findRider) {
-      setDeliveryBookingStopId(stopPayload.id);
+      setDeliveryBookingStopId(stopPayloads[0].id);
       setDeliveryBookingStep('SEARCHING');
       setDeliveryBookingSheetExpanded(true);
     }
     setCreatingDelivery(true);
     setDeliveryOfferError('');
     setDeliverySearchFeedback(findRider
-      ? { stopId: stopPayload.id, state: 'searching', message: 'Saving pickup and destination, then searching nearby drivers…' }
+      ? {
+        stopId: stopPayloads[0].id,
+        state: 'searching',
+        message: `Saving pickup and ${destinations.length} destination${destinations.length === 1 ? '' : 's'}, then searching nearby riders…`
+      }
       : null);
     let savedStops;
     let savedUsers;
     try {
       if (isPreviewSession) {
-        setStops(previous => [...previous, stopPayload]);
+        setStops(previous => [...previous, ...stopPayloads]);
         if (findRider) {
           const sampleRiders = nearbyAvailableRiders.filter(rider =>
             !newStopForm.assignedDriverId || rider.id === newStopForm.assignedDriverId
           );
           setDeliveryBookingStep(sampleRiders.length > 0 ? 'SEARCHING' : 'RIDERS');
           setDeliverySearchFeedback({
-            stopId: stopPayload.id,
+            stopId: stopPayloads[0].id,
             state: sampleRiders.length > 0 ? 'offered' : 'empty',
             message: sampleRiders.length > 0
-              ? `Preview only: simulated an offer to ${sampleRiders.map(rider => rider.name).join(', ')}. No real driver was contacted.`
+              ? `Preview only: simulated one rider offer for this ${destinations.length}-destination trip. No real driver was contacted.`
               : 'Delivery saved in this browser, but no sample riders were eligible.'
           });
         }
@@ -2573,30 +2657,46 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         return;
       }
 
+      const newStopsById = new Map(stopPayloads.map(stop => [stop.id, stop]));
       const saved = await apiRequest('/api/stops', {
         method: 'PUT',
-        body: JSON.stringify({ stops: [...stops, stopPayload] })
+        body: JSON.stringify([
+          ...stops.filter(stop => !newStopsById.has(stop.id)),
+          ...newStopsById.values()
+        ])
       });
       savedStops = saved.stops;
       savedUsers = saved.users;
       setStops(savedStops);
       if (Array.isArray(savedUsers)) setUsers(savedUsers);
       if (findRider) {
-        const { riderCount } = await apiRequest(`/api/stops/${encodeURIComponent(stopPayload.id)}/offers`, {
-          method: 'POST',
-          body: JSON.stringify({
-            ...(newStopForm.assignedDriverId ? { riderId: newStopForm.assignedDriverId } : {}),
-            ...(routeOriginCoordinates[currentUser.id]
-              ? { businessOrigin: routeOriginCoordinates[currentUser.id] }
-              : {})
+        const offerResult = destinations.length > 1
+          ? await apiRequest('/api/stops/route-offers', {
+            method: 'POST',
+            body: JSON.stringify({
+              stopIds: stopPayloads.map(stop => stop.id),
+              ...(newStopForm.assignedDriverId ? { riderId: newStopForm.assignedDriverId } : {}),
+              ...(routeOriginCoordinates[currentUser.id]
+                ? { businessOrigin: routeOriginCoordinates[currentUser.id] }
+                : {})
+            })
           })
-        });
+          : await apiRequest(`/api/stops/${encodeURIComponent(stopPayloads[0].id)}/offers`, {
+            method: 'POST',
+            body: JSON.stringify({
+              ...(newStopForm.assignedDriverId ? { riderId: newStopForm.assignedDriverId } : {}),
+              ...(routeOriginCoordinates[currentUser.id]
+                ? { businessOrigin: routeOriginCoordinates[currentUser.id] }
+                : {})
+            })
+          });
+        const { riderCount } = offerResult;
         setDeliverySearchFeedback({
-          stopId: stopPayload.id,
+          stopId: stopPayloads[0].id,
           state: riderCount > 0 ? 'offered' : 'empty',
           message: riderCount > 0
-            ? `Searching live: offer sent to ${riderCount} eligible driver${riderCount === 1 ? '' : 's'}. When one accepts, their live approach will appear on the map.`
-            : 'Delivery saved. No eligible drivers were found within the current search radius; you can retry from Unassigned Stops.'
+            ? `Searching live: one offer for this ${destinations.length}-destination trip was sent to ${riderCount} eligible rider${riderCount === 1 ? '' : 's'}.`
+            : 'Delivery saved. No eligible rider was found within the current search radius; you can retry from Unassigned Stops.'
         });
         setDeliveryBookingStep(riderCount > 0 ? 'SEARCHING' : 'RIDERS');
       }
@@ -2620,6 +2720,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
         riderEarningsNgn: '',
         deadlineAt: ''
       });
+      setDeliveryAddresses([createDeliveryAddressDraft()]);
       setDriverNameQuery(driversList.find(driver => driver.id === activeDriverId)?.name || '');
       setShowAddStopModal(false);
       if (!findRider) {
@@ -2629,31 +2730,16 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     } catch (error) {
       console.error(savedStops ? 'Delivery saved, but rider offers could not be sent:' : 'Could not create the delivery:', error);
       if (savedStops) {
+        setDeliveryOfferError(`Delivery saved, but live rider search failed: ${error.message}. Retry the search here.`);
         setDeliverySearchFeedback({
-          stopId: stopPayload.id,
+          stopId: stopPayloads[0].id,
           state: 'error',
           message: `Delivery saved, but live driver search failed: ${error.message}. Retry the search here.`
         });
-        setDeliveryBookingStopId(stopPayload.id);
-        setDeliveryBookingStep('SEARCHING');
+        setDeliveryBookingStopId(stopPayloads[0].id);
+        setDeliveryBookingStep('PICKUP');
         setStops(savedStops);
         if (Array.isArray(savedUsers)) setUsers(savedUsers);
-        setNewStopForm(previous => ({
-          ...previous,
-          name: '',
-          receiverPhone: '',
-          address: '',
-          lat: null,
-          lng: null,
-          assignedDriverId: activeDriverId,
-          requiredVehicleType: '',
-          packageDescription: '',
-          packageWeightKg: '',
-          packageSize: '',
-          riderEarningsNgn: '',
-          deadlineAt: ''
-        }));
-        setShowAddStopModal(false);
       } else {
         setDeliveryOfferError(error.message);
       }
@@ -3333,7 +3419,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
   const brandSplash = showBrandSplash && !currentUser ? (
     <IntroScreen
       onGetStarted={() => {
-        setAuthTab(invitationToken ? 'REGISTER' : 'REGISTER');
+        setAuthTab(invitationToken ? 'REGISTER' : 'LOGIN');
         setShowPasswordHelp(false);
         setAuthError('');
         setShowBrandSplash(false);
@@ -4354,8 +4440,21 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     </div>
                     {deliveryOffers.map(offer => {
                       const pickupPoint = `${offer.stop.pickupLat},${offer.stop.pickupLng}`;
-                      const deliveryPoint = `${offer.stop.lat},${offer.stop.lng}`;
-                      const mapUrl = openStreetMapDirectionsUrl([pickupPoint, deliveryPoint]);
+                      const routeStops = offer.batch && offer.batchStops?.length > 1
+                        ? offer.batchStops
+                        : [offer.stop];
+                      const totalPackages = routeStops.reduce(
+                        (total, batchStop) => total + Number(batchStop.packages || 0),
+                        0
+                      );
+                      const totalWeightKg = routeStops.reduce(
+                        (total, batchStop) => total + Number(batchStop.packageWeightKg || 0),
+                        0
+                      );
+                      const mapUrl = openStreetMapDirectionsUrl([
+                        pickupPoint,
+                        ...routeStops.map(batchStop => `${batchStop.lat},${batchStop.lng}`)
+                      ]);
                       return (
                         <article key={offer.id} className="rounded-xl border border-amber-200 bg-white p-3">
                           <div className="flex items-start justify-between gap-2">
@@ -4373,7 +4472,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                             {offer.batch && offer.batchStops?.length > 1 && (
                               <div className="rounded-lg bg-violet-50 p-2 text-violet-950">
                                 <p className="font-extrabold">
-                                  Optimized route · {offer.batchStops.length} deliveries
+                                  Multi-stop trip · {offer.batchStops.length} destinations
                                 </p>
                                 {offer.batchStops.map((batchStop, index) => (
                                   <p key={batchStop.id} className="mt-1 text-slate-700">
@@ -4395,12 +4494,14 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                             <p className="text-slate-500">
                               {offer.pickupDistanceKm?.toFixed(1) ?? '—'} km straight-line to pickup
                             </p>
-                            <DeliveryRouteEstimate offer={offer} />
+                            {routeStops.length > 1
+                              ? <p className="text-slate-500">The rider route is sequenced after acceptance.</p>
+                              : <DeliveryRouteEstimate offer={offer} />}
                             <p className="text-slate-500">
-                              {offer.stop.packages || 1} package(s)
+                              {totalPackages || 1} package(s) for the trip
                               {offer.stop.packageDescription ? ` · ${offer.stop.packageDescription}` : ''}
                               {offer.stop.packageSize ? ` · ${offer.stop.packageSize.toLowerCase()}` : ''}
-                              {offer.stop.packageWeightKg ? ` · ${offer.stop.packageWeightKg} kg` : ''}
+                              {totalWeightKg ? ` · ${totalWeightKg} kg total` : ''}
                             </p>
                             {offer.stop.riderEarningsNgn !== null && offer.stop.riderEarningsNgn !== undefined && (
                               <p className="font-bold text-emerald-800">
@@ -4415,7 +4516,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                             className="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[9px] font-bold text-violet-800 hover:bg-violet-50"
                           >
                             <MapPin className="h-3 w-3" />
-                            View pickup and delivery map
+                            {routeStops.length > 1 ? 'View full route map' : 'View pickup and delivery map'}
                           </a>
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             <button
@@ -5509,20 +5610,20 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   <div className="rounded-2xl bg-slate-50 p-3">
                     <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Delivery route</p>
                     <p className="mt-1 text-xs font-semibold text-slate-800">{newStopForm.pickupAddress}</p>
-                    <p className="mt-1 text-xs font-semibold text-slate-800">To: {newStopForm.address}</p>
+                    <ol className="mt-1 space-y-1 text-xs font-semibold text-slate-800">
+                      {deliveryAddresses.map((destination, index) => (
+                        <li key={destination.id}>
+                          {index === 0 ? 'To: ' : `${index + 1}. `}
+                          {destination.address || 'Address not selected'}
+                        </li>
+                      ))}
+                    </ol>
                   </div>
                 </div>
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowDeliveryMap(false);
-                      setShowCandidateMap(false);
-                      setShowAddStopModal(false);
-                      setMapExpanded(false);
-                      setDeliveryOfferError('');
-                      setShowDeliveryTypePicker(true);
-                    }}
+                    onClick={openManualDeliveryForm}
                     className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 sm:order-2"
                   >
                     Add Stop Manually
@@ -5558,8 +5659,16 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                         <p className="break-words text-sm font-bold text-slate-900">{newStopForm.pickupAddress}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Drop-off</p>
-                        <p className="break-words text-sm font-bold text-slate-900">{newStopForm.address}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                          Drop-off addresses ({deliveryAddresses.length})
+                        </p>
+                        <ol className="mt-1 space-y-1">
+                          {deliveryAddresses.map((destination, index) => (
+                            <li key={destination.id} className="break-words text-sm font-bold text-slate-900">
+                              {index + 1}. {destination.address}
+                            </li>
+                          ))}
+                        </ol>
                       </div>
                     </div>
                   </div>
@@ -5587,14 +5696,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowDeliveryMap(false);
-                      setShowCandidateMap(false);
-                      setShowAddStopModal(false);
-                      setMapExpanded(false);
-                      setDeliveryOfferError('');
-                      setShowDeliveryTypePicker(true);
-                    }}
+                    onClick={openManualDeliveryForm}
                     className="rounded-xl border border-slate-300 px-3 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
                   >
                     Add Stop Manually
@@ -5605,8 +5707,9 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                     disabled={creatingDelivery
                       || !Number.isFinite(newStopForm.pickupLat)
                       || !Number.isFinite(newStopForm.pickupLng)
-                      || !Number.isFinite(newStopForm.lat)
-                      || !Number.isFinite(newStopForm.lng)}
+                      || deliveryAddresses.length === 0
+                      || deliveryAddresses.some(destination =>
+                        !Number.isFinite(destination.lat) || !Number.isFinite(destination.lng))}
                     className="min-w-32 flex-1 rounded-xl bg-violet-700 px-4 py-3 text-sm font-extrabold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {creatingDelivery ? 'Confirming pickup…' : 'Confirm pickup'}
@@ -6031,12 +6134,11 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                   <button
                     key={stop.id}
                     type="button"
-                    onClick={() => setNewStopForm(previous => ({
-                      ...previous,
-                      address: stop.address,
-                      lat: stop.lat,
-                      lng: stop.lng
-                    }))}
+                    onClick={() => updateDeliveryAddress(
+                      deliveryAddresses[0].id,
+                      stop.address,
+                      { lat: stop.lat, lng: stop.lng }
+                    )}
                     className="customer-booking-recent-item"
                   >
                     <span className="customer-booking-recent-icon">
@@ -6130,6 +6232,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold">Receiver Name</label>
+                <p className="mb-1 text-[9px] text-slate-500">Shared by all delivery addresses in this trip.</p>
                 <input
                   type="text"
                   value={newStopForm.name}
@@ -6141,6 +6244,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
 
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold">Receiver Phone Number</label>
+                <p className="mb-1 text-[9px] text-slate-500">Shared by all delivery addresses in this trip.</p>
                 <input
                   type="tel"
                   autoComplete="tel"
@@ -6151,22 +6255,62 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Delivery Address</label>
-                <AddressAutocomplete
-                  value={newStopForm.address}
-                  onChange={(address) => setNewStopForm(prev => ({ ...prev, address, lat: null, lng: null }))}
-                  onSelect={(address, location) =>
-                    setNewStopForm(prev => ({ ...prev, address, ...location }))
-                  }
-                  proximity={{ lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }}
-                  placeholder="Type the full delivery address here before navigating..."
-                  inputClassName="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
-                />
-                <p className="mt-1 text-[9px] text-slate-500">
-                  Select a suggestion to save its map location for closest-to-farthest sorting.
+              <section className="space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="font-semibold text-slate-400">Delivery Addresses</h4>
+                    <p className="mt-0.5 text-[9px] text-slate-500">
+                      Add up to {MAX_DELIVERY_ADDRESSES} drop-offs for one rider trip.
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-slate-800 px-2 py-1 text-[9px] font-bold text-slate-300">
+                    {deliveryAddresses.length}/{MAX_DELIVERY_ADDRESSES}
+                  </span>
+                </div>
+                {deliveryAddresses.map((destination, index) => (
+                  <div key={destination.id} className="space-y-2 rounded-xl border border-slate-700 bg-slate-950 p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        htmlFor={`business-delivery-destination-${destination.id}`}
+                        className="font-semibold text-slate-300"
+                      >
+                        Address {index + 1}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeDeliveryAddress(destination.id)}
+                        aria-label={`Remove delivery address ${index + 1}`}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-bold text-rose-300 hover:bg-rose-500/10"
+                      >
+                        <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                        Remove
+                      </button>
+                    </div>
+                    <AddressAutocomplete
+                      id={`business-delivery-destination-${destination.id}`}
+                      value={destination.address}
+                      onChange={address => updateDeliveryAddress(destination.id, address)}
+                      onSelect={(address, location) =>
+                        updateDeliveryAddress(destination.id, address, location)
+                      }
+                      proximity={{ lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }}
+                      placeholder="Search and select a delivery address"
+                      inputClassName="w-full rounded-xl border border-slate-800 bg-slate-900 p-2.5 text-slate-200 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addDeliveryAddress}
+                  disabled={deliveryAddresses.length >= MAX_DELIVERY_ADDRESSES}
+                  className="w-full rounded-xl border border-dashed border-slate-600 px-3 py-2.5 text-[10px] font-bold text-slate-300 hover:border-emerald-400 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Add another address
+                </button>
+                <p className="text-[9px] text-slate-500">
+                  Select a suggestion for every address to save its map location. Receiver details are shared; package fields represent the whole trip. Enter at least one package per address.
                 </p>
-              </div>
+              </section>
 
               {currentUser.role === 'ADMIN' && (
                 <section className="rounded-xl border border-slate-700 bg-slate-950 p-3">
