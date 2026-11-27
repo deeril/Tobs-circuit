@@ -3347,19 +3347,7 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
     />
   ) : null;
 
-  if (!credentialsReady) {
-    return (
-      <main className="auth-screen min-h-screen w-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
-        <div className="text-center space-y-3" role="status" aria-live="polite" aria-busy="true">
-          <div className="mx-auto flex h-24 w-48 items-center justify-center">
-            <img src={BRAND_LOGO_URL} alt="DropLag" className="max-h-full max-w-full object-contain brand-logo-image" />
-          </div>
-          <h1 className="text-2xl font-black tracking-tight">DropLag Logistics</h1>
-          <p className="text-sm text-slate-400">Checking your account...</p>
-        </div>
-      </main>
-    );
-  }
+  if (!credentialsReady) return null;
 
   if (!currentUser) {
     return (
