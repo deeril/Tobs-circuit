@@ -126,8 +126,8 @@ async function applyMigrations(client) {
         continue;
       }
 
+      const expected = migration.tables.length + migration.columns.length;
       if (migration.verifySchema !== false) {
-        const expected = migration.tables.length + migration.columns.length;
         const present = await getSchemaObjectCount(client, migration);
         const schemaState = classifySchemaObjectCount(present, expected, migration.id);
         if (schemaState === 'complete') {
@@ -145,8 +145,10 @@ async function applyMigrations(client) {
       await client.query('BEGIN');
       try {
         await client.query(body);
-        const appliedObjects = await getSchemaObjectCount(client, migration);
-        classifySchemaObjectCount(appliedObjects, expected, migration.id);
+        if (migration.verifySchema !== false) {
+          const appliedObjects = await getSchemaObjectCount(client, migration);
+          classifySchemaObjectCount(appliedObjects, expected, migration.id);
+        }
         await client.query(
           'INSERT INTO public.tobs_dispatch_migrations (migration_id) VALUES ($1)',
           [migration.id]
