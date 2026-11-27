@@ -6000,19 +6000,21 @@ className="profile-menu fixed right-2 top-16 z-[99999] flex max-h-[calc(100dvh-5
             </div>
 
             <div className="customer-booking-destination">
-              <Search className="customer-booking-search-icon" aria-hidden="true" />
-              <AddressAutocomplete
-                value={newStopForm.address}
-                onChange={address => setNewStopForm(previous => ({ ...previous, address, lat: null, lng: null }))}
-                onSelect={(address, location) =>
-                  setNewStopForm(previous => ({ ...previous, address, ...location }))
-                }
-                proximity={{ lat: newStopForm.pickupLat, lng: newStopForm.pickupLng }}
-                placeholder="Where to?"
-                inputClassName="customer-booking-search-input"
-                inputStyle={{ background: 'transparent', border: 0, minHeight: 44 }}
-                id="business-delivery-destination"
-              />
+              <button
+                type="button"
+                onClick={() => selectDeliveryType('BICYCLE')}
+                className="customer-booking-search-input flex items-center gap-[14px] text-left"
+                style={{
+                  background: 'transparent',
+                  border: 0,
+                  minHeight: 44,
+                  color: newStopForm.address ? '#202020' : '#636363',
+                  cursor: 'pointer'
+                }}
+              >
+                <Search className="customer-booking-search-icon" aria-hidden="true" />
+                <span className="min-w-0 truncate">{newStopForm.address || 'Where to?'}</span>
+              </button>
               <button
                 type="button"
                 onClick={() => selectDeliveryType('BICYCLE')}
